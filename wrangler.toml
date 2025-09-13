@@ -1,0 +1,23 @@
+name = "eoxvault-zero"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[site]
+bucket = "./dist"
+
+[build]
+command = "bun run build"
+
+[build.upload]
+format = "service-worker"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https:; font-src 'self' data:;"
+    Permissions-Policy = "geolocation=(), camera=(), microphone=()"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
