@@ -1,0 +1,50 @@
+{
+  "name": "eoxvault-zero",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "deploy": "bun run build && wrangler pages deploy dist --project-name=eoxvault-zero",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.7.4",
+    "@metamask/browser-passworder": "^6.0.0",
+    "@motionone/solid": "^10.16.4",
+    "@noble/ciphers": "^2.0.0",
+    "@noble/ed25519": "^3.0.0",
+    "@noble/hashes": "^2.0.0",
+    "@simplewebauthn/browser": "^13.1.2",
+    "@solidjs/meta": "^0.29.4",
+    "@solidjs/router": "^0.15.3",
+    "@unocss/reset": "^66.5.1",
+    "@use-gesture/vanilla": "^10.3.1",
+    "comlink": "^4.4.2",
+    "dexie": "^4.2.0",
+    "idb": "^8.0.3",
+    "solid-js": "^1.9.9",
+    "workbox-core": "^7.3.0",
+    "workbox-precaching": "^7.3.0",
+    "workbox-recipes": "^7.3.0",
+    "workbox-routing": "^7.3.0",
+    "workbox-strategies": "^7.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250912.0",
+    "@types/bun": "latest",
+    "@unocss/preset-icons": "^66.5.1",
+    "@unocss/preset-wind": "^66.5.1",
+    "lightningcss": "^1.30.1",
+    "terser": "^5.44.0",
+    "typescript": "^5.9.2",
+    "unocss": "^66.5.1",
+    "vite": "^7.1.5",
+    "vite-plugin-pwa": "^1.0.3",
+    "vite-plugin-solid": "^2.11.8",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0",
+    "wrangler": "^4.35.0"
+  }
+}
