@@ -1,52 +1,42 @@
 {
   "name": "vuvault-zero",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit",
     "deploy": "bun run build && wrangler pages deploy dist --project-name=vuvault-zero",
-    "type-check": "tsc --noEmit"
+    "clean": "rm -rf dist .vite node_modules bun.lockb"
   },
   "dependencies": {
-    "@floating-ui/dom": "^1.7.4",
     "@metamask/browser-passworder": "^6.0.0",
-    "@motionone/solid": "^10.16.4",
-    "@noble/ciphers": "^2.0.0",
-    "@noble/ed25519": "^3.0.0",
-    "@noble/hashes": "^2.0.0",
+    "@noble/ciphers": "^1.1.4",
+    "@noble/ed25519": "^2.2.2",
+    "@noble/hashes": "^1.6.1",
     "@simplewebauthn/browser": "^13.1.2",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^0.15.3",
-    "@unocss/reset": "^66.5.1",
-    "@use-gesture/vanilla": "^10.3.1",
-    "comlink": "^4.4.2",
     "dexie": "^4.2.0",
-    "idb": "^8.0.3",
-    "solid-js": "^1.9.9",
-    "workbox-core": "^7.3.0",
-    "workbox-precaching": "^7.3.0",
-    "workbox-recipes": "^7.3.0",
-    "workbox-routing": "^7.3.0",
-    "workbox-strategies": "^7.3.0"
+    "motion": "^11.18.0",
+    "solid-js": "^1.9.9"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250912.0",
-    "@types/bun": "latest",
-    "@unocss/preset-icons": "^66.5.1",
-    "@unocss/preset-wind": "^66.5.1",
-    "lightningcss": "^1.30.1",
-    "rollup-plugin-visualizer": "^6.0.3",
-    "terser": "^5.44.0",
+    "@types/node": "^22.12.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.1",
+    "stream-browserify": "^3.0.0",
+    "terser": "^5.37.0",
     "typescript": "^5.9.2",
     "unocss": "^66.5.1",
-    "vite": "^7.1.5",
-    "vite-plugin-compression2": "^2.2.1",
+    "vite": "^5.4.13",
+    "vite-plugin-node-polyfills": "^0.22.0",
     "vite-plugin-pwa": "^1.0.3",
-    "vite-plugin-solid": "^2.11.8",
-    "vite-plugin-top-level-await": "^1.6.0",
-    "vite-plugin-wasm": "^3.5.0",
+    "vite-plugin-solid": "^2.11.0",
     "wrangler": "^4.35.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

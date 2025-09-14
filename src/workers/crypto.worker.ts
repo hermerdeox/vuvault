@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { ChaCha20Poly1305 } from '@noble/ciphers/chacha';
+import { chacha20poly1305 } from '@noble/ciphers/chacha';
 import { randomBytes } from '@noble/ciphers/webcrypto';
 import { pbkdf2 } from '@noble/hashes/pbkdf2';
 import { sha256 } from '@noble/hashes/sha256';
@@ -100,7 +100,7 @@ class CryptoWorker {
     }
     
     const nonce = randomBytes(NONCE_LENGTH);
-    const cipher = new ChaCha20Poly1305(keyBytes, nonce);
+    const cipher = chacha20poly1305(keyBytes, nonce);
     
     const plaintext = typeof data === 'string' ? utf8ToBytes(data) : data;
     const ciphertext = cipher.encrypt(plaintext);
@@ -131,7 +131,7 @@ class CryptoWorker {
     const nonceBytes = hexToBytes(nonce);
     const ciphertextBytes = hexToBytes(ciphertext);
     
-    const cipher = new ChaCha20Poly1305(keyBytes, nonceBytes);
+    const cipher = chacha20poly1305(keyBytes, nonceBytes);
     const plaintext = cipher.decrypt(ciphertextBytes);
     
     const result = bytesToUtf8(plaintext);

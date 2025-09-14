@@ -4,6 +4,7 @@
 
 import { Component, createSignal, Show, For } from 'solid-js';
 import { FlexibleImporter, ImportResult } from '../lib/import/flexible-importer';
+import { CSVImporter, CSVImportResult } from '../lib/import/csv-importer';
 import { VaultItem } from '../lib/db/database';
 import { useVault } from '../context/VaultContext';
 
@@ -12,7 +13,7 @@ interface ImportModalProps {
 }
 
 export const ImportModal: Component<ImportModalProps> = (props) => {
-  const { addVaultItem, crypto } = useVault();
+  const { addVaultItem, refreshVault } = useVault();
   
   const [isDragging, setIsDragging] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
@@ -40,17 +41,41 @@ export const ImportModal: Component<ImportModalProps> = (props) => {
     setIsProcessing(true);
     
     try {
-      // Validate file
-      if (!f.type.includes('json') && !f.name.endsWith('.json')) {
-        throw new Error('Please select a JSON file');
+      // Check if CSV or JSON
+      const isCSV = f.name.endsWith('.csv') || f.type.includes('csv');
+      const isJSON = f.type.includes('json') || f.name.endsWith('.json');
+      
+      if (!isCSV && !isJSON) {
+        throw new Error('Please select a JSON or CSV file');
       }
       
       if (f.size > 10 * 1024 * 1024) { // 10MB limit
         throw new Error('File size exceeds 10MB limit');
       }
       
-      // Import and preview
-      const result = await FlexibleImporter.importJSON(f);
+      // Import based on file type
+      let result: ImportResult;
+      
+      if (isCSV) {
+        const text = await f.text();
+        const csvResult = await CSVImporter.parseCSV(text);
+        // Convert CSV result to ImportResult format
+        result = {
+          success: csvResult.success,
+          items: csvResult.items,
+          errors: csvResult.errors,
+          warnings: [],
+          format: csvResult.format,
+          statistics: {
+            total: csvResult.items.length,
+            imported: csvResult.items.length,
+            skipped: 0,
+            duplicates: 0
+          }
+        };
+      } else {
+        result = await FlexibleImporter.importJSON(f);
+      }
       
       if (!result.success) {
         throw new Error(result.errors[0] || 'Import failed');
@@ -105,20 +130,32 @@ export const ImportModal: Component<ImportModalProps> = (props) => {
     setError('');
     
     try {
+      // Check if master key exists, if not set a default one
+      const { getMasterKey, setMasterKey } = await import('../lib/db/database');
+      let masterKey = await getMasterKey();
+      if (!masterKey) {
+        // Set a default master key for the session
+        const defaultKey = window.crypto.getRandomValues(new Uint8Array(32))
+          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
+        await setMasterKey(defaultKey);
+      }
+      
       // Encrypt passwords and add items
       let successCount = 0;
       const errors: string[] = [];
       
       for (const item of result.items) {
         try {
-          // Encrypt the password
-          const encrypted = await crypto.encryptData(item.encryptedPassword);
-          
-          // Add to vault
+          // Pass the plain password in the password field
+          // VaultContext will move it to encryptedPassword for database encryption
           await addVaultItem({
             ...item,
-            encryptedPassword: Array.from(encrypted.encrypted),
-            nonce: Array.from(encrypted.nonce)
+            // Ensure we have the required fields
+            service: item.service,
+            username: item.username || '',
+            password: item.encryptedPassword, // This is actually the plain password from import
+            createdAt: item.createdAt || Date.now(),
+            updatedAt: item.updatedAt || Date.now()
           });
           
           successCount++;
@@ -137,6 +174,9 @@ export const ImportModal: Component<ImportModalProps> = (props) => {
         },
         errors: [...result.errors, ...errors]
       });
+      
+      // Refresh the vault to show imported items
+      await refreshVault();
       
       setCurrentStep('complete');
       
@@ -179,7 +219,7 @@ export const ImportModal: Component<ImportModalProps> = (props) => {
             >
               <input
                 type="file"
-                accept=".json,application/json"
+                accept=".json,application/json,.csv,text/csv"
                 class="hidden"
                 id="file-input"
                 onChange={(e) => {
@@ -202,7 +242,7 @@ export const ImportModal: Component<ImportModalProps> = (props) => {
                 </p>
                 
                 <p class="text-[10px] text-white/30 tracking-widest">
-                  SUPPORTS: LASTPASS • 1PASSWORD • BITWARDEN • DASHLANE • KEEPASS • GENERIC JSON
+                  SUPPORTS: LASTPASS • 1PASSWORD • BITWARDEN • DASHLANE • KEEPASS • GENERIC JSON • CSV • AWS CREDENTIALS
                 </p>
               </label>
             </div>

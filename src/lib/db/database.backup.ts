@@ -1,17 +1,12 @@
 import Dexie, { Table } from 'dexie';
-import { ChaCha20EncryptionService } from '../crypto/chacha20-encryption';
-
-export interface PasswordHistoryEntry {
-  password: string;
-  changedAt: number;
-}
+import { encryptWithPassworder, decryptWithPassworder } from '../crypto/passworder-wrapper';
 
 export interface VaultItem {
   id?: string;
   service: string;
   username: string;
   encryptedPassword: string;
-  password?: string; // Decrypted password (populated by reading hook)
+  password?: string;
   notes?: string;
   url?: string;
   tags?: string[];
@@ -21,7 +16,6 @@ export interface VaultItem {
   lastAccessed?: number;
   lastUsed?: number;
   nonce?: number[];
-  passwordHistory?: PasswordHistoryEntry[];
   createdAt: number;
   updatedAt: number;
 }
@@ -50,30 +44,12 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) throw new Error('No master key available');
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
-      // Encrypt sensitive data - encryptedPassword should contain plain password at this point
+      // Encrypt sensitive data
       if (obj.encryptedPassword) {
-        try {
-          const encrypted = await encryptionService.encrypt(obj.encryptedPassword, masterKey);
-          obj.encryptedPassword = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt password:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(obj.encryptedPassword)));
-          obj.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        obj.encryptedPassword = await encryptWithPassworder(masterKey, obj.encryptedPassword);
       }
       if (obj.notes) {
-        try {
-          const encrypted = await encryptionService.encrypt(obj.notes, masterKey);
-          obj.notes = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt notes:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(obj.notes)));
-          obj.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        obj.notes = await encryptWithPassworder(masterKey, obj.notes);
       }
       
       obj.createdAt = Date.now();
@@ -84,29 +60,11 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) throw new Error('No master key available');
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
       if (mods.encryptedPassword !== undefined) {
-        try {
-          const encrypted = await encryptionService.encrypt(mods.encryptedPassword, masterKey);
-          mods.encryptedPassword = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt password:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(mods.encryptedPassword)));
-          mods.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        mods.encryptedPassword = await encryptWithPassworder(masterKey, mods.encryptedPassword);
       }
       if (mods.notes !== undefined) {
-        try {
-          const encrypted = await encryptionService.encrypt(mods.notes, masterKey);
-          mods.notes = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt notes:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(mods.notes)));
-          mods.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        mods.notes = await encryptWithPassworder(masterKey, mods.notes);
       }
       
       mods.updatedAt = Date.now();
@@ -117,58 +75,16 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) return obj;
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
       try {
-        if (obj.encryptedPassword && typeof obj.encryptedPassword === 'string') {
-          // Check if it's new format (JSON)
-          if (obj.encryptedPassword.startsWith('{')) {
-            try {
-              const encryptedData = JSON.parse(obj.encryptedPassword);
-              obj.password = await encryptionService.decrypt(encryptedData, masterKey);
-            } catch (error) {
-              console.error('Failed to decrypt password:', error);
-              obj.password = '';
-            }
-          }
-          // Check if it's old format (ENC:)
-          else if (obj.encryptedPassword.startsWith('ENC:')) {
-            const parts = obj.encryptedPassword.split(':');
-            if (parts.length >= 3 && parts[1] === masterKey.substring(0, 4)) {
-              // Decrypt old format
-              const decoded = decodeURIComponent(escape(atob(parts[2])));
-              obj.password = decoded;
-            } else {
-              // Wrong key or corrupted data
-              obj.password = '';
-            }
-          } else {
-            // Not encrypted, use as-is (migration case)
-            obj.password = obj.encryptedPassword;
-          }
+        if (obj.encryptedPassword) {
+          // Decrypt and store in 'password' field for UI components
+          obj.password = await decryptWithPassworder(masterKey, obj.encryptedPassword);
         }
-        
-        if (obj.notes && typeof obj.notes === 'string') {
-          // Check if it's new format (JSON)
-          if (obj.notes.startsWith('{')) {
-            try {
-              const encryptedData = JSON.parse(obj.notes);
-              obj.notes = await encryptionService.decrypt(encryptedData, masterKey);
-            } catch (error) {
-              console.error('Failed to decrypt notes:', error);
-            }
-          }
-          // Check if it's old format (ENC:)
-          else if (obj.notes.startsWith('ENC:')) {
-            const parts = obj.notes.split(':');
-            if (parts.length >= 3 && parts[1] === masterKey.substring(0, 4)) {
-              obj.notes = decodeURIComponent(escape(atob(parts[2])));
-            }
-          }
+        if (obj.notes) {
+          obj.notes = await decryptWithPassworder(masterKey, obj.notes);
         }
       } catch (error) {
         console.error('Decryption failed:', error);
-        obj.password = '';
       }
       
       return obj;
@@ -202,9 +118,11 @@ export async function setMasterKey(key: string): Promise<void> {
 
 export class DatabaseService {
   private static instance: DatabaseService;
-  private db = db;
+  private db: VaultDatabase;
 
-  private constructor() {}
+  private constructor() {
+    this.db = new VaultDatabase();
+  }
 
   static getInstance(): DatabaseService {
     if (!DatabaseService.instance) {
@@ -280,8 +198,10 @@ export class DatabaseService {
         .filter(item => {
           const serviceMatch = item.service.toLowerCase().includes(lowerQuery);
           const usernameMatch = item.username.toLowerCase().includes(lowerQuery);
-          const urlMatch = item.url?.toLowerCase().includes(lowerQuery) || false;
-          return serviceMatch || usernameMatch || urlMatch;
+          const urlMatch = item.url ? item.url.toLowerCase().includes(lowerQuery) : false;
+          const tagsMatch = item.tags ? item.tags.some(tag => tag.toLowerCase().includes(lowerQuery)) : false;
+          
+          return serviceMatch || usernameMatch || urlMatch || tagsMatch;
         })
         .toArray();
     } catch (error) {
@@ -290,13 +210,21 @@ export class DatabaseService {
     }
   }
 
+  async setMasterKey(key: string): Promise<void> {
+    await this.db.setMasterKey(key);
+  }
+
+  async getMasterKey(): Promise<string | null> {
+    return await this.db.getMasterKey();
+  }
+
   async clearAllData(): Promise<void> {
     try {
       await this.db.vaults.clear();
       await this.db.settings.clear();
     } catch (error) {
       console.error('Failed to clear data:', error);
-      throw new Error('Failed to clear all data');
+      throw new Error('Failed to clear vault data');
     }
   }
 
@@ -305,26 +233,17 @@ export class DatabaseService {
       const items = await this.getAllVaultItems();
       
       if (format === 'csv') {
+        // Import CSV exporter and use it
         const { CSVImporter } = await import('../import/csv-importer');
         return CSVImporter.exportToCSV(items);
       }
       
-      // JSON export
-      const exportData = {
-        version: '1.0',
-        exportDate: new Date().toISOString(),
-        items: items.map(item => ({
-          ...item,
-          // Don't export the encrypted password, export the decrypted one
-          password: item.password,
-          encryptedPassword: undefined
-        }))
-      };
-      
-      return JSON.stringify(exportData, null, 2);
+      // Default JSON export
+      const { FlexibleImporter } = await import('../import/flexible-importer');
+      return await FlexibleImporter.exportJSON(items);
     } catch (error) {
-      console.error('Export failed:', error);
-      throw new Error('Failed to export data');
+      console.error('Failed to export data:', error);
+      throw new Error('Failed to export vault data');
     }
   }
 }

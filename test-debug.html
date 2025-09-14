@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Vault Database</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+        }
+        pre {
+            background: #111;
+            padding: 10px;
+            border: 1px solid #0f0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>VuVault Database Debug</h1>
+    <p>Check Console for detailed info (F12)</p>
+    <div id="output"></div>
+    
+    <script type="module">
+        const output = document.getElementById('output');
+        
+        // Open the database directly to check what's stored
+        const dbName = 'VuVaultDB';
+        const request = indexedDB.open(dbName);
+        
+        request.onsuccess = function(event) {
+            const db = event.target.result;
+            console.log('Database opened:', db.name);
+            console.log('Object stores:', Array.from(db.objectStoreNames));
+            
+            output.innerHTML += '<pre>Database: ' + db.name + '</pre>';
+            output.innerHTML += '<pre>Stores: ' + Array.from(db.objectStoreNames).join(', ') + '</pre>';
+            
+            // Check settings for master key
+            const settingsTx = db.transaction(['settings'], 'readonly');
+            const settingsStore = settingsTx.objectStore('settings');
+            const settingsRequest = settingsStore.getAll();
+            
+            settingsRequest.onsuccess = function() {
+                console.log('Settings:', settingsRequest.result);
+                const masterKey = settingsRequest.result.find(s => s.key === 'masterKey');
+                console.log('Master key exists:', !!masterKey);
+                
+                output.innerHTML += '<pre>Master Key Exists: ' + (!!masterKey) + '</pre>';
+                
+                if (masterKey) {
+                    console.log('Master key value:', masterKey.value);
+                    output.innerHTML += '<pre>Master Key Length: ' + masterKey.value.length + ' chars</pre>';
+                }
+            };
+            
+            // Check vault items
+            const vaultsTx = db.transaction(['vaults'], 'readonly');
+            const vaultsStore = vaultsTx.objectStore('vaults');
+            const vaultsRequest = vaultsStore.getAll();
+            
+            vaultsRequest.onsuccess = function() {
+                console.log('Vault items count:', vaultsRequest.result.length);
+                output.innerHTML += '<pre>Vault Items Count: ' + vaultsRequest.result.length + '</pre>';
+                
+                if (vaultsRequest.result.length > 0) {
+                    const firstItem = vaultsRequest.result[0];
+                    console.log('First item:', firstItem);
+                    
+                    output.innerHTML += '<h2>First Item Analysis:</h2>';
+                    output.innerHTML += '<pre>Service: ' + firstItem.service + '</pre>';
+                    output.innerHTML += '<pre>Username: ' + firstItem.username + '</pre>';
+                    output.innerHTML += '<pre>Has encryptedPassword: ' + (!!firstItem.encryptedPassword) + '</pre>';
+                    
+                    if (firstItem.encryptedPassword) {
+                        const encPwd = firstItem.encryptedPassword;
+                        console.log('Encrypted password type:', typeof encPwd);
+                        console.log('Encrypted password sample:', encPwd);
+                        
+                        output.innerHTML += '<pre>Encrypted Password Type: ' + typeof encPwd + '</pre>';
+                        
+                        // Check if it's actually encrypted (should be an object or base64)
+                        try {
+                            if (typeof encPwd === 'string') {
+                                output.innerHTML += '<pre>Is Plain Text: ' + (encPwd.length < 50) + '</pre>';
+                                output.innerHTML += '<pre>Sample: ' + encPwd.substring(0, 30) + '...</pre>';
+                            } else if (typeof encPwd === 'object') {
+                                output.innerHTML += '<pre>Is Object (encrypted): true</pre>';
+                                output.innerHTML += '<pre>Keys: ' + Object.keys(encPwd).join(', ') + '</pre>';
+                            }
+                        } catch (e) {
+                            output.innerHTML += '<pre>Error checking: ' + e + '</pre>';
+                        }
+                    }
+                    
+                    // Check all items for encryption status
+                    let plainCount = 0;
+                    let encryptedCount = 0;
+                    
+                    vaultsRequest.result.forEach(item => {
+                        if (item.encryptedPassword) {
+                            if (typeof item.encryptedPassword === 'string' && item.encryptedPassword.length < 50) {
+                                plainCount++;
+                            } else {
+                                encryptedCount++;
+                            }
+                        }
+                    });
+                    
+                    output.innerHTML += '<h2>Encryption Status:</h2>';
+                    output.innerHTML += '<pre>Plain passwords: ' + plainCount + '</pre>';
+                    output.innerHTML += '<pre>Encrypted passwords: ' + encryptedCount + '</pre>';
+                }
+            };
+        };
+        
+        request.onerror = function(event) {
+            console.error('Database error:', event.target.error);
+            output.innerHTML += '<pre style="color:red">Database Error: ' + event.target.error + '</pre>';
+        };
+    </script>
+</body>
+</html>

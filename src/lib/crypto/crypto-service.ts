@@ -1,8 +1,7 @@
 import { chacha20poly1305 } from '@noble/ciphers/chacha';
 import { randomBytes } from '@noble/hashes/utils';
-import { sha256 } from '@noble/hashes/sha2';
+import { sha256, sha512 } from '@noble/hashes/sha2';
 import { pbkdf2 } from '@noble/hashes/pbkdf2';
-import { sha512 } from '@noble/hashes/sha2';
 
 export class CryptoService {
   private static instance: CryptoService;

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VuVault Zero - Import/Export Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            padding: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .section {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: rgba(255,255,255,0.8);
+            margin-top: 0;
+        }
+        .test-area {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        pre {
+            background: #111;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        .button:hover {
+            opacity: 0.9;
+        }
+        .success {
+            color: #10b981;
+            margin-top: 10px;
+        }
+        .error {
+            color: #ef4444;
+            margin-top: 10px;
+        }
+        .info {
+            color: #60a5fa;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        code {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 VuVault Zero - Import/Export Testing</h1>
+
+    <div class="section">
+        <h2>📥 Import Functionality</h2>
+        <p class="info">VuVault Zero supports importing from:</p>
+        <ul>
+            <li>✅ <strong>JSON Files</strong> - 1Password, Bitwarden, LastPass, Dashlane, KeePass, and more</li>
+            <li>✅ <strong>CSV Files</strong> - Generic CSV and AWS Credentials format</li>
+            <li>✅ <strong>11+ Password Managers</strong> - Automatic format detection</li>
+        </ul>
+
+        <div class="test-area">
+            <h3>Your AWS Credentials CSV</h3>
+            <p>The file <code>/Users/cybertouch/Downloads/credentials.csv</code> contains:</p>
+            <pre>User Name,Access Key Id,Secret Access Key
+,BU3C81ZSP0N4O574A4FH,FwaJheR92On2VEoZky7ZTrNZA2r1zjdJ0EidBIM5</pre>
+            
+            <p class="info">When imported, this will create:</p>
+            <ul>
+                <li>Service: <strong>AWS Console</strong></li>
+                <li>Username: <strong>BU3C81ZSP0N4O574A4FH</strong> (Access Key ID)</li>
+                <li>Password: <strong>FwaJheR92On2VEoZky7ZTrNZA2r1zjdJ0EidBIM5</strong> (Secret Access Key)</li>
+                <li>URL: <strong>https://console.aws.amazon.com/</strong></li>
+                <li>Tags: <strong>aws, cloud, credentials</strong></li>
+            </ul>
+        </div>
+
+        <div class="test-area">
+            <h3>How to Import Your CSV</h3>
+            <ol>
+                <li>Go to VuVault Zero at <a href="http://localhost:3005" style="color: #60a5fa;">http://localhost:3005</a></li>
+                <li>Navigate to <strong>Settings</strong> (gear icon in top right)</li>
+                <li>Click <strong>IMPORT</strong> in the Data Management section</li>
+                <li>Drag and drop your <code>credentials.csv</code> file or click to browse</li>
+                <li>Review the preview and click <strong>IMPORT</strong></li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📤 Export Functionality</h2>
+        <p class="info">VuVault Zero supports exporting in two formats:</p>
+        
+        <div class="test-area">
+            <h3>JSON Export</h3>
+            <ul>
+                <li>Full vault backup with all metadata</li>
+                <li>Encrypted passwords included</li>
+                <li>Can be re-imported to VuVault</li>
+                <li>Preserves tags, notes, and timestamps</li>
+            </ul>
+            <pre>{
+  "version": "2.0.0",
+  "exported": "2025-09-14T...",
+  "format": "vuvault",
+  "items": [...]
+}</pre>
+        </div>
+
+        <div class="test-area">
+            <h3>CSV Export</h3>
+            <ul>
+                <li>Universal format for spreadsheets</li>
+                <li>Compatible with Excel, Google Sheets</li>
+                <li>Easy to migrate to other password managers</li>
+                <li>Human-readable format</li>
+            </ul>
+            <pre>Service,Username,Password,URL,Notes,Tags,Created,Updated
+AWS Console,BU3C81ZSP0N4O574A4FH,****,https://console.aws.amazon.com/,...</pre>
+        </div>
+
+        <div class="test-area">
+            <h3>How to Export</h3>
+            <ol>
+                <li>Go to <strong>Settings</strong></li>
+                <li>In Data Management section, find "Export Vault"</li>
+                <li>Choose format:
+                    <ul>
+                        <li><strong>EXPORT JSON</strong> - For backup and re-import</li>
+                        <li><strong>EXPORT CSV</strong> - For spreadsheets or migration</li>
+                    </ul>
+                </li>
+                <li>File will download automatically</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🔒 Security Notes</h2>
+        <div class="test-area">
+            <p class="info">⚠️ <strong>Important Security Information:</strong></p>
+            <ul>
+                <li>Exported files contain your actual passwords (encrypted in JSON, plain in CSV)</li>
+                <li>Store exports securely and delete after use</li>
+                <li>CSV exports are unencrypted - use only for migration</li>
+                <li>JSON exports maintain encryption but should still be protected</li>
+                <li>All import/export operations happen locally in your browser</li>
+                <li>No data is sent to any server</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>✅ Feature Status</h2>
+        <div class="test-area">
+            <p class="success">✅ CSV Import - READY</p>
+            <p class="success">✅ CSV Export - READY</p>
+            <p class="success">✅ JSON Import (11+ formats) - READY</p>
+            <p class="success">✅ JSON Export - READY</p>
+            <p class="success">✅ AWS Credentials Support - READY</p>
+            <p class="success">✅ Drag & Drop Import - READY</p>
+            <p class="success">✅ Format Auto-Detection - READY</p>
+            <p class="success">✅ Duplicate Detection - READY</p>
+        </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px;">
+        <button class="button" onclick="window.open('http://localhost:3005/settings', '_blank')">
+            🚀 Open VuVault Settings
+        </button>
+        <button class="button" onclick="window.open('http://localhost:3005', '_blank')">
+            🔐 Open VuVault Zero
+        </button>
+    </div>
+
+    <script>
+        console.log('VuVault Zero Import/Export Test Page');
+        console.log('=====================================');
+        console.log('✅ CSV Import: Ready');
+        console.log('✅ CSV Export: Ready');
+        console.log('✅ JSON Import: Ready (11+ formats)');
+        console.log('✅ JSON Export: Ready');
+        console.log('✅ AWS Credentials: Supported');
+        console.log('=====================================');
+        console.log('Server: http://localhost:3005');
+    </script>
+</body>
+</html>

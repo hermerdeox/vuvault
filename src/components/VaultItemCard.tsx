@@ -26,6 +26,10 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
   };
 
   const getPasswordStrength = () => {
+    // Handle case where password might not be decrypted yet
+    if (!props.item.password) {
+      return { text: 'ENCRYPTED', color: 'text-gray-500/60' };
+    }
     const strength = crypto.calculatePasswordStrength(props.item.password);
     if (strength >= 80) return { text: 'STRONG', color: 'text-green-500/60' };
     if (strength >= 50) return { text: 'MEDIUM', color: 'text-yellow-500/60' };
@@ -62,9 +66,10 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
 
         {/* Copy Password */}
         <button
-          onClick={() => copyToClipboard(props.item.password)}
+          onClick={() => copyToClipboard(props.item.password || '')}
           class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
           title="Copy password"
+          disabled={!props.item.password}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -109,7 +114,7 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         <div class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6" onClick={() => setShowPassword(false)}>
           <div class="bg-black border border-white/20 p-8 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <p class="text-white/30 text-[10px] font-light tracking-widest mb-6">PASSWORD</p>
-            <p class="font-mono text-white/80 text-base leading-relaxed break-all mb-8">{props.item.password}</p>
+            <p class="font-mono text-white/80 text-base leading-relaxed break-all mb-8">{props.item.password || 'Password not available'}</p>
             <button
               onClick={() => setShowPassword(false)}
               class="w-full py-4 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-xs font-light tracking-wider transition-all duration-300"

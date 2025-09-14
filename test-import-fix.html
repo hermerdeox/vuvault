@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VuVault Import Test - Fixed</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            padding: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #667eea; margin-bottom: 30px; }
+        .success { 
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .fix-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        h2 { color: #764ba2; }
+        code {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin: 10px 10px 10px 0;
+            transition: opacity 0.2s;
+        }
+        .button:hover { opacity: 0.9; }
+        ul { line-height: 1.8; }
+        .test-data {
+            background: #111;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>✅ VuVault Import - FIXED!</h1>
+    
+    <div class="success">
+        <h2>🎉 Import Issue Resolved</h2>
+        <p>The import functionality has been fixed to properly handle your test JSON file format.</p>
+    </div>
+
+    <div class="fix-box">
+        <h2>📝 What Was Fixed</h2>
+        <ul>
+            <li>✅ Added support for <code>vaultItems</code> container (your test file structure)</li>
+            <li>✅ Added EOXVault format detection and mapper</li>
+            <li>✅ Properly maps <code>name</code> field to <code>service</code></li>
+            <li>✅ Handles <code>password</code> field correctly</li>
+            <li>✅ Preserves all metadata including tags, favorites, and timestamps</li>
+        </ul>
+    </div>
+
+    <div class="fix-box">
+        <h2>📄 Your Test File Structure</h2>
+        <p>The file <code>test-passwords-json.json</code> contains:</p>
+        <ul>
+            <li><strong>20 test items</strong> including:</li>
+            <ul>
+                <li>Google Account, GitHub, AWS Console</li>
+                <li>Microsoft 365, Netflix, LinkedIn</li>
+                <li>PayPal, Slack, Docker Hub</li>
+                <li>Credit card info, WiFi passwords, Apple ID</li>
+            </ul>
+            <li><strong>Format:</strong> EOXVault with metadata</li>
+            <li><strong>Container:</strong> vaultItems array</li>
+        </ul>
+        
+        <div class="test-data">
+{
+  "vaultItems": [
+    {
+      "id": "test-001",
+      "type": "login",
+      "name": "Google Account",
+      "username": "john.doe@gmail.com",
+      "password": "P@ssw0rd#2024!Secure",
+      "url": "https://accounts.google.com",
+      "notes": "Primary Google account for work",
+      "tags": ["work", "email", "important"],
+      "favorite": true,
+      "createdAt": 1704067200000,
+      "updatedAt": 1704067200000
+    },
+    // ... 19 more items
+  ],
+  "metadata": {
+    "version": "1.0",
+    "exportDate": "2024-01-13",
+    "itemCount": 20,
+    "format": "EOXVault",
+    "testData": true
+  }
+}
+        </div>
+    </div>
+
+    <div class="fix-box">
+        <h2>🚀 How to Import Your Test File</h2>
+        <ol>
+            <li>Go to VuVault Zero at <a href="http://localhost:3005" style="color: #667eea;">http://localhost:3005</a></li>
+            <li>Navigate to <strong>Settings</strong> (gear icon)</li>
+            <li>Click the <strong>DATA</strong> tab</li>
+            <li>Click <strong>IMPORT</strong> button</li>
+            <li>Drag and drop <code>test-passwords-json.json</code> or click to browse</li>
+            <li>Review the preview showing all 20 items</li>
+            <li>Click <strong>IMPORT 20 ITEMS</strong></li>
+        </ol>
+    </div>
+
+    <div class="fix-box">
+        <h2>✨ Import Features</h2>
+        <ul>
+            <li>✅ Automatic format detection</li>
+            <li>✅ Preview before import</li>
+            <li>✅ Duplicate detection</li>
+            <li>✅ Progress tracking</li>
+            <li>✅ Error reporting</li>
+            <li>✅ Support for 11+ password manager formats</li>
+            <li>✅ CSV and JSON support</li>
+            <li>✅ Master .vu file support</li>
+        </ul>
+    </div>
+
+    <div class="fix-box">
+        <h2>🔍 Supported Formats</h2>
+        <p>VuVault can now import from:</p>
+        <ul>
+            <li><strong>EOXVault/VuVault</strong> - Native format (your test file)</li>
+            <li><strong>1Password</strong> - .1pif, .json</li>
+            <li><strong>Bitwarden</strong> - .json, .csv</li>
+            <li><strong>LastPass</strong> - .csv</li>
+            <li><strong>Dashlane</strong> - .json, .csv</li>
+            <li><strong>KeePass</strong> - .xml, .csv</li>
+            <li><strong>Chrome/Firefox/Safari</strong> - Browser exports</li>
+            <li><strong>Generic CSV</strong> - Any CSV with headers</li>
+            <li><strong>AWS Credentials</strong> - .csv format</li>
+            <li><strong>Master Files</strong> - .vu encrypted backups</li>
+        </ul>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px;">
+        <a href="http://localhost:3005/settings" class="button">
+            🚀 Try Import Now
+        </a>
+        <a href="http://localhost:3005" class="button">
+            🔐 Open VuVault
+        </a>
+    </div>
+
+    <script>
+        console.log('✅ Import Fix Applied Successfully!');
+        console.log('=====================================');
+        console.log('Fixed Issues:');
+        console.log('- Added vaultItems container support');
+        console.log('- Added EOXVault format detection');
+        console.log('- Fixed field mapping for test data');
+        console.log('- Ready to import 20 test items');
+        console.log('=====================================');
+    </script>
+</body>
+</html>

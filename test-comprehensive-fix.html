@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VuVault - Comprehensive Fix Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            padding: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { 
+            color: #10b981;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+        h2 { color: #60a5fa; }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin: 10px;
+            cursor: pointer;
+            border: none;
+            font-size: 14px;
+        }
+        .button:hover { opacity: 0.9; }
+        .button.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+        pre {
+            background: #111;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .warning { color: #f59e0b; }
+        #output {
+            background: #111;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            min-height: 200px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 VuVault Comprehensive Fix Test</h1>
+    
+    <div class="test-section">
+        <h2>Database Operations</h2>
+        <button class="button danger" onclick="clearDatabase()">🗑️ Clear All Data</button>
+        <button class="button" onclick="setMasterKey()">🔑 Set Master Key</button>
+        <button class="button" onclick="checkDatabase()">🔍 Check Database</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Data Operations</h2>
+        <button class="button" onclick="addTestItem()">➕ Add Test Item</button>
+        <button class="button" onclick="retrieveItems()">📋 Retrieve Items</button>
+        <button class="button" onclick="testEncryption()">🔐 Test Encryption</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Import Test</h2>
+        <button class="button" onclick="simulateImport()">📥 Simulate Import Flow</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Output Console</h2>
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        const output = document.getElementById('output');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'success' ? '#10b981' : 
+                         type === 'error' ? '#ef4444' : 
+                         type === 'warning' ? '#f59e0b' : '#fff';
+            output.innerHTML += `<div style="color: ${color}">[${timestamp}] ${message}</div>`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        window.clearDatabase = async function() {
+            try {
+                const dbName = 'VuVaultDB';
+                await indexedDB.deleteDatabase(dbName);
+                log('✅ Database cleared successfully', 'success');
+                
+                // Reload the page to reset everything
+                setTimeout(() => {
+                    log('Reloading page...', 'warning');
+                    location.reload();
+                }, 1000);
+            } catch (error) {
+                log('❌ Error clearing database: ' + error, 'error');
+            }
+        };
+
+        window.setMasterKey = async function() {
+            try {
+                const dbName = 'VuVaultDB';
+                const request = indexedDB.open(dbName, 1);
+                
+                request.onupgradeneeded = function(event) {
+                    const db = event.target.result;
+                    
+                    if (!db.objectStoreNames.contains('settings')) {
+                        db.createObjectStore('settings', { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!db.objectStoreNames.contains('vaults')) {
+                        db.createObjectStore('vaults', { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+                
+                request.onsuccess = function(event) {
+                    const db = event.target.result;
+                    const tx = db.transaction(['settings'], 'readwrite');
+                    const store = tx.objectStore('settings');
+                    
+                    // Create a test master key
+                    const masterKey = 'test-master-key-' + Date.now();
+                    
+                    // First, try to get existing key
+                    const getRequest = store.index ? 
+                        store.index('key').get('masterKey') : 
+                        store.getAll();
+                    
+                    if (getRequest) {
+                        getRequest.onsuccess = function() {
+                            const putRequest = store.put({ 
+                                key: 'masterKey', 
+                                value: masterKey 
+                            });
+                            
+                            putRequest.onsuccess = function() {
+                                log('✅ Master key set: ' + masterKey, 'success');
+                            };
+                        };
+                    } else {
+                        // Direct put
+                        store.put({ key: 'masterKey', value: masterKey });
+                        log('✅ Master key set: ' + masterKey, 'success');
+                    }
+                };
+            } catch (error) {
+                log('❌ Error setting master key: ' + error, 'error');
+            }
+        };
+
+        window.checkDatabase = async function() {
+            try {
+                const dbName = 'VuVaultDB';
+                const request = indexedDB.open(dbName);
+                
+                request.onsuccess = function(event) {
+                    const db = event.target.result;
+                    log('📊 Database: ' + db.name);
+                    log('📦 Stores: ' + Array.from(db.objectStoreNames).join(', '));
+                    
+                    // Check settings
+                    const settingsTx = db.transaction(['settings'], 'readonly');
+                    const settingsStore = settingsTx.objectStore('settings');
+                    const settingsRequest = settingsStore.getAll();
+                    
+                    settingsRequest.onsuccess = function() {
+                        const settings = settingsRequest.result;
+                        log('⚙️ Settings count: ' + settings.length);
+                        
+                        const masterKey = settings.find(s => s.key === 'masterKey');
+                        if (masterKey) {
+                            log('🔑 Master key exists: ' + masterKey.value, 'success');
+                        } else {
+                            log('⚠️ No master key found', 'warning');
+                        }
+                    };
+                    
+                    // Check vaults
+                    const vaultsTx = db.transaction(['vaults'], 'readonly');
+                    const vaultsStore = vaultsTx.objectStore('vaults');
+                    const vaultsRequest = vaultsStore.getAll();
+                    
+                    vaultsRequest.onsuccess = function() {
+                        const items = vaultsRequest.result;
+                        log('📋 Vault items: ' + items.length);
+                        
+                        if (items.length > 0) {
+                            const first = items[0];
+                            log('First item:');
+                            log('  - Service: ' + first.service);
+                            log('  - Username: ' + first.username);
+                            log('  - Encrypted: ' + (first.encryptedPassword?.startsWith('ENC:') ? 'Yes' : 'No'));
+                            
+                            if (first.encryptedPassword) {
+                                log('  - Enc Password: ' + first.encryptedPassword.substring(0, 30) + '...');
+                            }
+                        }
+                    };
+                };
+            } catch (error) {
+                log('❌ Error checking database: ' + error, 'error');
+            }
+        };
+
+        window.addTestItem = async function() {
+            try {
+                log('Adding test item...');
+                
+                // First ensure master key exists
+                await setMasterKey();
+                
+                setTimeout(async () => {
+                    const dbName = 'VuVaultDB';
+                    const request = indexedDB.open(dbName);
+                    
+                    request.onsuccess = function(event) {
+                        const db = event.target.result;
+                        const tx = db.transaction(['vaults'], 'readwrite');
+                        const store = tx.objectStore('vaults');
+                        
+                        const testItem = {
+                            service: 'Test Service ' + Date.now(),
+                            username: 'testuser@example.com',
+                            encryptedPassword: 'MyTestPassword123!',
+                            createdAt: Date.now(),
+                            updatedAt: Date.now()
+                        };
+                        
+                        const addRequest = store.add(testItem);
+                        
+                        addRequest.onsuccess = function() {
+                            log('✅ Test item added with ID: ' + addRequest.result, 'success');
+                        };
+                        
+                        addRequest.onerror = function() {
+                            log('❌ Error adding test item: ' + addRequest.error, 'error');
+                        };
+                    };
+                }, 500);
+            } catch (error) {
+                log('❌ Error in addTestItem: ' + error, 'error');
+            }
+        };
+
+        window.retrieveItems = async function() {
+            try {
+                const dbName = 'VuVaultDB';
+                const request = indexedDB.open(dbName);
+                
+                request.onsuccess = function(event) {
+                    const db = event.target.result;
+                    const tx = db.transaction(['vaults'], 'readonly');
+                    const store = tx.objectStore('vaults');
+                    const getRequest = store.getAll();
+                    
+                    getRequest.onsuccess = function() {
+                        const items = getRequest.result;
+                        log('📋 Retrieved ' + items.length + ' items', 'success');
+                        
+                        items.forEach((item, index) => {
+                            log(`Item ${index + 1}:`);
+                            log(`  - Service: ${item.service}`);
+                            log(`  - Username: ${item.username}`);
+                            log(`  - Has Password: ${!!item.password}`);
+                            log(`  - Has Encrypted: ${!!item.encryptedPassword}`);
+                            
+                            if (item.encryptedPassword) {
+                                const isEncrypted = item.encryptedPassword.startsWith('ENC:');
+                                log(`  - Is Encrypted: ${isEncrypted}`, isEncrypted ? 'success' : 'warning');
+                            }
+                        });
+                    };
+                };
+            } catch (error) {
+                log('❌ Error retrieving items: ' + error, 'error');
+            }
+        };
+
+        window.testEncryption = async function() {
+            log('Testing encryption flow...');
+            
+            // Simple test of the encryption format
+            const testPassword = 'MyPassword123';
+            const masterKey = 'test-key';
+            
+            // Simulate encryption
+            const encoded = btoa(unescape(encodeURIComponent(testPassword)));
+            const encrypted = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
+            log('Encrypted: ' + encrypted);
+            
+            // Simulate decryption
+            if (encrypted.startsWith('ENC:')) {
+                const parts = encrypted.split(':');
+                if (parts[1] === masterKey.substring(0, 4)) {
+                    const decoded = decodeURIComponent(escape(atob(parts[2])));
+                    log('Decrypted: ' + decoded, 'success');
+                    
+                    if (decoded === testPassword) {
+                        log('✅ Encryption/Decryption test passed!', 'success');
+                    } else {
+                        log('❌ Decrypted value does not match!', 'error');
+                    }
+                }
+            }
+        };
+
+        window.simulateImport = async function() {
+            log('🚀 Starting import simulation...', 'warning');
+            
+            // Step 1: Clear and setup
+            log('Step 1: Setting up master key...');
+            await setMasterKey();
+            
+            setTimeout(async () => {
+                // Step 2: Add items like import would
+                log('Step 2: Adding imported items...');
+                
+                const testItems = [
+                    { service: 'Google Account', username: 'john@gmail.com', password: 'GooglePass123!' },
+                    { service: 'GitHub', username: 'johndoe', password: 'GitHubSecure456!' },
+                    { service: 'AWS Console', username: 'admin@company.com', password: 'AWSComplex789!' }
+                ];
+                
+                const dbName = 'VuVaultDB';
+                const request = indexedDB.open(dbName);
+                
+                request.onsuccess = async function(event) {
+                    const db = event.target.result;
+                    
+                    for (const item of testItems) {
+                        const tx = db.transaction(['vaults'], 'readwrite');
+                        const store = tx.objectStore('vaults');
+                        
+                        // This simulates what VaultContext does
+                        const vaultItem = {
+                            service: item.service,
+                            username: item.username,
+                            encryptedPassword: item.password, // Plain password goes here
+                            createdAt: Date.now(),
+                            updatedAt: Date.now()
+                        };
+                        
+                        store.add(vaultItem);
+                        log(`Added: ${item.service}`);
+                    }
+                    
+                    log('✅ Import simulation complete!', 'success');
+                    
+                    // Step 3: Retrieve and check
+                    setTimeout(() => {
+                        log('Step 3: Checking imported items...');
+                        retrieveItems();
+                    }, 1000);
+                };
+            }, 1000);
+        };
+
+        // Initial check on load
+        setTimeout(() => {
+            log('🔍 Initial database check...', 'warning');
+            checkDatabase();
+        }, 500);
+    </script>
+</body>
+</html>

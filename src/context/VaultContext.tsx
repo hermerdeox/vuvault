@@ -60,9 +60,34 @@ export const VaultProvider: ParentComponent = (props) => {
   // Add new vault item
   const addVaultItem = async (item: VaultItem) => {
     try {
-      const id = await db.addVaultItem(item);
-      const newItem = { ...item, id };
-      setVaultItems([...vaultItems(), newItem]);
+      // Ensure master key exists
+      const { getMasterKey, setMasterKey } = await import('../lib/db/database');
+      let masterKey = await getMasterKey();
+      
+      if (!masterKey) {
+        console.log('No master key found, creating one...');
+        // Generate a secure master key
+        const randomKey = window.crypto.getRandomValues(new Uint8Array(32))
+          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
+        await setMasterKey(randomKey);
+        masterKey = randomKey;
+        console.log('Master key created successfully');
+      }
+      
+      // Remove fields that database will auto-generate
+      const { id, createdAt, updatedAt, password, ...itemData } = item;
+      
+      // If password is provided, put it in encryptedPassword for the database hook to encrypt
+      if (password) {
+        itemData.encryptedPassword = password;
+      }
+      
+      const newId = await db.addVaultItem(itemData);
+      
+      // Refresh vault to get the properly encrypted item from database
+      await refreshVault();
+      
+      return newId;
     } catch (error) {
       console.error('Failed to add vault item:', error);
       throw error;
@@ -72,8 +97,33 @@ export const VaultProvider: ParentComponent = (props) => {
   // Update existing vault item
   const updateVaultItem = async (item: VaultItem) => {
     try {
-      await db.updateVaultItem(item);
-      setVaultItems(vaultItems().map(v => v.id === item.id ? item : v));
+      if (!item.id) throw new Error('Item ID is required for update');
+      
+      // Ensure master key exists
+      const { getMasterKey, setMasterKey } = await import('../lib/db/database');
+      let masterKey = await getMasterKey();
+      
+      if (!masterKey) {
+        console.log('No master key found, creating one...');
+        // Generate a secure master key
+        const randomKey = window.crypto.getRandomValues(new Uint8Array(32))
+          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
+        await setMasterKey(randomKey);
+        masterKey = randomKey;
+        console.log('Master key created successfully');
+      }
+      
+      const { id, password, ...updates } = item;
+      
+      // If password is provided, put it in encryptedPassword for the database hook to encrypt
+      if (password) {
+        updates.encryptedPassword = password;
+      }
+      
+      await db.updateVaultItem(id, updates);
+      
+      // Refresh vault to get the updated item from database
+      await refreshVault();
     } catch (error) {
       console.error('Failed to update vault item:', error);
       throw error;
@@ -84,7 +134,9 @@ export const VaultProvider: ParentComponent = (props) => {
   const deleteVaultItem = async (id: string) => {
     try {
       await db.deleteVaultItem(id);
-      setVaultItems(vaultItems().filter(v => v.id !== id));
+      
+      // Refresh vault to update the list
+      await refreshVault();
     } catch (error) {
       console.error('Failed to delete vault item:', error);
       throw error;

@@ -1,7 +1,8 @@
-import { Component, createSignal, createEffect } from 'solid-js';
+import { Component, createSignal, createEffect, Show } from 'solid-js';
 import { VaultItem } from '../lib/db/database';
 import { CryptoService } from '../lib/crypto/crypto-service';
 import { useVault } from '../context/VaultContext';
+import LoadingSpinner, { LoadingController } from './LoadingSpinner';
 
 interface AddPasswordModalProps {
   isOpen: boolean;
@@ -23,6 +24,9 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
   const [isGenerating, setIsGenerating] = createSignal(false);
   const [currentStep, setCurrentStep] = createSignal(1);
   const [copied, setCopied] = createSignal(false);
+  const [isLoading, setIsLoading] = createSignal(false);
+  
+  const loadingController = LoadingController.getInstance();
 
   // Prevent body scroll when modal is open - CRITICAL for no-scroll policy
   createEffect(() => {
@@ -38,38 +42,61 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
   });
 
   const handleSubmit = async () => {
-    if (!service() || !username() || !password()) {
-      alert('Please fill in all required fields');
-      return;
+    try {
+      console.log('Submit clicked - checking fields...');
+      
+      if (!service() || !username() || !password()) {
+        alert('Please fill in all required fields');
+        return;
+      }
+
+      // Show loading spinner
+      setIsLoading(true);
+      
+      await loadingController.withLoading(async () => {
+        console.log('Creating vault item...');
+        const vaultItem: VaultItem = {
+          service: service(),
+          username: username(),
+          password: password(),
+          url: url(),
+          notes: notes(),
+          tags: tags(),
+          createdAt: props.item?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          encryptedPassword: '' // This will be handled by VaultContext
+        };
+
+        console.log('Vault item:', vaultItem);
+
+        if (props.item?.id) {
+          vaultItem.id = props.item.id;
+          console.log('Updating item...');
+          await updateVaultItem(vaultItem);
+        } else {
+          console.log('Adding new item...');
+          await addVaultItem(vaultItem);
+        }
+
+        console.log('Success! Resetting form...');
+        
+        // Reset form
+        setService('');
+        setUsername('');
+        setPassword('');
+        setUrl('');
+        setNotes('');
+        setTags([]);
+        setCurrentStep(1);
+        props.onClose();
+      }, 'Saving password...');
+      
+    } catch (error) {
+      console.error('Error in handleSubmit:', error);
+      alert('Failed to save password: ' + (error as Error).message);
+    } finally {
+      setIsLoading(false);
     }
-
-    const vaultItem: VaultItem = {
-      service: service(),
-      username: username(),
-      password: password(),
-      url: url(),
-      notes: notes(),
-      tags: tags(),
-      createdAt: props.item?.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    if (props.item?.id) {
-      vaultItem.id = props.item.id;
-      await updateVaultItem(vaultItem);
-    } else {
-      await addVaultItem(vaultItem);
-    }
-
-    // Reset form
-    setService('');
-    setUsername('');
-    setPassword('');
-    setUrl('');
-    setNotes('');
-    setTags([]);
-    setCurrentStep(1);
-    props.onClose();
   };
 
   const generatePassword = () => {
@@ -111,6 +138,8 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
 
   return (
     <>
+      <LoadingSpinner show={isLoading()} message="Saving password..." />
+      
       {/* Mobile Modal (320px - 767px) - Full Screen NO SCROLL */}
       <div class="fixed inset-0 bg-black z-50 md:hidden flex flex-col">
         {/* Fixed Header */}

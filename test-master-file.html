@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VuVault Zero - Master File System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            padding: 40px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 40px;
+            font-size: 1.2em;
+        }
+        .feature-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+        h2 {
+            color: #667eea;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .icon {
+            font-size: 1.5em;
+        }
+        .file-example {
+            background: #000;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .highlight {
+            color: #764ba2;
+            font-weight: bold;
+        }
+        ul {
+            line-height: 1.8;
+        }
+        li {
+            margin: 10px 0;
+        }
+        .badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        .steps {
+            counter-reset: step-counter;
+            list-style: none;
+            padding: 0;
+        }
+        .steps li {
+            counter-increment: step-counter;
+            position: relative;
+            padding-left: 50px;
+            margin: 20px 0;
+        }
+        .steps li::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: 0;
+            top: 0;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .security-note {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .success-note {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        code {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin: 10px 10px 10px 0;
+            transition: opacity 0.2s;
+        }
+        .button:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 VuVault Master File System</h1>
+        <p class="subtitle">Complete Encrypted Backup & Restore Solution</p>
+
+        <div class="feature-box">
+            <h2><span class="icon">📦</span> What is a Master File?</h2>
+            <p>A Master File (<code>.vu</code>) is a complete, encrypted backup of your entire VuVault vault including:</p>
+            <ul>
+                <li>✅ All passwords and credentials</li>
+                <li>✅ Application settings and preferences</li>
+                <li>✅ Custom folders and tags</li>
+                <li>✅ Security configurations</li>
+                <li>✅ Device fingerprints and metadata</li>
+                <li>✅ Quick access favorites</li>
+            </ul>
+            <div class="file-example">
+                <strong>Example filename:</strong> <span class="highlight">A3X9K_141225.vu</span><br>
+                Format: {5 random chars}_{DDMMYY}.vu<br>
+                Size: Typically 10-100 KB (compressed & encrypted)
+            </div>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">🔒</span> Security Features</h2>
+            <ul>
+                <li><strong>ChaCha20-Poly1305</strong> authenticated encryption <span class="badge">Military Grade</span></li>
+                <li><strong>PBKDF2-SHA512</strong> key derivation (210,000 iterations)</li>
+                <li><strong>Password Protected</strong> - You set the password during export</li>
+                <li><strong>SHA-256 Checksum</strong> - Integrity verification</li>
+                <li><strong>Zero-Knowledge</strong> - All encryption happens locally</li>
+                <li><strong>Unique Salts</strong> - Different encryption each export</li>
+            </ul>
+            <div class="security-note">
+                ⚠️ <strong>Important:</strong> Store your .vu file password securely. Without it, the backup cannot be restored. The password is NOT stored anywhere in the file.
+            </div>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">📤</span> How to Export a Master File</h2>
+            <ol class="steps">
+                <li>Navigate to <strong>Settings</strong> in VuVault Zero</li>
+                <li>Find the <strong>MASTER BACKUP</strong> section</li>
+                <li>Click <strong>CREATE MASTER BACKUP</strong></li>
+                <li>Enter a strong password (minimum 8 characters)</li>
+                <li>Confirm the password</li>
+                <li>Click <strong>EXPORT MASTER FILE</strong></li>
+                <li>File downloads as <code>XXXXX_DDMMYY.vu</code></li>
+            </ol>
+            <div class="success-note">
+                ✅ Your master file contains EVERYTHING - a complete snapshot of your vault at that moment.
+            </div>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">📥</span> How to Import a Master File</h2>
+            <ol class="steps">
+                <li>Navigate to <strong>Settings</strong> in VuVault Zero</li>
+                <li>Find the <strong>MASTER BACKUP</strong> section</li>
+                <li>Click <strong>RESTORE FROM BACKUP</strong></li>
+                <li>Drag & drop your <code>.vu</code> file or click to browse</li>
+                <li>Enter the password you used during export</li>
+                <li>Click <strong>IMPORT MASTER FILE</strong></li>
+                <li>Review import results</li>
+            </ol>
+            <p><strong>Import behavior:</strong></p>
+            <ul>
+                <li>✅ Existing items are preserved</li>
+                <li>✅ Duplicate items are skipped</li>
+                <li>✅ Settings are merged intelligently</li>
+                <li>✅ New items are added to your vault</li>
+            </ul>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">📊</span> What's Included in the Backup</h2>
+            <div class="file-example">
+                {<br>
+                &nbsp;&nbsp;"version": "2.0.0",<br>
+                &nbsp;&nbsp;"exported": "2025-09-14T...",<br>
+                &nbsp;&nbsp;"deviceId": "unique-device-id",<br>
+                &nbsp;&nbsp;"metadata": {<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"itemCount": 42,<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"settingsCount": 15,<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"exportDevice": "Browser/OS info",<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"lastModified": "timestamp"<br>
+                &nbsp;&nbsp;},<br>
+                &nbsp;&nbsp;"settings": { /* All app settings */ },<br>
+                &nbsp;&nbsp;"vaultItems": [ /* All passwords */ ],<br>
+                &nbsp;&nbsp;"customData": {<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"folders": ["Work", "Personal"],<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"tags": ["important", "banking"],<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;"quickAccess": ["favorite-ids"]<br>
+                &nbsp;&nbsp;},<br>
+                &nbsp;&nbsp;"checksum": "sha256-hash"<br>
+                }
+            </div>
+            <p>All of this is encrypted and wrapped in a secure container with authentication.</p>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">💡</span> Use Cases</h2>
+            <ul>
+                <li><strong>Complete Backup:</strong> Before major changes or updates</li>
+                <li><strong>Device Migration:</strong> Move your vault to a new device</li>
+                <li><strong>Disaster Recovery:</strong> Restore after data loss</li>
+                <li><strong>Archive Snapshots:</strong> Keep dated backups of your vault</li>
+                <li><strong>Secure Sharing:</strong> Share vault with trusted parties (with password)</li>
+                <li><strong>Offline Storage:</strong> Store on USB/external drives</li>
+            </ul>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">🎯</span> Best Practices</h2>
+            <ul>
+                <li>📅 Create regular backups (weekly/monthly)</li>
+                <li>🔑 Use unique, strong passwords for each backup</li>
+                <li>💾 Store backups in multiple secure locations</li>
+                <li>📝 Keep a record of backup dates and passwords (separately)</li>
+                <li>🧪 Test restore process periodically</li>
+                <li>🗑️ Delete old backups you no longer need</li>
+                <li>🔒 Encrypt backup storage locations</li>
+            </ul>
+        </div>
+
+        <div class="feature-box">
+            <h2><span class="icon">⚡</span> Quick Facts</h2>
+            <ul>
+                <li>File extension: <code>.vu</code> (VuVault)</li>
+                <li>Encryption: ChaCha20-Poly1305</li>
+                <li>Key derivation: PBKDF2-SHA512 (210,000 iterations)</li>
+                <li>Format: Base64 encoded JSON container</li>
+                <li>Compatibility: VuVault Zero v2.0.0+</li>
+                <li>Processing: 100% client-side (no server)</li>
+            </ul>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px;">
+            <a href="http://localhost:3005/settings" class="button">
+                🚀 Open Settings to Try It
+            </a>
+            <a href="http://localhost:3005" class="button">
+                🔐 Open VuVault Zero
+            </a>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px; opacity: 0.6;">
+            <p>VuVault Zero - Master File System v1.0</p>
+            <p>Your complete vault, encrypted and portable.</p>
+        </div>
+    </div>
+
+    <script>
+        console.log('🔐 VuVault Master File System');
+        console.log('=====================================');
+        console.log('✅ Export: Create .vu encrypted backup');
+        console.log('✅ Import: Restore from .vu file');
+        console.log('✅ Security: ChaCha20-Poly1305 + PBKDF2');
+        console.log('✅ Format: XXXXX_DDMMYY.vu');
+        console.log('=====================================');
+    </script>
+</body>
+</html>

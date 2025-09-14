@@ -216,6 +216,14 @@ export class FlexibleImporter {
    * Detect the format of the imported file
    */
   private static async detectFormat(file: File, data: any): Promise<string> {
+    // Check for EOXVault/VuVault format first
+    if (data.metadata && (data.metadata.format === 'EOXVault' || data.metadata.format === 'vuvault')) {
+      return 'eoxvault';
+    }
+    if (data.vaultItems && Array.isArray(data.vaultItems)) {
+      return 'eoxvault';
+    }
+    
     // Check filename hints
     const filename = file.name.toLowerCase();
     if (filename.includes('lastpass')) return 'lastpass';
@@ -270,7 +278,7 @@ export class FlexibleImporter {
     
     // Handle common container properties
     const containers = [
-      'items', 'logins', 'accounts', 'passwords', 'entries',
+      'vaultItems', 'items', 'logins', 'accounts', 'passwords', 'entries',
       'credentials', 'records', 'data', 'vaults', 'list'
     ];
     
@@ -390,6 +398,27 @@ export class FlexibleImporter {
    */
   private static getFormatSpecificMapper(format: string): ((input: any) => VaultItem | null) | null {
     const mappers: Record<string, (input: any) => VaultItem | null> = {
+      eoxvault: (input) => {
+        // Handle EOXVault/VuVault format
+        if (!input.name && !input.service) return null;
+        if (!input.password && !input.encryptedPassword) return null;
+        
+        return {
+          id: input.id || crypto.randomUUID(),
+          service: input.name || input.service,
+          username: input.username || '',
+          encryptedPassword: input.password || input.encryptedPassword,
+          url: input.url,
+          notes: input.notes,
+          tags: Array.isArray(input.tags) ? input.tags : [],
+          favorite: input.favorite || false,
+          folder: input.folder,
+          totp: input.totp,
+          createdAt: input.createdAt || Date.now(),
+          updatedAt: input.updatedAt || Date.now()
+        };
+      },
+      
       lastpass: (input) => {
         if (!input.name || !input.password) return null;
         return {

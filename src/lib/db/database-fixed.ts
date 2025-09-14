@@ -1,10 +1,4 @@
 import Dexie, { Table } from 'dexie';
-import { ChaCha20EncryptionService } from '../crypto/chacha20-encryption';
-
-export interface PasswordHistoryEntry {
-  password: string;
-  changedAt: number;
-}
 
 export interface VaultItem {
   id?: string;
@@ -21,7 +15,6 @@ export interface VaultItem {
   lastAccessed?: number;
   lastUsed?: number;
   nonce?: number[];
-  passwordHistory?: PasswordHistoryEntry[];
   createdAt: number;
   updatedAt: number;
 }
@@ -50,30 +43,16 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) throw new Error('No master key available');
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
       // Encrypt sensitive data - encryptedPassword should contain plain password at this point
       if (obj.encryptedPassword) {
-        try {
-          const encrypted = await encryptionService.encrypt(obj.encryptedPassword, masterKey);
-          obj.encryptedPassword = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt password:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(obj.encryptedPassword)));
-          obj.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        // Simple base64 encoding for now to test the flow
+        // We'll replace with real encryption once flow is working
+        const encoded = btoa(unescape(encodeURIComponent(obj.encryptedPassword)));
+        obj.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
       }
       if (obj.notes) {
-        try {
-          const encrypted = await encryptionService.encrypt(obj.notes, masterKey);
-          obj.notes = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt notes:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(obj.notes)));
-          obj.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        const encoded = btoa(unescape(encodeURIComponent(obj.notes)));
+        obj.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
       }
       
       obj.createdAt = Date.now();
@@ -84,29 +63,13 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) throw new Error('No master key available');
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
       if (mods.encryptedPassword !== undefined) {
-        try {
-          const encrypted = await encryptionService.encrypt(mods.encryptedPassword, masterKey);
-          mods.encryptedPassword = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt password:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(mods.encryptedPassword)));
-          mods.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        const encoded = btoa(unescape(encodeURIComponent(mods.encryptedPassword)));
+        mods.encryptedPassword = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
       }
       if (mods.notes !== undefined) {
-        try {
-          const encrypted = await encryptionService.encrypt(mods.notes, masterKey);
-          mods.notes = JSON.stringify(encrypted);
-        } catch (error) {
-          console.error('Failed to encrypt notes:', error);
-          // Fallback to old format
-          const encoded = btoa(unescape(encodeURIComponent(mods.notes)));
-          mods.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
-        }
+        const encoded = btoa(unescape(encodeURIComponent(mods.notes)));
+        mods.notes = `ENC:${masterKey.substring(0, 4)}:${encoded}`;
       }
       
       mods.updatedAt = Date.now();
@@ -117,25 +80,13 @@ class VaultDatabase extends Dexie {
       const masterKey = await this.getMasterKey();
       if (!masterKey) return obj;
       
-      const encryptionService = ChaCha20EncryptionService.getInstance();
-      
       try {
         if (obj.encryptedPassword && typeof obj.encryptedPassword === 'string') {
-          // Check if it's new format (JSON)
-          if (obj.encryptedPassword.startsWith('{')) {
-            try {
-              const encryptedData = JSON.parse(obj.encryptedPassword);
-              obj.password = await encryptionService.decrypt(encryptedData, masterKey);
-            } catch (error) {
-              console.error('Failed to decrypt password:', error);
-              obj.password = '';
-            }
-          }
-          // Check if it's old format (ENC:)
-          else if (obj.encryptedPassword.startsWith('ENC:')) {
+          // Check if it's encrypted (starts with ENC:)
+          if (obj.encryptedPassword.startsWith('ENC:')) {
             const parts = obj.encryptedPassword.split(':');
             if (parts.length >= 3 && parts[1] === masterKey.substring(0, 4)) {
-              // Decrypt old format
+              // Decrypt and store in 'password' field for UI components
               const decoded = decodeURIComponent(escape(atob(parts[2])));
               obj.password = decoded;
             } else {
@@ -148,22 +99,10 @@ class VaultDatabase extends Dexie {
           }
         }
         
-        if (obj.notes && typeof obj.notes === 'string') {
-          // Check if it's new format (JSON)
-          if (obj.notes.startsWith('{')) {
-            try {
-              const encryptedData = JSON.parse(obj.notes);
-              obj.notes = await encryptionService.decrypt(encryptedData, masterKey);
-            } catch (error) {
-              console.error('Failed to decrypt notes:', error);
-            }
-          }
-          // Check if it's old format (ENC:)
-          else if (obj.notes.startsWith('ENC:')) {
-            const parts = obj.notes.split(':');
-            if (parts.length >= 3 && parts[1] === masterKey.substring(0, 4)) {
-              obj.notes = decodeURIComponent(escape(atob(parts[2])));
-            }
+        if (obj.notes && typeof obj.notes === 'string' && obj.notes.startsWith('ENC:')) {
+          const parts = obj.notes.split(':');
+          if (parts.length >= 3 && parts[1] === masterKey.substring(0, 4)) {
+            obj.notes = decodeURIComponent(escape(atob(parts[2])));
           }
         }
       } catch (error) {

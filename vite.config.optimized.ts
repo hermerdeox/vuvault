@@ -6,8 +6,6 @@ import { defineConfig } from 'vite';
 import solid from 'vite-plugin-solid';
 import { VitePWA } from 'vite-plugin-pwa';
 import UnoCSS from 'unocss/vite';
-import compression from 'vite-plugin-compression2';
-import { visualizer } from 'rollup-plugin-visualizer';
 import path from 'path';
 
 export default defineConfig({
@@ -62,27 +60,7 @@ export default defineConfig({
           }
         ]
       }
-    }),
-    
-    // NEW: Brotli compression for smaller files
-    compression({
-      algorithm: 'brotliCompress',
-      threshold: 100, // Only compress files > 100 bytes
-      deleteOriginalAssets: false, // Keep originals for compatibility
-      compressionOptions: { 
-        level: 11 // Maximum compression
-      },
-      exclude: [/\.map$/, /\.LICENSE\.txt$/],
-    }),
-    
-    // NEW: Bundle analyzer (only in build, not dev)
-    ...(process.env.ANALYZE ? [visualizer({
-      open: true,
-      gzipSize: true,
-      brotliSize: true,
-      filename: 'dist/stats.html',
-      template: 'treemap' // or 'sunburst', 'network'
-    })] : [])
+    })
   ],
   
   build: {
@@ -106,15 +84,11 @@ export default defineConfig({
       }
     },
     
-    // Optimize CSS
-    cssMinify: 'lightningcss',
-    cssCodeSplit: true,
-    
     // Source maps only for errors
     sourcemap: 'hidden',
     
-    // Increase chunk size warning limit (we'll optimize below)
-    chunkSizeWarningLimit: 1000,
+    // Increase chunk size warning limit
+    chunkSizeWarningLimit: 500,
     
     // Enhanced rollup options
     rollupOptions: {
@@ -164,18 +138,13 @@ export default defineConfig({
               return 'styles';
             }
             
-            // Motion/Animation
-            if (id.includes('@motionone') || id.includes('motion')) {
-              return 'animation';
-            }
-            
             // PWA/Workbox
             if (id.includes('workbox') || id.includes('vite-plugin-pwa')) {
               return 'pwa';
             }
             
             // All other vendor code
-            return 'vendor-misc';
+            return 'vendor';
           }
           
           // Application code chunking
@@ -189,11 +158,11 @@ export default defineConfig({
             }
             
             // Import system (lazy loaded)
-            if (id.includes('import/flexible-importer')) {
+            if (id.includes('import/')) {
               return 'import-system';
             }
             if (id.includes('ImportModal')) {
-              return 'import-ui';
+              return 'import-modal';
             }
             
             // Core services
@@ -207,7 +176,7 @@ export default defineConfig({
               return 'services-db';
             }
             
-            // Shared components
+            // Components
             if (id.includes('components/')) {
               // Heavy components in separate chunks
               if (id.includes('AddPasswordModal')) {
@@ -216,16 +185,8 @@ export default defineConfig({
               if (id.includes('OnboardingFlow')) {
                 return 'modal-onboarding';
               }
-              // Light components bundled together
-              return 'components-shared';
-            }
-            
-            // Pages (already code-split by router)
-            if (id.includes('pages/')) {
-              const pageName = id.split('/pages/')[1]?.split('.')[0]?.toLowerCase();
-              if (pageName) {
-                return `page-${pageName}`;
-              }
+              // Other components
+              return 'components';
             }
             
             // Context providers
@@ -241,70 +202,29 @@ export default defineConfig({
         },
         
         // Optimize chunk names for caching
-        chunkFileNames: (chunkInfo) => {
-          const facadeModuleId = chunkInfo.facadeModuleId ? 
-            path.basename(chunkInfo.facadeModuleId, path.extname(chunkInfo.facadeModuleId)) : 
-            'chunk';
-          return `assets/${facadeModuleId}-[hash].js`;
-        },
+        chunkFileNames: 'assets/[name]-[hash].js',
         
         // Asset file naming for better caching
         assetFileNames: (assetInfo) => {
           const info = assetInfo.name.split('.');
           const ext = info[info.length - 1];
           
-          // Images
-          if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(ext)) {
-            return `assets/images/[name]-[hash][extname]`;
-          }
-          
-          // Fonts
-          if (/woff2?|ttf|otf|eot/i.test(ext)) {
-            return `assets/fonts/[name]-[hash][extname]`;
-          }
-          
           // CSS
           if (ext === 'css') {
-            return `assets/styles/[name]-[hash][extname]`;
+            return 'assets/[name]-[hash][extname]';
           }
           
           // Default
-          return `assets/[name]-[hash][extname]`;
+          return 'assets/[name]-[hash][extname]';
         },
         
         // Entry chunk name
-        entryFileNames: 'assets/[name]-[hash].js',
-        
-        // Optimize imports
-        generatedCode: {
-          preset: 'es2015',
-          arrowFunctions: true,
-          constBindings: true,
-          objectShorthand: true
-        },
-        
-        // Better tree shaking
-        treeshake: {
-          moduleSideEffects: false,
-          propertyReadSideEffects: false,
-          tryCatchDeoptimization: false
-        }
-      },
-      
-      // External dependencies (if using CDN)
-      external: [],
-      
-      // Optimize dependency pre-bundling
-      preserveEntrySignatures: 'strict'
+        entryFileNames: 'assets/[name]-[hash].js'
+      }
     },
     
     // Report compressed size
-    reportCompressedSize: true,
-    
-    // Consistent hashing for better caching
-    modulePreload: {
-      polyfill: true
-    }
+    reportCompressedSize: false
   },
   
   // Optimize dependency pre-bundling
@@ -314,11 +234,14 @@ export default defineConfig({
       'solid-js/web',
       'solid-js/store',
       '@solidjs/router',
-      'dexie'
+      'dexie',
+      '@metamask/browser-passworder',
+      '@noble/hashes/sha3',
+      '@noble/hashes/sha256',
+      '@noble/hashes/sha512',
+      '@noble/hashes/utils'
     ],
     exclude: [
-      '@noble/ciphers',
-      '@noble/hashes',
       'argon2-browser'
     ],
     esbuildOptions: {
@@ -352,13 +275,17 @@ export default defineConfig({
       '@lib': path.resolve(__dirname, './src/lib'),
       '@pages': path.resolve(__dirname, './src/pages'),
       '@context': path.resolve(__dirname, './src/context'),
-      '@workers': path.resolve(__dirname, './src/workers')
+      '@workers': path.resolve(__dirname, './src/workers'),
+      // Fix for @noble/hashes dynamic imports
+      '@noble/hashes/sha3': path.resolve(__dirname, 'node_modules/@noble/hashes/sha3.js'),
+      '@noble/hashes/sha256': path.resolve(__dirname, 'node_modules/@noble/hashes/sha256.js'),
+      '@noble/hashes/sha512': path.resolve(__dirname, 'node_modules/@noble/hashes/sha512.js')
     }
   },
   
-  // Environment variables
+  // Define global for CommonJS compatibility
   define: {
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-    __VERSION__: JSON.stringify(process.env.npm_package_version || '2.0.0')
+    global: 'globalThis',
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production')
   }
 });
