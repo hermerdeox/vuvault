@@ -1,4 +1,5 @@
 import { Component } from 'solid-js';
+import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   value: string;
@@ -7,17 +8,40 @@ interface Props {
 }
 
 const SearchBar: Component<Props> = (props) => {
+  const { isDark } = useTheme();
+  
   return (
     <div class="relative flex-1">
       <input
         type="search"
-        class="w-full h-12 pl-12 pr-4 bg-transparent border border-white/10 text-white/90 placeholder-white/30 font-light text-base focus:outline-none focus:border-white/30 transition-all duration-300"
+        style={{
+          width: '100%',
+          height: '3rem',
+          paddingLeft: '3rem',
+          paddingRight: '1rem',
+          background: 'transparent',
+          border: '1px solid var(--border-secondary)',
+          color: 'var(--text-primary)',
+          fontWeight: 'var(--font-light)',
+          fontSize: '1rem',
+          transition: 'all 0.3s ease'
+        }}
         placeholder={props.placeholder || 'Search...'}
         value={props.value}
         onInput={(e) => props.onInput(e.currentTarget.value)}
+        onFocus={(e) => e.currentTarget.style.borderColor = 'var(--border-primary)'}
+        onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-secondary)'}
       />
       <svg 
-        class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" 
+        style={{
+          position: 'absolute',
+          left: '1rem',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          width: '1rem',
+          height: '1rem',
+          color: 'var(--text-muted)'
+        }}
         fill="none" 
         stroke="currentColor" 
         viewBox="0 0 24 24"

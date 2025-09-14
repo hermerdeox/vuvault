@@ -2,6 +2,7 @@ import { Component, createSignal, Show } from 'solid-js';
 import { VaultItem } from '../lib/db/database';
 import { CryptoService } from '../lib/crypto/crypto-service';
 import { useVault } from '../context/VaultContext';
+import { useTheme } from '../context/ThemeContext';
 
 interface VaultItemCardProps {
   item: VaultItem;
@@ -11,6 +12,7 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
   const [showPassword, setShowPassword] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
   const { deleteVaultItem } = useVault();
+  const { isDark } = useTheme();
   const crypto = CryptoService.getInstance();
 
   const copyToClipboard = async (text: string) => {
@@ -39,24 +41,68 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
   const strength = getPasswordStrength();
 
   return (
-    <div class="flex items-center justify-between">
-      <div class="flex-1">
-        <div class="flex items-center gap-4 mb-2">
-          <h3 class="text-white/80 font-light text-base tracking-wide">{props.item.service}</h3>
-          <span class={`text-[10px] ${strength.color} font-light tracking-widest`}>{strength.text}</span>
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between'
+    }}>
+      <div style={{ flex: 1 }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          marginBottom: '0.5rem'
+        }}>
+          <h3 style={{
+            color: 'var(--text-secondary)',
+            fontWeight: 'var(--font-light)',
+            fontSize: '1rem',
+            letterSpacing: 'var(--tracking-wide)'
+          }}>{props.item.service}</h3>
+          <span style={{
+            fontSize: '0.625rem',
+            fontWeight: 'var(--font-light)',
+            letterSpacing: 'var(--tracking-widest)',
+            color: strength.text === 'STRONG' ? 'var(--success)' : 
+                  strength.text === 'MEDIUM' ? 'var(--warning)' : 
+                  'var(--danger)'
+          }}>{strength.text}</span>
         </div>
-        <p class="text-white/60 text-sm font-light">{props.item.username}</p>
+        <p style={{
+          color: 'var(--text-tertiary)',
+          fontSize: '0.875rem',
+          fontWeight: 'var(--font-light)'
+        }}>{props.item.username}</p>
         
         <Show when={props.item.url}>
-          <p class="text-white/30 text-xs font-light mt-2">{props.item.url}</p>
+          <p style={{
+            color: 'var(--text-muted)',
+            fontSize: '0.75rem',
+            fontWeight: 'var(--font-light)',
+            marginTop: '0.5rem'
+          }}>{props.item.url}</p>
         </Show>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem'
+      }}>
         {/* Copy Username */}
         <button
           onClick={() => copyToClipboard(props.item.username)}
-          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
+          style={{
+            width: '2.5rem',
+            height: '2.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            transition: 'color 0.3s ease'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-tertiary)'}
+          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
           title="Copy username"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -67,7 +113,22 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Copy Password */}
         <button
           onClick={() => copyToClipboard(props.item.password || '')}
-          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
+          style={{
+            width: '2.5rem',
+            height: '2.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            transition: 'color 0.3s ease',
+            opacity: props.item.password ? '1' : '0.5'
+          }}
+          onMouseOver={(e) => {
+            if (props.item.password) {
+              e.currentTarget.style.color = 'var(--text-tertiary)';
+            }
+          }}
+          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
           title="Copy password"
           disabled={!props.item.password}
         >
@@ -79,7 +140,17 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Show/Hide Password */}
         <button
           onClick={() => setShowPassword(!showPassword())}
-          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
+          style={{
+            width: '2.5rem',
+            height: '2.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            transition: 'color 0.3s ease'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-tertiary)'}
+          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
           title={showPassword() ? 'Hide password' : 'Show password'}
         >
           <Show
@@ -100,7 +171,17 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Delete */}
         <button
           onClick={handleDelete}
-          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-red-500/60 transition-all duration-300"
+          style={{
+            width: '2.5rem',
+            height: '2.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            transition: 'color 0.3s ease'
+          }}
+          onMouseOver={(e) => e.currentTarget.style.color = 'var(--danger)'}
+          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
           title="Delete"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,13 +192,58 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
 
       {/* Password Display Overlay - Design System Modal */}
       <Show when={showPassword()}>
-        <div class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6" onClick={() => setShowPassword(false)}>
-          <div class="bg-black border border-white/20 p-8 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <p class="text-white/30 text-[10px] font-light tracking-widest mb-6">PASSWORD</p>
-            <p class="font-mono text-white/80 text-base leading-relaxed break-all mb-8">{props.item.password || 'Password not available'}</p>
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: isDark() ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1.5rem'
+        }} onClick={() => setShowPassword(false)}>
+          <div style={{
+            backgroundColor: 'var(--bg-primary)',
+            border: '1px solid var(--border-primary)',
+            padding: '2rem',
+            maxWidth: '28rem',
+            width: '100%'
+          }} onClick={(e) => e.stopPropagation()}>
+            <p style={{
+              color: 'var(--text-muted)',
+              fontSize: '0.625rem',
+              fontWeight: 'var(--font-light)',
+              letterSpacing: 'var(--tracking-widest)',
+              marginBottom: '1.5rem'
+            }}>PASSWORD</p>
+            <p style={{
+              fontFamily: 'monospace',
+              color: 'var(--text-secondary)',
+              fontSize: '1rem',
+              lineHeight: '1.5',
+              wordBreak: 'break-all',
+              marginBottom: '2rem'
+            }}>{props.item.password || 'Password not available'}</p>
             <button
               onClick={() => setShowPassword(false)}
-              class="w-full py-4 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-xs font-light tracking-wider transition-all duration-300"
+              style={{
+                width: '100%',
+                padding: '1rem 0',
+                border: '1px solid var(--border-secondary)',
+                color: 'var(--text-tertiary)',
+                fontSize: '0.75rem',
+                fontWeight: 'var(--font-light)',
+                letterSpacing: 'var(--tracking-wider)',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-primary)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-secondary)';
+                e.currentTarget.style.color = 'var(--text-tertiary)';
+              }}
             >
               CLOSE
             </button>
@@ -127,7 +253,20 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
 
       {/* Copy Notification - Design System Toast */}
       <Show when={copied()}>
-        <div class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black border border-white/20 px-6 py-3 text-white/60 text-xs font-light tracking-wider z-50">
+        <div style={{
+          position: 'fixed',
+          bottom: '2rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'var(--bg-primary)',
+          border: '1px solid var(--border-primary)',
+          padding: '0.75rem 1.5rem',
+          color: 'var(--text-tertiary)',
+          fontSize: '0.75rem',
+          fontWeight: 'var(--font-light)',
+          letterSpacing: 'var(--tracking-wider)',
+          zIndex: 50
+        }}>
           COPIED
         </div>
       </Show>

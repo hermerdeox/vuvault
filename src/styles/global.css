@@ -6,6 +6,19 @@
   --black-pure: #000000;
   --white-pure: #FFFFFF;
   
+  /* Dark Theme (Default) */
+  --bg-primary: var(--black-pure);
+  --bg-secondary: rgba(255, 255, 255, 0.05);
+  --bg-tertiary: rgba(255, 255, 255, 0.02);
+  --text-primary: var(--white-pure);
+  --text-secondary: rgba(255, 255, 255, 0.8);
+  --text-tertiary: rgba(255, 255, 255, 0.6);
+  --text-muted: rgba(255, 255, 255, 0.4);
+  --border-primary: rgba(255, 255, 255, 0.2);
+  --border-secondary: rgba(255, 255, 255, 0.1);
+  --border-tertiary: rgba(255, 255, 255, 0.05);
+  --hover-overlay: rgba(255, 255, 255, 0.05);
+  
   /* White Opacity Scale */
   --white-90: rgba(255, 255, 255, 0.9);
   --white-80: rgba(255, 255, 255, 0.8);
@@ -16,6 +29,17 @@
   --white-10: rgba(255, 255, 255, 0.1);
   --white-5: rgba(255, 255, 255, 0.05);
   --white-2: rgba(255, 255, 255, 0.02);
+  
+  /* Black Opacity Scale (for light theme) */
+  --black-90: rgba(0, 0, 0, 0.9);
+  --black-80: rgba(0, 0, 0, 0.8);
+  --black-60: rgba(0, 0, 0, 0.6);
+  --black-40: rgba(0, 0, 0, 0.4);
+  --black-30: rgba(0, 0, 0, 0.3);
+  --black-20: rgba(0, 0, 0, 0.2);
+  --black-10: rgba(0, 0, 0, 0.1);
+  --black-5: rgba(0, 0, 0, 0.05);
+  --black-2: rgba(0, 0, 0, 0.02);
   
   /* Semantic Colors */
   --success: rgba(16, 185, 129, 0.6);
@@ -36,6 +60,22 @@
   --tracking-widest: 0.1em;
 }
 
+/* Light Theme Variables */
+.light-theme {
+  /* Light Theme */
+  --bg-primary: var(--white-pure);
+  --bg-secondary: rgba(0, 0, 0, 0.03);
+  --bg-tertiary: rgba(0, 0, 0, 0.01);
+  --text-primary: var(--black-pure);
+  --text-secondary: rgba(0, 0, 0, 0.8);
+  --text-tertiary: rgba(0, 0, 0, 0.6);
+  --text-muted: rgba(0, 0, 0, 0.4);
+  --border-primary: rgba(0, 0, 0, 0.2);
+  --border-secondary: rgba(0, 0, 0, 0.1);
+  --border-tertiary: rgba(0, 0, 0, 0.05);
+  --hover-overlay: rgba(0, 0, 0, 0.03);
+}
+
 /* Base Reset */
 * {
   margin: 0;
@@ -52,13 +92,14 @@ html {
 }
 
 body {
-  background: var(--black-pure);
-  color: var(--white-pure);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   overflow-x: hidden;
   min-height: 100vh;
   position: relative;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Remove default focus outlines */
