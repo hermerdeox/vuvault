@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
+    "pages:deploy": "npx wrangler pages deploy dist --project-name=vuvault-zero",
     "deploy": "npx wrangler pages deploy dist --project-name=vuvault-zero",
     "deploy:cloudflare": "bun run build && bunx wrangler pages deploy dist --project-name=vuvault-zero --commit-dirty=true",
     "analyze": "vite build --mode analyze",
