@@ -3,7 +3,6 @@ import { DatabaseService } from './lib/db/database';
 import { AuthService } from './lib/auth/auth-service';
 import { CryptoService } from './lib/crypto/crypto-service';
 import { VaultProvider } from './context/VaultContext';
-import { ThemeProvider } from './context/ThemeContext';
 
 interface AppWrapperProps {
   children?: any;
@@ -31,29 +30,27 @@ const AppWrapper: Component<AppWrapperProps> = (props) => {
   });
 
   return (
-    <ThemeProvider>
-      <VaultProvider>
-        <div class="min-h-screen safe-top safe-bottom">
-          <Show when={error()}>
-            <div class="fixed top-4 right-4 bg-danger text-white p-4 rounded-lg shadow-lg z-50">
-              {error()}
+    <VaultProvider>
+      <div class="min-h-screen safe-top safe-bottom" style="background-color: var(--bg-primary); color: var(--text-primary);">
+        <Show when={error()}>
+          <div class="fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50" style="background-color: var(--danger); color: var(--text-primary);">
+            {error()}
+          </div>
+        </Show>
+        
+        <Show when={isInitialized()} fallback={
+          <div class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+              <div class="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-4"
+                   style="border-color: var(--border-primary); border-top-color: transparent;"></div>
+              <p style="font-size: 1.25rem;">Initializing secure vault...</p>
             </div>
-          </Show>
-          
-          <Show when={isInitialized()} fallback={
-            <div class="flex items-center justify-center min-h-screen">
-              <div class="text-center">
-                <div class="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-4"
-                     style="border-color: var(--border-primary); border-top-color: transparent;"></div>
-                <p class="text-xl">Initializing secure vault...</p>
-              </div>
-            </div>
-          }>
-            {props.children}
-          </Show>
-        </div>
-      </VaultProvider>
-    </ThemeProvider>
+          </div>
+        }>
+          {props.children}
+        </Show>
+      </div>
+    </VaultProvider>
   );
 };
 

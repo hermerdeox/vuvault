@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router';
 import { MetaProvider } from '@solidjs/meta';
 import { lazy } from 'solid-js';
+import { ThemeProvider } from './context/ThemeContext';
 import '@unocss/reset/tailwind.css';
 import 'virtual:uno.css';
 import './styles/global.css';
@@ -35,12 +36,14 @@ if ('serviceWorker' in navigator) {
 }
 
 render(() => (
-  <MetaProvider>
-    <Router root={AppWrapper}>
-      <Route path="/" component={Landing} />
-      <Route path="/login" component={Login} />
-      <Route path="/vault" component={Vault} />
-      <Route path="/settings" component={Settings} />
-    </Router>
-  </MetaProvider>
+  <ThemeProvider>
+    <MetaProvider>
+      <Router root={AppWrapper}>
+        <Route path="/" component={Landing} />
+        <Route path="/login" component={Login} />
+        <Route path="/vault" component={Vault} />
+        <Route path="/settings" component={Settings} />
+      </Router>
+    </MetaProvider>
+  </ThemeProvider>
 ), root);

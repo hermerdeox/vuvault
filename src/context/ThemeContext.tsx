@@ -20,7 +20,17 @@ export const ThemeProvider: ParentComponent = (props) => {
     if (savedTheme === 'light') {
       setTheme('light');
       document.documentElement.classList.add('light-theme');
+    } else {
+      // Ensure dark theme is explicitly set
+      setTheme('dark');
+      document.documentElement.classList.remove('light-theme');
     }
+    
+    // Force a repaint to ensure theme is applied
+    document.body.style.display = 'none';
+    setTimeout(() => {
+      document.body.style.display = '';
+    }, 0);
   });
   
   const toggleTheme = () => {
