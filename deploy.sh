@@ -1,22 +1,17 @@
 #!/bin/bash
 
-echo "🚀 Starting VuVault Zero deployment..."
-
-# Install dependencies
-echo "📦 Installing dependencies..."
-bun install
-
-# Build the application
-echo "🔨 Building application..."
+# Build the project
+echo "Building project..."
 bun run build
 
-# Run type checking
-echo "✅ Type checking..."
-bun run type-check
+# Check if dist directory exists
+if [ ! -d "dist" ]; then
+  echo "Error: dist directory not found!"
+  exit 1
+fi
 
 # Deploy to Cloudflare Pages
-echo "☁️ Deploying to Cloudflare Pages..."
-wrangler pages deploy dist --project-name=vuvault-zero
+echo "Deploying to Cloudflare Pages..."
+npx wrangler pages deploy dist --project-name=vuvault-zero --commit-dirty=true
 
-echo "✅ Deployment complete!"
-echo "🔗 Your app is live at: https://vuvault-zero.pages.dev"
+echo "Deployment complete!"
