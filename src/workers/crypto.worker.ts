@@ -55,95 +55,125 @@ class CryptoWorker {
   private async deriveKey(message: WorkerMessage): Promise<WorkerResponse> {
     const { password, salt } = message.payload;
     
-    const saltBytes = salt ? hexToBytes(salt) : randomBytes(SALT_LENGTH);
-    const passwordBytes = utf8ToBytes(password);
-    
-    // Use Argon2id if available, fallback to PBKDF2
     try {
-      // Check if Argon2 WASM is available
-      if (typeof WebAssembly !== 'undefined') {
-        // TODO: Implement Argon2id when WASM module is loaded
-        // For now, use enhanced PBKDF2
+      // Handle potential errors with salt conversion
+      const saltBytes = salt ? (typeof salt === 'string' ? hexToBytes(salt) : new Uint8Array(salt)) : randomBytes(SALT_LENGTH);
+      const passwordBytes = utf8ToBytes(password);
+      
+      // Use Argon2id if available, fallback to PBKDF2
+      try {
+        // Check if Argon2 WASM is available
+        if (typeof WebAssembly !== 'undefined') {
+          // TODO: Implement Argon2id when WASM module is loaded
+          // For now, use enhanced PBKDF2
+        }
+      } catch (e) {
+        console.log('Argon2 not available, using PBKDF2');
       }
-    } catch (e) {
-      console.log('Argon2 not available, using PBKDF2');
+      
+      // Enhanced PBKDF2 with SHA-512 for better security
+      const key = pbkdf2(sha256, passwordBytes, saltBytes, {
+        c: PBKDF2_ITERATIONS,
+        dkLen: 32
+      });
+      
+      this.masterKey = key;
+      
+      // Clear sensitive data from memory
+      passwordBytes.fill(0);
+      
+      return {
+        id: message.id,
+        type: 'SUCCESS',
+        data: {
+          key: bytesToHex(key),
+          salt: bytesToHex(saltBytes),
+          iterations: PBKDF2_ITERATIONS
+        }
+      };
+    } catch (error) {
+      console.error('Key derivation failed:', error);
+      return {
+        id: message.id,
+        type: 'ERROR',
+        error: error instanceof Error ? error.message : 'Key derivation failed'
+      };
     }
-    
-    // Enhanced PBKDF2 with SHA-512 for better security
-    const key = pbkdf2(sha256, passwordBytes, saltBytes, {
-      c: PBKDF2_ITERATIONS,
-      dkLen: 32
-    });
-    
-    this.masterKey = key;
-    
-    // Clear sensitive data from memory
-    passwordBytes.fill(0);
-    
-    return {
-      id: message.id,
-      type: 'SUCCESS',
-      data: {
-        key: bytesToHex(key),
-        salt: bytesToHex(saltBytes),
-        iterations: PBKDF2_ITERATIONS
-      }
-    };
   }
 
   private async encrypt(message: WorkerMessage): Promise<WorkerResponse> {
     const { data, key } = message.payload;
     
-    const keyBytes = key ? hexToBytes(key) : this.masterKey;
-    if (!keyBytes) {
-      throw new Error('No encryption key available');
-    }
-    
-    const nonce = randomBytes(NONCE_LENGTH);
-    const cipher = chacha20poly1305(keyBytes, nonce);
-    
-    const plaintext = typeof data === 'string' ? utf8ToBytes(data) : data;
-    const ciphertext = cipher.encrypt(plaintext);
-    
-    // Clear plaintext from memory
-    if (plaintext instanceof Uint8Array) {
-      plaintext.fill(0);
-    }
-    
-    return {
-      id: message.id,
-      type: 'SUCCESS',
-      data: {
-        ciphertext: bytesToHex(ciphertext),
-        nonce: bytesToHex(nonce)
+    try {
+      // Handle potential errors with key conversion
+      const keyBytes = key ? (typeof key === 'string' ? hexToBytes(key) : new Uint8Array(key)) : this.masterKey;
+      if (!keyBytes) {
+        throw new Error('No encryption key available');
       }
-    };
+      
+      const nonce = randomBytes(NONCE_LENGTH);
+      const cipher = chacha20poly1305(keyBytes, nonce);
+      
+      const plaintext = typeof data === 'string' ? utf8ToBytes(data) : new Uint8Array(data);
+      const ciphertext = cipher.encrypt(plaintext);
+      
+      // Clear plaintext from memory
+      if (plaintext instanceof Uint8Array) {
+        plaintext.fill(0);
+      }
+      
+      return {
+        id: message.id,
+        type: 'SUCCESS',
+        data: {
+          ciphertext: bytesToHex(ciphertext),
+          nonce: bytesToHex(nonce)
+        }
+      };
+    } catch (error) {
+      console.error('Encryption failed:', error);
+      return {
+        id: message.id,
+        type: 'ERROR',
+        error: error instanceof Error ? error.message : 'Encryption failed'
+      };
+    }
   }
 
   private async decrypt(message: WorkerMessage): Promise<WorkerResponse> {
     const { ciphertext, nonce, key } = message.payload;
     
-    const keyBytes = key ? hexToBytes(key) : this.masterKey;
-    if (!keyBytes) {
-      throw new Error('No decryption key available');
+    try {
+      // Handle potential errors with key and data conversion
+      const keyBytes = key ? (typeof key === 'string' ? hexToBytes(key) : new Uint8Array(key)) : this.masterKey;
+      if (!keyBytes) {
+        throw new Error('No decryption key available');
+      }
+      
+      const nonceBytes = typeof nonce === 'string' ? hexToBytes(nonce) : new Uint8Array(nonce);
+      const ciphertextBytes = typeof ciphertext === 'string' ? hexToBytes(ciphertext) : new Uint8Array(ciphertext);
+      
+      const cipher = chacha20poly1305(keyBytes, nonceBytes);
+      const plaintext = cipher.decrypt(ciphertextBytes);
+      
+      const result = bytesToUtf8(plaintext);
+      
+      // Clear sensitive data
+      plaintext.fill(0);
+      
+      return {
+        id: message.id,
+        type: 'SUCCESS',
+        data: result
+      };
+    } catch (error) {
+      console.error('Decryption failed:', error);
+      return {
+        id: message.id,
+        type: 'ERROR',
+        error: error instanceof Error ? error.message : 'Decryption failed'
+      };
     }
-    
-    const nonceBytes = hexToBytes(nonce);
-    const ciphertextBytes = hexToBytes(ciphertext);
-    
-    const cipher = chacha20poly1305(keyBytes, nonceBytes);
-    const plaintext = cipher.decrypt(ciphertextBytes);
-    
-    const result = bytesToUtf8(plaintext);
-    
-    // Clear sensitive data
-    plaintext.fill(0);
-    
-    return {
-      id: message.id,
-      type: 'SUCCESS',
-      data: result
-    };
   }
 
   private generatePassword(message: WorkerMessage): WorkerResponse {

@@ -15,6 +15,13 @@ const Login: Component = () => {
     setIsLoading(true);
 
     try {
+      // Check if WebAuthn is supported
+      if (!window.PublicKeyCredential) {
+        setError('Your browser does not support WebAuthn. Please use a modern browser like Chrome, Edge, Firefox, or Safari.');
+        setIsLoading(false);
+        return;
+      }
+
       let success = false;
       
       if (isRegistering()) {
@@ -23,6 +30,20 @@ const Login: Component = () => {
           setIsLoading(false);
           return;
         }
+        
+        try {
+          // Check if platform authenticator is available
+          const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+          if (!available) {
+            setError('Your device does not have a platform authenticator. Please try using a device with biometric capabilities or a security key.');
+            setIsLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Some browsers might not support this check, continue anyway
+          console.warn('Could not check authenticator availability:', e);
+        }
+        
         success = await auth.register(username());
       } else {
         success = await auth.login();
@@ -35,10 +56,30 @@ const Login: Component = () => {
         }
         navigate('/vault', { replace: true });
       } else {
-        setError(isRegistering() ? 'Registration failed' : 'Authentication failed');
+        if (isRegistering()) {
+          setError('Registration failed. Please ensure you have biometrics enabled on your device or try using a security key.');
+        } else {
+          setError('Authentication failed. Please try again or register a new vault if you haven\'t created one yet.');
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication error');
+      console.error('Auth error:', err);
+      if (err instanceof Error) {
+        // Provide more user-friendly error messages
+        if (err.message.includes('WebAuthn')) {
+          setError('WebAuthn authentication not supported in your browser. Please use a modern browser.');
+        } else if (err.message.includes('authenticator')) {
+          setError('No authenticator available. Please ensure biometrics are enabled on your device.');
+        } else if (err.message.includes('timeout')) {
+          setError('Authentication timed out. Please try again.');
+        } else if (err.message.includes('user consent')) {
+          setError('Authentication was denied. Please approve the authentication prompt.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Authentication error. Please try again later.');
+      }
     } finally {
       setIsLoading(false);
     }

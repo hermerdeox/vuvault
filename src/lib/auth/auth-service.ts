@@ -47,14 +47,37 @@ export class AuthService {
 
   async register(username: string): Promise<boolean> {
     try {
+      // Check if WebAuthn is available
+      if (!window.PublicKeyCredential) {
+        console.error('WebAuthn not supported in this browser');
+        throw new Error('WebAuthn not supported in this browser');
+      }
+
+      // Check if authenticator is available
+      try {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (!available) {
+          console.error('Platform authenticator not available');
+          throw new Error('Platform authenticator not available');
+        }
+      } catch (e) {
+        console.warn('Could not check authenticator availability:', e);
+        // Continue anyway as some browsers might not support this check
+      }
+
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
 
+      // Convert challenge to base64 format for better compatibility
+      const challengeBase64 = btoa(String.fromCharCode(...challenge));
+
+      // Use a more compatible configuration
       const publicKeyCredentialCreationOptions = {
-        challenge: Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''),
+        challenge: challengeBase64,
         rp: {
           name: 'VuVault Zero',
-          id: location.hostname
+          // Use effective domain without port for better compatibility
+          id: location.hostname.includes('localhost') ? 'localhost' : location.hostname
         },
         user: {
           id: btoa(username),
@@ -62,22 +85,27 @@ export class AuthService {
           displayName: username
         },
         pubKeyCredParams: [
-          { alg: -7, type: 'public-key' as const },
-          { alg: -257, type: 'public-key' as const }
+          { alg: -7, type: 'public-key' as const },  // ES256
+          { alg: -257, type: 'public-key' as const } // RS256
         ],
         authenticatorSelection: {
+          // Allow both platform and cross-platform authenticators
           authenticatorAttachment: 'platform' as const,
-          userVerification: 'required' as const,
-          requireResidentKey: true,
-          residentKey: 'required' as const
+          userVerification: 'preferred' as const,  // Changed from required to preferred
+          requireResidentKey: false,  // Changed from true to false
+          residentKey: 'preferred' as const  // Changed from required to preferred
         },
         timeout: 60000,
-        attestation: 'direct' as const
+        attestation: 'none' as const  // Changed from direct to none for better privacy
       };
 
+      console.log('Starting WebAuthn registration with options:', publicKeyCredentialCreationOptions);
+      
       const credential = await startRegistration({ 
         optionsJSON: publicKeyCredentialCreationOptions 
       });
+
+      console.log('Registration successful, credential:', credential);
 
       // Store credential
       const db = DatabaseService.getInstance();
@@ -100,19 +128,32 @@ export class AuthService {
 
   async login(): Promise<boolean> {
     try {
+      // Check if WebAuthn is available
+      if (!window.PublicKeyCredential) {
+        console.error('WebAuthn not supported in this browser');
+        throw new Error('WebAuthn not supported in this browser');
+      }
+
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
 
+      // Convert challenge to base64 format for better compatibility
+      const challengeBase64 = btoa(String.fromCharCode(...challenge));
+
       const publicKeyCredentialRequestOptions = {
-        challenge: Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''),
+        challenge: challengeBase64,
         timeout: 60000,
-        userVerification: 'required' as const,
-        rpId: location.hostname
+        userVerification: 'preferred' as const, // Changed from required to preferred
+        rpId: location.hostname.includes('localhost') ? 'localhost' : location.hostname
       };
+
+      console.log('Starting WebAuthn authentication with options:', publicKeyCredentialRequestOptions);
 
       const assertion = await startAuthentication({
         optionsJSON: publicKeyCredentialRequestOptions
       });
+
+      console.log('Authentication successful, assertion:', assertion);
 
       // Verify credential
       if (assertion) {
