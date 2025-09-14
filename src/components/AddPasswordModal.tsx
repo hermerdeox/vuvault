@@ -53,7 +53,7 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
       // Show loading spinner
       setIsLoading(true);
       
-      await loadingController.withLoading(async () => {
+      try {
         console.log('Creating vault item...');
         const vaultItem: VaultItem = {
           service: service(),
@@ -69,13 +69,44 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
 
         console.log('Vault item:', vaultItem);
 
+        // Use a more robust approach for mobile PWA
         if (props.item?.id) {
           vaultItem.id = props.item.id;
           console.log('Updating item...');
           await updateVaultItem(vaultItem);
+          console.log('Item updated successfully');
         } else {
           console.log('Adding new item...');
-          await addVaultItem(vaultItem);
+          // Ensure we have a master key before attempting to save
+          const { getMasterKey, setMasterKey } = await import('../lib/db/database');
+          const masterKey = await getMasterKey();
+          
+          if (!masterKey) {
+            console.log('No master key found, creating one...');
+            // Generate a secure master key
+            const randomKey = window.crypto.getRandomValues(new Uint8Array(32))
+              .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
+            await setMasterKey(randomKey);
+            console.log('Master key created successfully');
+          }
+          
+          // Add with retry logic for mobile PWA
+          let attempts = 0;
+          let success = false;
+          
+          while (attempts < 3 && !success) {
+            try {
+              await addVaultItem(vaultItem);
+              success = true;
+              console.log('Item added successfully');
+            } catch (e) {
+              attempts++;
+              console.error(`Attempt ${attempts} failed:`, e);
+              if (attempts >= 3) throw e;
+              // Wait a bit before retrying
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
         }
 
         console.log('Success! Resetting form...');
@@ -89,11 +120,16 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
         setTags([]);
         setCurrentStep(1);
         props.onClose();
-      }, 'Saving password...');
+      } catch (error) {
+        console.error('Error saving item:', error);
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
       
     } catch (error) {
       console.error('Error in handleSubmit:', error);
-      alert('Failed to save password: ' + (error as Error).message);
+      alert('Failed to save password: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsLoading(false);
     }
@@ -142,20 +178,22 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
       
       {/* Mobile Modal (320px - 767px) - Full Screen NO SCROLL */}
       <div class="fixed inset-0 bg-black z-50 md:hidden flex flex-col">
-        {/* Fixed Header */}
-        <header class="h-14 bg-black border-b border-white/10 flex items-center justify-between px-4 flex-shrink-0">
-          <button
-            onClick={props.onClose}
-            class="w-10 h-10 flex items-center justify-center text-white/40"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h2 class="text-xs font-light text-white/80 tracking-widest">
-            {props.item ? 'EDIT' : 'NEW'} • STEP {currentStep()} OF 3
-          </h2>
-          <div class="w-10"></div>
+        {/* Fixed Header with safe area insets */}
+        <header class="bg-black border-b border-white/10 flex items-center justify-between px-4 flex-shrink-0 pt-safe">
+          <div class="h-14 w-full flex items-center justify-between">
+            <button
+              onClick={props.onClose}
+              class="w-10 h-10 flex items-center justify-center text-white/40"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <h2 class="text-xs font-light text-white/80 tracking-widest">
+              {props.item ? 'EDIT' : 'NEW'} • STEP {currentStep()} OF 3
+            </h2>
+            <div class="w-10"></div>
+          </div>
         </header>
 
         {/* Step Indicator */}
@@ -313,33 +351,35 @@ const AddPasswordModal: Component<AddPasswordModalProps> = (props) => {
           )}
         </div>
 
-        {/* Fixed Footer Actions */}
-        <div class="h-16 bg-black border-t border-white/10 px-4 flex items-center gap-3 flex-shrink-0">
-          {currentStep() > 1 && (
-            <button
-              type="button"
-              onClick={prevStep}
-              class="flex-1 h-11 border border-white/10 text-white/60 font-light text-xs tracking-wider"
-            >
-              BACK
-            </button>
-          )}
-          {currentStep() < 3 ? (
-            <button
-              type="button"
-              onClick={nextStep}
-              class="flex-1 h-11 border border-white/20 text-white/80 font-light text-xs tracking-wider"
-            >
-              NEXT
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              class="flex-1 h-11 border border-white/20 text-white/80 bg-white/5 font-light text-xs tracking-wider"
-            >
-              {props.item ? 'UPDATE' : 'CREATE'}
-            </button>
-          )}
+        {/* Fixed Footer Actions with safe area insets */}
+        <div class="bg-black border-t border-white/10 px-4 flex items-center gap-3 flex-shrink-0 pb-safe">
+          <div class="h-16 w-full flex items-center gap-3">
+            {currentStep() > 1 && (
+              <button
+                type="button"
+                onClick={prevStep}
+                class="flex-1 h-11 border border-white/10 text-white/60 font-light text-xs tracking-wider"
+              >
+                BACK
+              </button>
+            )}
+            {currentStep() < 3 ? (
+              <button
+                type="button"
+                onClick={nextStep}
+                class="flex-1 h-11 border border-white/20 text-white/80 font-light text-xs tracking-wider"
+              >
+                NEXT
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                class="flex-1 h-11 border border-white/20 text-white/80 bg-white/5 font-light text-xs tracking-wider"
+              >
+                {props.item ? 'UPDATE' : 'CREATE'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

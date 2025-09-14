@@ -45,9 +45,9 @@ const Vault: Component = () => {
       </Show>
 
       <div class="min-h-screen bg-black text-white">
-      {/* Header - Following Design System */}
-      <header class="fixed top-0 left-0 right-0 h-16 z-50 bg-black">
-        <div class="max-w-7xl mx-auto px-8 h-full flex items-center justify-between">
+      {/* Header - Following Design System with safe area insets for notch */}
+      <header class="fixed top-0 left-0 right-0 z-50 bg-black pt-safe">
+        <div class="h-16 max-w-7xl mx-auto px-8 flex items-center justify-between">
           <div class="flex items-center">
             <div class="w-8 h-8 border border-white/20 flex items-center justify-center">
               <span class="text-white/80 font-light text-sm">V</span>
@@ -86,7 +86,7 @@ const Vault: Component = () => {
         </div>
       </header>
 
-      <main class="pt-20 pb-8 px-6 md:px-8 max-w-7xl mx-auto">
+      <main class="pt-28 pb-8 px-6 md:px-8 max-w-7xl mx-auto">
         {/* Search and Add - Design System Spacing */}
         <div class="flex items-center gap-4 mb-12">
           <div class="flex-1 max-w-md">
