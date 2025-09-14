@@ -134,17 +134,21 @@ export default defineConfig({
     reportCompressedSize: false
   },
   server: {
-    port: 3005,
-    host: true,
+    port: 5173,
+    host: '0.0.0.0',
     open: false,
     cors: true,
     hmr: {
-      overlay: true
+      overlay: true,
+      clientPort: 5173
+    },
+    watch: {
+      usePolling: true
     }
   },
   preview: {
-    port: 3006,
-    host: true
+    port: 5173,
+    host: '0.0.0.0'
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
