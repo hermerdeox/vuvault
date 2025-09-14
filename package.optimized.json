@@ -1,0 +1,72 @@
+{
+  "name": "eoxvault-zero",
+  "version": "2.0.0",
+  "description": "Ultra-secure, offline-first password manager PWA with zero-knowledge architecture",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.optimized.ts",
+    "build": "vite build --config vite.config.optimized.ts",
+    "build:analyze": "ANALYZE=true vite build --config vite.config.optimized.ts",
+    "preview": "vite preview --config vite.config.optimized.ts",
+    "deploy": "bun run build && wrangler pages deploy dist --project-name=eoxvault-zero",
+    "deploy:staging": "bun run build && wrangler pages deploy dist --project-name=eoxvault-zero --env=staging",
+    "test": "bun test",
+    "test:security": "bun test src/**/*.security.test.ts",
+    "test:perf": "bun test src/**/*.perf.test.ts",
+    "test:coverage": "bun test --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "audit": "bun audit",
+    "audit:fix": "bun audit --fix",
+    "optimize": "bun run build && bun run analyze",
+    "analyze": "bun run build:analyze && open dist/stats.html",
+    "lighthouse": "lighthouse http://localhost:3006 --view",
+    "monitor": "bun run lighthouse && bun run test:perf",
+    "clean": "rm -rf dist node_modules .turbo",
+    "reinstall": "bun run clean && bun install"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^0.5.3",
+    "@noble/hashes": "^1.4.0",
+    "@simplewebauthn/browser": "^10.0.0",
+    "@solidjs/router": "^0.14.1",
+    "dexie": "^4.0.8",
+    "solid-js": "^1.8.22"
+  },
+  "devDependencies": {
+    "@simplewebauthn/types": "^10.0.0",
+    "@types/bun": "^1.1.8",
+    "@types/node": "^22.5.4",
+    "@typescript-eslint/eslint-plugin": "^8.4.0",
+    "@typescript-eslint/parser": "^8.4.0",
+    "eslint": "^9.10.0",
+    "eslint-plugin-solid": "^0.14.3",
+    "lighthouse": "^12.2.0",
+    "lightningcss": "^1.26.0",
+    "rollup-plugin-visualizer": "^5.12.0",
+    "terser": "^5.31.6",
+    "typescript": "^5.5.4",
+    "unocss": "^0.62.3",
+    "vite": "^5.4.3",
+    "vite-plugin-compression2": "^1.2.0",
+    "vite-plugin-pwa": "^0.20.5",
+    "vite-plugin-solid": "^2.10.2",
+    "vite-plugin-top-level-await": "^1.4.4",
+    "vite-plugin-wasm": "^3.3.0",
+    "workbox-window": "^7.1.0",
+    "wrangler": "^3.75.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.1.0"
+  },
+  "browserslist": [
+    "last 2 Chrome versions",
+    "last 2 Firefox versions",
+    "last 2 Safari versions",
+    "last 2 Edge versions",
+    "iOS >= 14",
+    "Android >= 10"
+  ],
+  "packageManager": "bun@1.1.29"
+}

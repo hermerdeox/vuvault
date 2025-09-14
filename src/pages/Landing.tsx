@@ -1,10 +1,47 @@
-import { Component } from 'solid-js';
+import { Component, createSignal, onMount, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
+import OnboardingFlow from '../components/OnboardingFlow';
 
 const Landing: Component = () => {
   const navigate = useNavigate();
+  const [showOnboarding, setShowOnboarding] = createSignal(false);
+  const [isFirstTime, setIsFirstTime] = createSignal(false);
+
+  onMount(() => {
+    // Check if user has completed onboarding
+    const hasCompletedOnboarding = localStorage.getItem('vuvault_onboarding_completed');
+    const hasExistingVault = localStorage.getItem('vuvault_has_vault');
+    
+    // Show onboarding for first-time users
+    if (!hasCompletedOnboarding && !hasExistingVault) {
+      setIsFirstTime(true);
+    }
+  });
+
+  const handleStartOnboarding = () => {
+    setShowOnboarding(true);
+  };
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    navigate('/login');
+  };
+
+  const handleEnterVault = () => {
+    if (isFirstTime()) {
+      handleStartOnboarding();
+    } else {
+      navigate('/login');
+    }
+  };
 
   return (
+    <>
+      <Show when={showOnboarding()}>
+        <OnboardingFlow onComplete={handleOnboardingComplete} />
+      </Show>
+      
+      <Show when={!showOnboarding()}>
     <div class="min-h-screen bg-black text-white flex flex-col">
       {/* Minimal Navigation */}
       <header class="absolute top-0 left-0 right-0 z-50 p-8">
@@ -13,7 +50,7 @@ const Landing: Component = () => {
             <div class="w-8 h-8 border border-white/20 rounded flex items-center justify-center">
               <span class="text-white/80 font-light text-sm">V</span>
             </div>
-            <span class="text-white/80 font-light tracking-wider text-sm">EOXVAULT</span>
+            <span class="text-white/80 font-light tracking-wider text-sm">VUVAULT</span>
           </div>
         </nav>
       </header>
@@ -35,14 +72,14 @@ const Landing: Component = () => {
           </h1>
           
           <p class="text-white/60 text-lg font-light mb-12 max-w-md mx-auto leading-relaxed">
-            Zero-knowledge password management with military-grade encryption.
+            Zero-Knowledge Architecture With Advanced Cryptographic Protection.
           </p>
 
           <button
-            onClick={() => navigate('/login')}
+            onClick={handleEnterVault}
             class="group relative px-12 py-4 text-sm tracking-wider font-light border border-white/20 rounded-none hover:border-white/40 transition-all duration-500"
           >
-            <span class="relative z-10">ENTER VAULT</span>
+            <span class="relative z-10">{isFirstTime() ? 'GET STARTED' : 'ENTER VAULT'}</span>
             <div class="absolute inset-0 bg-white/5 scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"></div>
           </button>
 
@@ -67,10 +104,12 @@ const Landing: Component = () => {
       {/* Minimal Footer */}
       <footer class="p-8">
         <div class="max-w-7xl mx-auto text-center">
-          <p class="text-white/20 text-xs font-light tracking-wider">© 2024 EOXVAULT ZERO</p>
+          <p class="text-white/20 text-xs font-light tracking-wider">© 2024 VUVAULT ZERO</p>
         </div>
       </footer>
     </div>
+      </Show>
+    </>
   );
 };
 

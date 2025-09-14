@@ -154,9 +154,17 @@ export class CryptoService {
   calculatePasswordStrength(password: string): {
     score: number;
     feedback: string[];
+    timeToBreak: string;
   } {
     const feedback: string[] = [];
     let score = 0;
+    let charsetSize = 0;
+    
+    // Calculate charset size for entropy calculation
+    if (/[a-z]/.test(password)) charsetSize += 26;
+    if (/[A-Z]/.test(password)) charsetSize += 26;
+    if (/[0-9]/.test(password)) charsetSize += 10;
+    if (/[^a-zA-Z0-9]/.test(password)) charsetSize += 32; // Common special chars
 
     // Length check
     if (password.length >= 12) score += 25;
@@ -189,6 +197,39 @@ export class CryptoService {
       score = Math.max(0, score - 20);
     }
 
-    return { score: Math.min(100, score), feedback };
+    // Calculate entropy and time to break
+    const entropy = password.length * Math.log2(charsetSize || 1);
+    let timeToBreak: string;
+    
+    // Assuming 1 trillion (10^12) guesses per second with modern GPUs
+    const guessesPerSecond = 1e12;
+    const totalCombinations = Math.pow(2, entropy);
+    const secondsToBreak = totalCombinations / (2 * guessesPerSecond); // Average case
+    
+    if (secondsToBreak < 1) {
+      timeToBreak = "INSTANT";
+    } else if (secondsToBreak < 60) {
+      timeToBreak = `${Math.round(secondsToBreak)} SECONDS`;
+    } else if (secondsToBreak < 3600) {
+      timeToBreak = `${Math.round(secondsToBreak / 60)} MINUTES`;
+    } else if (secondsToBreak < 86400) {
+      timeToBreak = `${Math.round(secondsToBreak / 3600)} HOURS`;
+    } else if (secondsToBreak < 2592000) {
+      timeToBreak = `${Math.round(secondsToBreak / 86400)} DAYS`;
+    } else if (secondsToBreak < 31536000) {
+      timeToBreak = `${Math.round(secondsToBreak / 2592000)} MONTHS`;
+    } else if (secondsToBreak < 31536000 * 100) {
+      timeToBreak = `${Math.round(secondsToBreak / 31536000)} YEARS`;
+    } else if (secondsToBreak < 31536000 * 1000000) {
+      const centuries = Math.round(secondsToBreak / (31536000 * 100));
+      timeToBreak = `${centuries} CENTURIES`;
+    } else if (secondsToBreak < 31536000 * 1000000000) {
+      const millennia = Math.round(secondsToBreak / (31536000 * 1000));
+      timeToBreak = `${millennia} MILLENNIA`;
+    } else {
+      timeToBreak = "HEAT DEATH OF UNIVERSE";
+    }
+
+    return { score: Math.min(100, score), feedback, timeToBreak };
   }
 }

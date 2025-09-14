@@ -1,12 +1,14 @@
-import { Component, createSignal } from 'solid-js';
+import { Component, createSignal, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { DatabaseService } from '../lib/db/database';
 import { AuthService } from '../lib/auth/auth-service';
+import { ImportModal } from '../components/ImportModal';
 
 const Settings: Component = () => {
   const navigate = useNavigate();
   const [isExporting, setIsExporting] = createSignal(false);
   const [isClearing, setIsClearing] = createSignal(false);
+  const [showImport, setShowImport] = createSignal(false);
   const db = DatabaseService.getInstance();
   const auth = AuthService.getInstance();
 
@@ -18,7 +20,7 @@ const Settings: Component = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `eoxvault-backup-${new Date().toISOString()}.json`;
+      a.download = `vuvault-backup-${new Date().toISOString()}.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -47,73 +49,84 @@ const Settings: Component = () => {
 
   return (
     <div class="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header class="border-b border-white/5 sticky top-0 bg-black/90 backdrop-blur-xl z-40">
-        <div class="max-w-3xl mx-auto px-6 py-4">
-          <div class="flex items-center justify-between">
-            <button
-              onClick={() => navigate('/vault')}
-              class="flex items-center space-x-3 text-white/40 hover:text-white/60 transition-colors duration-300"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 19l-7-7 7-7" />
-              </svg>
-              <span class="text-sm font-light tracking-wider">BACK</span>
-            </button>
-            
-            <h1 class="text-sm font-light tracking-wider text-white/80">SETTINGS</h1>
-            
-            <div class="w-16"></div> {/* Spacer for centering */}
-          </div>
+      {/* Header - Design System Compliant */}
+      <header class="fixed top-0 left-0 right-0 h-16 z-50 bg-black border-b border-white/5">
+        <div class="max-w-3xl mx-auto px-8 h-full flex items-center justify-between">
+          <button
+            onClick={() => navigate('/vault')}
+            class="flex items-center gap-3 text-white/40 hover:text-white/60 transition-all duration-300"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 19l-7-7 7-7" />
+            </svg>
+            <span class="text-xs font-light tracking-wider">BACK</span>
+          </button>
+          
+          <h1 class="text-xs font-light tracking-widest text-white/80">SETTINGS</h1>
+          
+          <div class="w-20"></div> {/* Spacer for centering */}
         </div>
       </header>
 
-      <main class="max-w-3xl mx-auto px-6 py-12">
+      <main class="pt-24 pb-12 px-6 md:px-8 max-w-3xl mx-auto">
         {/* Security Section */}
-        <section class="mb-12">
-          <h2 class="text-xs font-light tracking-widest text-white/40 mb-6">SECURITY</h2>
+        <section class="mb-16">
+          <h2 class="text-[10px] font-light tracking-widest text-white/30 mb-8">SECURITY</h2>
           
           <div class="space-y-px bg-white/5">
             <div class="bg-black p-6 flex items-center justify-between">
               <div>
-                <p class="text-white/90 font-light">Encryption</p>
-                <p class="text-white/40 text-sm font-light mt-1">ChaCha20-Poly1305</p>
+                <p class="text-white/80 font-light text-base">Encryption</p>
+                <p class="text-white/40 text-xs font-light mt-2">ChaCha20-Poly1305</p>
               </div>
-              <span class="text-green-500/60 text-xs font-light">ACTIVE</span>
+              <span class="text-green-500/60 text-[10px] font-light tracking-widest">ACTIVE</span>
             </div>
             
             <div class="bg-black p-6 flex items-center justify-between">
               <div>
-                <p class="text-white/90 font-light">Biometric Authentication</p>
-                <p class="text-white/40 text-sm font-light mt-1">WebAuthn with device credentials</p>
+                <p class="text-white/80 font-light text-base">Biometric Authentication</p>
+                <p class="text-white/40 text-xs font-light mt-2">WebAuthn with device credentials</p>
               </div>
-              <span class="text-green-500/60 text-xs font-light">ENABLED</span>
+              <span class="text-green-500/60 text-[10px] font-light tracking-widest">ENABLED</span>
             </div>
             
             <div class="bg-black p-6 flex items-center justify-between">
               <div>
-                <p class="text-white/90 font-light">Zero-Knowledge Architecture</p>
-                <p class="text-white/40 text-sm font-light mt-1">All encryption happens locally</p>
+                <p class="text-white/80 font-light text-base">Zero-Knowledge Architecture</p>
+                <p class="text-white/40 text-xs font-light mt-2">All encryption happens locally</p>
               </div>
-              <span class="text-green-500/60 text-xs font-light">VERIFIED</span>
+              <span class="text-green-500/60 text-[10px] font-light tracking-widest">VERIFIED</span>
             </div>
           </div>
         </section>
 
         {/* Data Management Section */}
-        <section class="mb-12">
-          <h2 class="text-xs font-light tracking-widest text-white/40 mb-6">DATA MANAGEMENT</h2>
+        <section class="mb-16">
+          <h2 class="text-[10px] font-light tracking-widest text-white/30 mb-8">DATA MANAGEMENT</h2>
           
           <div class="space-y-px bg-white/5">
             <div class="bg-black p-6 flex items-center justify-between">
               <div>
-                <p class="text-white/90 font-light">Export Vault</p>
-                <p class="text-white/40 text-sm font-light mt-1">Download encrypted backup</p>
+                <p class="text-white/80 font-light text-base">Import Passwords</p>
+                <p class="text-white/40 text-xs font-light mt-2">Import from other password managers</p>
+              </div>
+              <button
+                onClick={() => setShowImport(true)}
+                class="px-6 py-3 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-[10px] font-light tracking-widest transition-all duration-300"
+              >
+                IMPORT
+              </button>
+            </div>
+            
+            <div class="bg-black p-6 flex items-center justify-between">
+              <div>
+                <p class="text-white/80 font-light text-base">Export Vault</p>
+                <p class="text-white/40 text-xs font-light mt-2">Download encrypted backup</p>
               </div>
               <button
                 onClick={handleExport}
                 disabled={isExporting()}
-                class="px-4 py-2 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-xs font-light tracking-wider transition-all duration-300 disabled:opacity-50"
+                class="px-6 py-3 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-[10px] font-light tracking-widest transition-all duration-300 disabled:opacity-50"
               >
                 {isExporting() ? 'EXPORTING...' : 'EXPORT'}
               </button>
@@ -121,13 +134,13 @@ const Settings: Component = () => {
             
             <div class="bg-black p-6 flex items-center justify-between">
               <div>
-                <p class="text-white/90 font-light">Clear All Data</p>
-                <p class="text-white/40 text-sm font-light mt-1">Permanently delete all passwords</p>
+                <p class="text-white/80 font-light text-base">Clear All Data</p>
+                <p class="text-white/40 text-xs font-light mt-2">Permanently delete all passwords</p>
               </div>
               <button
                 onClick={handleClearData}
                 disabled={isClearing()}
-                class="px-4 py-2 border border-red-500/20 hover:border-red-500/40 text-red-500/60 hover:text-red-500/80 text-xs font-light tracking-wider transition-all duration-300 disabled:opacity-50"
+                class="px-6 py-3 border border-red-500/20 hover:border-red-500/40 text-red-500/60 hover:text-red-500/80 text-[10px] font-light tracking-widest transition-all duration-300 disabled:opacity-50"
               >
                 {isClearing() ? 'CLEARING...' : 'CLEAR'}
               </button>
@@ -137,36 +150,41 @@ const Settings: Component = () => {
 
         {/* About Section */}
         <section>
-          <h2 class="text-xs font-light tracking-widest text-white/40 mb-6">ABOUT</h2>
+          <h2 class="text-[10px] font-light tracking-widest text-white/30 mb-8">ABOUT</h2>
           
           <div class="space-y-px bg-white/5">
             <div class="bg-black p-6">
-              <p class="text-white/90 font-light">EOXVault Zero</p>
-              <p class="text-white/40 text-sm font-light mt-1">Version 1.0.0</p>
+              <p class="text-white/80 font-light text-base">VuVault Zero</p>
+              <p class="text-white/40 text-xs font-light mt-2">Version 1.0.0</p>
             </div>
             
             <div class="bg-black p-6">
-              <p class="text-white/90 font-light">Storage</p>
-              <p class="text-white/40 text-sm font-light mt-1">IndexedDB (Local Only)</p>
+              <p class="text-white/80 font-light text-base">Storage</p>
+              <p class="text-white/40 text-xs font-light mt-2">IndexedDB (Local Only)</p>
             </div>
             
             <div class="bg-black p-6">
-              <p class="text-white/90 font-light">Open Source</p>
-              <p class="text-white/40 text-sm font-light mt-1">MIT License</p>
+              <p class="text-white/80 font-light text-base">Open Source</p>
+              <p class="text-white/40 text-xs font-light mt-2">MIT License</p>
             </div>
           </div>
         </section>
 
         {/* Footer */}
         <div class="mt-24 text-center">
-          <p class="text-white/20 text-xs font-light">
-            Your data never leaves your device
+          <p class="text-white/20 text-[10px] font-light tracking-wider">
+            YOUR DATA NEVER LEAVES YOUR DEVICE
           </p>
-          <p class="text-white/10 text-xs font-light mt-2">
-            © 2024 EOXVAULT ZERO
+          <p class="text-white/10 text-[10px] font-light tracking-wider mt-4">
+            © 2024 VUVAULT ZERO
           </p>
         </div>
       </main>
+      
+      {/* Import Modal */}
+      <Show when={showImport()}>
+        <ImportModal onClose={() => setShowImport(false)} />
+      </Show>
     </div>
   );
 };
