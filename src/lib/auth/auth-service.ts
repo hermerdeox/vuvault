@@ -53,7 +53,7 @@ export class AuthService {
       const publicKeyCredentialCreationOptions = {
         challenge: Array.from(challenge, byte => byte.toString(16).padStart(2, '0')).join(''),
         rp: {
-          name: 'EOXVault Zero',
+          name: 'VuVault Zero',
           id: location.hostname
         },
         user: {

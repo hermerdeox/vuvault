@@ -1,0 +1,305 @@
+name = "eoxvault-zero"
+compatibility_date = "2025-09-13"
+compatibility_flags = ["nodejs_compat", "web_crypto_streams", "transformstream_enable_standard_constructor"]
+pages_build_output_dir = "dist"
+
+# Account and project settings
+[env.production]
+name = "eoxvault-zero"
+route = "eoxvault.com/*"
+
+[env.staging]
+name = "eoxvault-zero-staging"
+route = "staging.eoxvault.com/*"
+
+# Build configuration
+[build]
+command = "bun run build"
+watch_paths = ["src/**/*.{ts,tsx,css}", "public/**/*"]
+
+[build.upload]
+format = "modules"
+main = "./dist/_worker.js"
+
+# Site configuration
+[site]
+bucket = "./dist"
+include = ["**/*"]
+exclude = ["**/*.map", "**/stats.html", "**/*.br", "**/*.gz"]
+
+# Observability and monitoring
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[analytics]
+enabled = true
+
+[logpush]
+enabled = false
+
+# Performance optimizations
+[[rules]]
+type = "Basic"
+for = "/*"
+
+  [[rules.headers]]
+  for = "*.js"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "application/javascript; charset=utf-8"
+
+  [[rules.headers]]
+  for = "*.css"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "text/css; charset=utf-8"
+
+  [[rules.headers]]
+  for = "*.woff2"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "font/woff2"
+
+  [[rules.headers]]
+  for = "*.html"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Type = "text/html; charset=utf-8"
+
+  [[rules.headers]]
+  for = "/manifest.webmanifest"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=604800"
+    Content-Type = "application/manifest+json"
+
+  [[rules.headers]]
+  for = "/sw.js"
+  [rules.headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Type = "application/javascript; charset=utf-8"
+    Service-Worker-Allowed = "/"
+
+# Security headers - Enhanced for 2025
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Security headers
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    
+    # Permissions Policy - Restrictive for password manager
+    Permissions-Policy = """
+      accelerometer=(),
+      ambient-light-sensor=(),
+      autoplay=(),
+      battery=(),
+      camera=(),
+      display-capture=(),
+      document-domain=(),
+      encrypted-media=(),
+      execution-while-not-rendered=(),
+      execution-while-out-of-viewport=(),
+      fullscreen=(self),
+      gamepad=(),
+      geolocation=(),
+      gyroscope=(),
+      hid=(),
+      idle-detection=(),
+      local-fonts=(),
+      magnetometer=(),
+      microphone=(),
+      midi=(),
+      payment=(),
+      picture-in-picture=(),
+      publickey-credentials-get=(self),
+      screen-wake-lock=(),
+      serial=(),
+      speaker-selection=(),
+      sync-xhr=(),
+      usb=(),
+      web-share=(),
+      xr-spatial-tracking=()
+    """
+    
+    # Content Security Policy - Level 3 with strict settings
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'wasm-unsafe-eval';
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob:;
+      font-src 'self' data:;
+      connect-src 'self' https://api.pwnedpasswords.com https://cdn.jsdelivr.net;
+      worker-src 'self' blob:;
+      child-src 'none';
+      frame-src 'none';
+      frame-ancestors 'none';
+      form-action 'none';
+      base-uri 'self';
+      manifest-src 'self';
+      media-src 'none';
+      object-src 'none';
+      script-src-attr 'none';
+      style-src-attr 'unsafe-inline';
+      upgrade-insecure-requests;
+      block-all-mixed-content;
+      require-trusted-types-for 'script';
+      trusted-types default
+    """
+    
+    # CORS and Origin headers
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    
+    # Additional security headers
+    X-Permitted-Cross-Domain-Policies = "none"
+    X-DNS-Prefetch-Control = "off"
+    X-Download-Options = "noopen"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    
+    # Report endpoints
+    Report-To = """{"group":"default","max_age":31536000,"endpoints":[{"url":"https://eoxvault.report-uri.com/a/d/g"}],"include_subdomains":true}"""
+    NEL = """{"report_to":"default","max_age":31536000,"include_subdomains":true}"""
+
+# KV namespaces for enhanced features
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "rate_limit_namespace_id"
+preview_id = "rate_limit_preview_id"
+
+[[kv_namespaces]]
+binding = "SESSION_STORE"
+id = "session_store_namespace_id"
+preview_id = "session_store_preview_id"
+
+[[kv_namespaces]]
+binding = "BREACH_CACHE"
+id = "breach_cache_namespace_id"
+preview_id = "breach_cache_preview_id"
+
+# Durable Objects for future sync features
+[[durable_objects.bindings]]
+name = "SYNC_COORDINATOR"
+class_name = "SyncCoordinator"
+script_name = "eoxvault-sync-worker"
+
+# R2 bucket for encrypted backups (future feature)
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "eoxvault-backups"
+preview_bucket_name = "eoxvault-backups-preview"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "warn"
+ENABLE_ANALYTICS = "true"
+ENABLE_BREACH_CHECK = "true"
+MAX_LOGIN_ATTEMPTS = "5"
+SESSION_TIMEOUT_MINUTES = "15"
+PBKDF2_ITERATIONS = "310000"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+LOG_LEVEL = "info"
+ENABLE_ANALYTICS = "false"
+
+[env.development.vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+ENABLE_ANALYTICS = "false"
+
+# Rate limiting rules
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "rate_limit_namespace_id"
+simple_cache_namespace_id = "rate_limit_cache"
+
+# Browser rendering for future features
+[browser]
+binding = "BROWSER"
+
+# Queues for async operations
+[[queues.producers]]
+binding = "AUDIT_QUEUE"
+queue = "audit-events"
+
+[[queues.consumers]]
+queue = "audit-events"
+max_batch_size = 100
+max_batch_timeout = 30
+
+# Tail workers for logging
+[[tail_consumers]]
+service = "eoxvault-logger"
+
+# Service bindings for microservices architecture
+[[services]]
+binding = "AUTH_SERVICE"
+service = "eoxvault-auth"
+environment = "production"
+
+[[services]]
+binding = "CRYPTO_SERVICE"
+service = "eoxvault-crypto"
+environment = "production"
+
+# Secrets (use wrangler secret put)
+# HIBP_API_KEY
+# SENTRY_DSN
+# ANALYTICS_TOKEN
+
+# Triggers for scheduled tasks
+[[triggers.crons]]
+crons = ["0 0 * * *"] # Daily at midnight
+[[triggers.crons]]
+crons = ["*/15 * * * *"] # Every 15 minutes for session cleanup
+
+# AI bindings for future smart features
+[ai]
+binding = "AI"
+
+# Vectorize for future semantic search
+[[vectorize]]
+binding = "VECTOR_INDEX"
+index_name = "password-search-index"
+
+# Hyperdrive for database connections (future)
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "hyperdrive_config_id"
+
+# MTLS for enhanced security (enterprise)
+[mtls_certificates]
+binding = "MTLS"
+certificate_id = "mtls_cert_id"
+
+# Placement hints for performance
+[placement]
+mode = "smart"
+
+# Limits and quotas
+[limits]
+cpu_ms = 50
+memory_mb = 128
+
+# Compatibility settings
+[compatibility]
+node_compat = true
+
+# Deploy configuration
+[deploy]
+routes = ["eoxvault.com/*", "www.eoxvault.com/*"]
+exclude = ["*.map", "stats.html", "*.test.*", "*.spec.*"]
+
+# Preview settings
+[preview]
+ip = "0.0.0.0"
+port = 8787
+local_protocol = "https"
+upstream_protocol = "https"
+host = "localhost"

@@ -1,12 +1,12 @@
 {
-  "name": "eoxvault-zero",
+  "name": "vuvault-zero",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "deploy": "bun run build && wrangler pages deploy dist --project-name=eoxvault-zero",
+    "deploy": "bun run build && wrangler pages deploy dist --project-name=vuvault-zero",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -37,10 +37,12 @@
     "@unocss/preset-icons": "^66.5.1",
     "@unocss/preset-wind": "^66.5.1",
     "lightningcss": "^1.30.1",
+    "rollup-plugin-visualizer": "^6.0.3",
     "terser": "^5.44.0",
     "typescript": "^5.9.2",
     "unocss": "^66.5.1",
     "vite": "^7.1.5",
+    "vite-plugin-compression2": "^2.2.1",
     "vite-plugin-pwa": "^1.0.3",
     "vite-plugin-solid": "^2.11.8",
     "vite-plugin-top-level-await": "^1.6.0",

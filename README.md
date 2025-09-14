@@ -1,4 +1,4 @@
-# EOXVault Zero - Ultra-Secure Mobile Password Manager PWA
+# VuVault Zero - Ultra-Secure Mobile Password Manager PWA
 
 A production-ready, mobile-first password manager Progressive Web App (PWA) with biometric authentication and military-grade encryption.
 
@@ -24,7 +24,7 @@ A production-ready, mobile-first password manager Progressive Web App (PWA) with
 ```bash
 # Clone the repository
 git clone [repository-url]
-cd eoxvault-zero
+cd vuvault-zero
 
 # Install dependencies
 bun install
@@ -55,7 +55,7 @@ bun run deploy
 ./deploy.sh
 ```
 
-Your app will be available at: `https://eoxvault-zero.pages.dev`
+Your app will be available at: `https://vuvault-zero.pages.dev`
 
 ## 📱 Installation on Mobile
 
@@ -85,7 +85,7 @@ Your app will be available at: `https://eoxvault-zero.pages.dev`
 ## 🏗️ Architecture
 
 ```
-eoxvault-zero/
+vuvault-zero/
 ├── src/
 │   ├── components/        # UI components
 │   ├── context/          # React context providers

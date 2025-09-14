@@ -37,22 +37,22 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
   return (
     <div class="flex items-center justify-between">
       <div class="flex-1">
-        <div class="flex items-center space-x-4 mb-2">
-          <h3 class="text-white/90 font-light text-lg">{props.item.service}</h3>
-          <span class={`text-xs ${strength.color} font-light`}>{strength.text}</span>
+        <div class="flex items-center gap-4 mb-2">
+          <h3 class="text-white/80 font-light text-base tracking-wide">{props.item.service}</h3>
+          <span class={`text-[10px] ${strength.color} font-light tracking-widest`}>{strength.text}</span>
         </div>
-        <p class="text-white/40 text-sm font-light">{props.item.username}</p>
+        <p class="text-white/60 text-sm font-light">{props.item.username}</p>
         
         <Show when={props.item.url}>
-          <p class="text-white/20 text-xs font-light mt-1">{props.item.url}</p>
+          <p class="text-white/30 text-xs font-light mt-2">{props.item.url}</p>
         </Show>
       </div>
 
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center gap-2">
         {/* Copy Username */}
         <button
           onClick={() => copyToClipboard(props.item.username)}
-          class="p-2 text-white/30 hover:text-white/60 transition-colors duration-300"
+          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
           title="Copy username"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -63,7 +63,7 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Copy Password */}
         <button
           onClick={() => copyToClipboard(props.item.password)}
-          class="p-2 text-white/30 hover:text-white/60 transition-colors duration-300"
+          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
           title="Copy password"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,7 +74,7 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Show/Hide Password */}
         <button
           onClick={() => setShowPassword(!showPassword())}
-          class="p-2 text-white/30 hover:text-white/60 transition-colors duration-300"
+          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white/60 transition-all duration-300"
           title={showPassword() ? 'Hide password' : 'Show password'}
         >
           <Show
@@ -95,7 +95,7 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         {/* Delete */}
         <button
           onClick={handleDelete}
-          class="p-2 text-white/30 hover:text-red-500/60 transition-colors duration-300"
+          class="w-10 h-10 flex items-center justify-center text-white/20 hover:text-red-500/60 transition-all duration-300"
           title="Delete"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,15 +104,15 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         </button>
       </div>
 
-      {/* Password Display Overlay */}
+      {/* Password Display Overlay - Design System Modal */}
       <Show when={showPassword()}>
-        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowPassword(false)}>
-          <div class="bg-black border border-white/10 p-8 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <p class="text-white/40 text-xs font-light tracking-wider mb-4">PASSWORD</p>
-            <p class="font-mono text-white/90 text-lg break-all">{props.item.password}</p>
+        <div class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6" onClick={() => setShowPassword(false)}>
+          <div class="bg-black border border-white/20 p-8 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <p class="text-white/30 text-[10px] font-light tracking-widest mb-6">PASSWORD</p>
+            <p class="font-mono text-white/80 text-base leading-relaxed break-all mb-8">{props.item.password}</p>
             <button
               onClick={() => setShowPassword(false)}
-              class="mt-6 text-white/40 hover:text-white/60 text-xs font-light tracking-wider transition-colors duration-300"
+              class="w-full py-4 border border-white/20 hover:border-white/40 text-white/60 hover:text-white/80 text-xs font-light tracking-wider transition-all duration-300"
             >
               CLOSE
             </button>
@@ -120,10 +120,10 @@ const VaultItemCard: Component<VaultItemCardProps> = (props) => {
         </div>
       </Show>
 
-      {/* Copy Notification */}
+      {/* Copy Notification - Design System Toast */}
       <Show when={copied()}>
-        <div class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black border border-white/10 px-4 py-2 text-white/60 text-sm font-light z-50">
-          Copied to clipboard
+        <div class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-black border border-white/20 px-6 py-3 text-white/60 text-xs font-light tracking-wider z-50">
+          COPIED
         </div>
       </Show>
     </div>

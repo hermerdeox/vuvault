@@ -26,7 +26,7 @@ class VaultDatabase extends Dexie {
   settings!: Table<Settings>;
 
   constructor() {
-    super('EOXVaultDB');
+    super('VuVaultDB');
     
     this.version(1).stores({
       vaults: '++id, service, username, favorite, createdAt, updatedAt',
