@@ -89,16 +89,22 @@ html {
                sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  height: 100%;
+  position: fixed;
+  width: 100%;
+  touch-action: none;
 }
 
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  overflow-x: hidden;
-  min-height: 100vh;
-  position: relative;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  position: fixed;
   overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
+  -webkit-overflow-scrolling: none;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 

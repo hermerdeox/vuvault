@@ -44,7 +44,7 @@ const Landing: Component = () => {
       </Show>
       
       <Show when={!showOnboarding()}>
-    <div class="min-h-screen flex flex-col" style="background-color: var(--bg-primary); color: var(--text-primary);">
+    <div class="min-h-screen flex flex-col overflow-hidden" style="background-color: var(--bg-primary); color: var(--text-primary); max-height: 100vh; position: fixed; inset: 0;">
       {/* Minimal Navigation */}
       <header class="absolute top-0 left-0 right-0 z-50 p-8">
         <nav class="max-w-7xl mx-auto flex justify-between items-center">
@@ -80,7 +80,7 @@ const Landing: Component = () => {
       </header>
 
       {/* Minimal Hero */}
-      <main class="flex-1 flex items-center justify-center px-6">
+      <main class="flex-1 flex items-center justify-center px-6 overflow-hidden">
         <div class="text-center max-w-4xl mx-auto">
           {/* Subtle lock icon */}
           <div class="mb-12 inline-block">
@@ -92,9 +92,9 @@ const Landing: Component = () => {
           </div>
 
           <h1 style={{
-            fontSize: 'clamp(3rem, 7vw, 5rem)',
+            fontSize: 'clamp(2.5rem, 6vw, 5rem)',
             fontWeight: 'var(--font-thin)',
-            marginBottom: '1.5rem',
+            marginBottom: 'clamp(1rem, 3vh, 1.5rem)',
             letterSpacing: 'var(--tracking-tight)',
             color: 'var(--text-primary)'
           }}>
@@ -103,9 +103,9 @@ const Landing: Component = () => {
           
           <p style={{
             color: 'var(--text-tertiary)',
-            fontSize: '1.125rem',
+            fontSize: 'clamp(0.9rem, 2.5vw, 1.125rem)',
             fontWeight: 'var(--font-light)',
-            marginBottom: '3rem',
+            marginBottom: 'clamp(1.5rem, 4vh, 3rem)',
             maxWidth: '28rem',
             marginLeft: 'auto',
             marginRight: 'auto',
@@ -143,11 +143,12 @@ const Landing: Component = () => {
 
           {/* Minimal feature indicators */}
           <div style={{
-            marginTop: '6rem',
+            marginTop: 'clamp(2rem, 4vh, 6rem)',
             display: 'flex',
+            flexWrap: 'wrap',
             justifyContent: 'center',
-            gap: '3rem',
-            fontSize: '0.75rem',
+            gap: 'clamp(1rem, 3vw, 3rem)',
+            fontSize: '0.6rem', /* Reduced by 20% from 0.75rem */
             color: 'var(--text-muted)',
             fontWeight: 'var(--font-light)',
             letterSpacing: 'var(--tracking-widest)'
@@ -169,9 +170,9 @@ const Landing: Component = () => {
       </main>
 
       {/* Minimal Footer */}
-      <footer class="p-8">
+      <footer class="p-4 md:p-8 absolute bottom-0 left-0 right-0">
         <div class="max-w-7xl mx-auto text-center">
-          <p style="color: var(--text-muted); opacity: 0.5; font-size: 0.75rem; font-weight: var(--font-light); letter-spacing: var(--tracking-wider);">© 2024 VUVAULT ZERO</p>
+          <p style="color: var(--text-muted); opacity: 0.5; font-size: 0.75rem; font-weight: var(--font-light); letter-spacing: var(--tracking-wider);">© 2025 VUVAULT ZERO</p>
         </div>
       </footer>
     </div>
