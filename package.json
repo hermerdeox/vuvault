@@ -8,7 +8,11 @@
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "deploy": "bun run build && wrangler pages deploy dist --project-name=vuvault-zero",
-    "clean": "rm -rf dist .vite node_modules bun.lockb"
+    "deploy:cloudflare": "./deploy-cloudflare.sh",
+    "analyze": "vite build --mode analyze",
+    "clean": "rm -rf dist .vite node_modules bun.lockb",
+    "clean:cache": "rm -rf dist .vite",
+    "test:build": "bun run build && bun run preview"
   },
   "dependencies": {
     "@metamask/browser-passworder": "^6.0.0",

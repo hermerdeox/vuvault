@@ -1,0 +1,16 @@
+# Files to exclude from Cloudflare deployment
+test*.html
+test*.json
+*.backup.ts
+*.test.ts
+*.spec.ts
+emergency-fix.sh
+BUILD_*.md
+*_REPORT.md
+*_ANALYSIS.md
+*_STATUS.md
+IMPLEMENTATION_*.md
+PHASE*.md
+CREATE_*.md
+PROJECT_*.md
+SHARING_*.md
