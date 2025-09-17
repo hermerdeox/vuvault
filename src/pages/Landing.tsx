@@ -92,11 +92,12 @@ const Landing: Component = () => {
           </div>
 
           <h1 style={{
-            fontSize: 'clamp(2.5rem, 6vw, 5rem)',
+            fontSize: 'clamp(3.5rem, 10vw, 8rem)',
             fontWeight: 'var(--font-thin)',
-            marginBottom: 'clamp(1rem, 3vh, 1.5rem)',
+            marginBottom: 'clamp(1.5rem, 3vh, 2.5rem)',
             letterSpacing: 'var(--tracking-tight)',
-            color: 'var(--text-primary)'
+            color: 'var(--text-primary)',
+            lineHeight: '0.95'
           }}>
             Secure.<span style="color: var(--text-muted);"> Simple.</span>
           </h1>
