@@ -114,32 +114,38 @@ const Landing: Component = () => {
             Zero-Knowledge Architecture With Advanced Cryptographic Protection.
           </p>
 
-          <button
-            onClick={handleEnterVault}
-            style={{
-              position: 'relative',
-              padding: '1rem 3rem',
-              fontSize: '0.875rem',
-              letterSpacing: 'var(--tracking-wider)',
-              fontWeight: 'var(--font-light)',
-              border: '1px solid var(--border-secondary)',
-              overflow: 'hidden',
-              transition: 'border-color 0.5s ease'
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-primary)';
-              const hoverEl = e.currentTarget.querySelector('.hover-effect');
-              if (hoverEl) hoverEl.style.transform = 'scaleX(1)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-secondary)';
-              const hoverEl = e.currentTarget.querySelector('.hover-effect');
-              if (hoverEl) hoverEl.style.transform = 'scaleX(0)';
-            }}
-          >
-            <span style="position: relative; z-index: 10;">{isFirstTime() ? 'GET STARTED' : 'ENTER VAULT'}</span>
-            <div class="hover-effect" style="position: absolute; inset: 0; background-color: var(--hover-overlay); transform: scaleX(0); transition: transform 0.5s ease; transform-origin: left;"></div>
-          </button>
+          {/* Button wrapper with responsive margins */}
+          <div style={{
+            marginTop: 'clamp(1.5rem, 4vh, 4rem)',
+            marginBottom: 'clamp(2rem, 5vh, 5rem)'
+          }}>
+            <button
+              onClick={handleEnterVault}
+              style={{
+                position: 'relative',
+                padding: '1rem 3rem',
+                fontSize: '0.875rem',
+                letterSpacing: 'var(--tracking-wider)',
+                fontWeight: 'var(--font-light)',
+                border: '1px solid var(--border-secondary)',
+                overflow: 'hidden',
+                transition: 'border-color 0.5s ease'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-primary)';
+                const hoverEl = e.currentTarget.querySelector('.hover-effect');
+                if (hoverEl) hoverEl.style.transform = 'scaleX(1)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-secondary)';
+                const hoverEl = e.currentTarget.querySelector('.hover-effect');
+                if (hoverEl) hoverEl.style.transform = 'scaleX(0)';
+              }}
+            >
+              <span style="position: relative; z-index: 10;">{isFirstTime() ? 'GET STARTED' : 'ENTER VAULT'}</span>
+              <div class="hover-effect" style="position: absolute; inset: 0; background-color: var(--hover-overlay); transform: scaleX(0); transition: transform 0.5s ease; transform-origin: left;"></div>
+            </button>
+          </div>
 
           {/* Minimal feature indicators */}
           <div style={{
