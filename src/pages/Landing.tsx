@@ -114,10 +114,10 @@ const Landing: Component = () => {
             Zero-Knowledge Architecture With Advanced Cryptographic Protection.
           </p>
 
-          {/* Button wrapper with responsive margins */}
+          {/* Button wrapper with generous responsive margins */}
           <div style={{
-            marginTop: 'clamp(1.5rem, 4vh, 4rem)',
-            marginBottom: 'clamp(2rem, 5vh, 5rem)'
+            marginTop: 'clamp(2.5rem, 8vh, 6rem)',
+            marginBottom: 'clamp(3rem, 10vh, 7rem)'
           }}>
             <button
               onClick={handleEnterVault}
