@@ -96,7 +96,7 @@ PUBLIC_ENABLE_DEMO_AUTH = "false"
 [[env.production.d1_databases]]
 binding = "AUTH_DB"
 database_name = "vuvault-auth-production"
-database_id = "production-placeholder-id"
+database_id = "6573b583-f483-489d-8faf-2b72b1040fbc"
 migrations_dir = "functions/api/_shared/migrations"
 
 [[env.production.r2_buckets]]

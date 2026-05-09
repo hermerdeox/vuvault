@@ -25,6 +25,17 @@ Thumbs.db
 .env.*
 !.env.example
 
+# defensive: never commit ad-hoc credential files. If you ever paste a
+# Cloudflare token / API key into a markdown for an agent to read, the
+# file MUST live behind one of these patterns (and you should rotate
+# the credential immediately afterward).
+docs/API-KEY*
+docs/SECRET*
+docs/CREDENTIALS*
+**/*-KEY.md
+**/*-TOKEN.md
+**/*-SECRET.md
+
 # logs
 *.log
 npm-debug.log*
