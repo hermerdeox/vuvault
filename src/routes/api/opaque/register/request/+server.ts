@@ -3,25 +3,26 @@
  *
  * Body: `{ clientId, request }` where `request` is base64-encoded
  *       OPAQUE registration request bytes.
- *
  * Returns: `{ requestId, response }` where `response` is base64-
  *          encoded OPAQUE registration response bytes for the
  *          client to feed into `RegistrationFinish`.
  *
- * The server retains the per-account OPRF secret keyed by
- * `requestId` until the matching `register/record` call completes;
- * it is GC'd after ~30s if the client never finishes.
+ * Migrated from `functions/api/opaque/register/request.ts` to a
+ * SvelteKit `+server.ts`. Bindings are accessed via
+ * `platform.env` (declared in `src/app.d.ts`).
  */
 
-import type { Env } from '../../_shared/env';
-import { getServerId, checkRateLimit } from '../../_shared/env';
-import { OpaqueServerEngine } from '../../_shared/server-opaque';
-import { D1OpaqueStorage, loadServerIdentity } from '../../_shared/d1-storage';
-import { b64decode, b64encode, jsonError, jsonOk, readJson } from '../../_shared/http';
+import type { RequestHandler } from './$types';
+import type { Env } from '$lib/server/api/env';
+import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
+import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
+import { b64decode, b64encode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
 
 type Body = { clientId?: string; request?: string };
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
 	if (!(await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`))) {
 		return jsonError(429, 'rate limit exceeded');
@@ -52,11 +53,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 			response: b64encode(response)
 		});
 	} catch {
-		// Deliberately opaque error — never leak server-side state to
-		// the client. Audit logging happens via Cloudflare WAF.
 		return jsonError(500, 'opaque registration request failed');
 	}
 };
 
-// All other methods land here.
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');

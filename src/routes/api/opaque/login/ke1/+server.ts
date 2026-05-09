@@ -2,23 +2,22 @@
  * POST /api/opaque/login/ke1
  *
  * Body: `{ clientId, ke1 }` where `ke1` is base64-encoded KE1 bytes.
- *
  * Returns: `{ requestId, ke2 }` with `ke2` base64-encoded.
  *
- * Side effect: stores the server AKE state keyed by `requestId`
- * until the matching KE3 request finishes the AKE (or until the
- * pending TTL expires).
+ * Migrated from `functions/api/opaque/login/ke1.ts`.
  */
 
-import type { Env } from '../../_shared/env';
-import { getServerId, checkRateLimit } from '../../_shared/env';
-import { OpaqueServerEngine } from '../../_shared/server-opaque';
-import { D1OpaqueStorage, loadServerIdentity } from '../../_shared/d1-storage';
-import { b64decode, b64encode, jsonError, jsonOk, readJson } from '../../_shared/http';
+import type { RequestHandler } from './$types';
+import type { Env } from '$lib/server/api/env';
+import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
+import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
+import { b64decode, b64encode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
 
 type Body = { clientId?: string; ke1?: string };
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
 	if (!(await checkRateLimit(env.OPAQUE_LOGIN_LIMITER, `ip:${ip}`))) {
 		return jsonError(429, 'rate limit exceeded');
@@ -52,9 +51,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		const msg = err instanceof Error ? err.message : '';
 		if (msg.includes('unknown clientId')) {
 			// Account-existence oracle is documented as out-of-scope of
-			// the ZK claim (SECURITY.md ZK-scope, item B-#1). Surface
-			// a stable 401 so timing/error-shape don't add a side
-			// channel on top.
+			// the ZK claim. Surface a stable 401 so timing/error-shape
+			// don't add a side channel on top.
 			return jsonError(401, 'unknown clientId');
 		}
 		if (msg.includes('KE1 length')) {
@@ -64,4 +62,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 	}
 };
 
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');

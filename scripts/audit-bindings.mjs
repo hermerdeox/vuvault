@@ -42,7 +42,7 @@ function fail(msg) {
 
 const tomlText = await readFile(join(ROOT, 'wrangler.toml'), 'utf8');
 const envText = await readFile(
-	join(ROOT, 'functions/api/_shared/env.ts'),
+	join(ROOT, 'src/lib/server/api/env.ts'),
 	'utf8'
 );
 
@@ -121,13 +121,13 @@ function parseEnvInterface(text) {
 	const fields = new Map();
 	const start = text.indexOf('export interface Env');
 	if (start === -1) {
-		fail('functions/api/_shared/env.ts: missing `export interface Env` declaration');
+		fail('src/lib/server/api/env.ts: missing `export interface Env` declaration');
 		return fields;
 	}
 	const open = text.indexOf('{', start);
 	const close = text.indexOf('}', open);
 	if (open === -1 || close === -1) {
-		fail('functions/api/_shared/env.ts: malformed `Env` interface body');
+		fail('src/lib/server/api/env.ts: malformed `Env` interface body');
 		return fields;
 	}
 	const body = text.slice(open + 1, close);
@@ -164,7 +164,7 @@ const envBindings = new Map(
 // both the default and production blocks. OPTIONAL Env fields are
 // allowed to be entirely absent from wrangler.toml — that's the
 // runtime-fail-open contract honored by `checkRateLimit()` at
-// functions/api/_shared/env.ts:78. Optional bindings that ARE wired
+// src/lib/server/api/env.ts:78. Optional bindings that ARE wired
 // in only one of the two envs still trigger Rule 3 (parity), so
 // preview/production drift is caught regardless.
 for (const [name, info] of envBindings) {

@@ -18,7 +18,7 @@
  *      wrangler d1 migrations apply AUTH_DB --local
  *   2. Seed the OPAQUE server identity:
  *      wrangler d1 execute AUTH_DB --local \
- *        --file=functions/api/_shared/migrations/seed_server_identity.sql
+ *        --file=migrations/seed_server_identity.sql
  *      (replace the placeholder bytes with real entropy first)
  *   3. Spin up wrangler pages dev:
  *      wrangler pages dev .svelte-kit/cloudflare --port 8788 \

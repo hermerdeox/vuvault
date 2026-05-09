@@ -2,23 +2,21 @@
  * GET /api/blobs/latest
  *
  * Headers: `Authorization: Bearer <token>`.
- *
  * Returns the highest-sequence-clock R2 blob for the authenticated
- * account, decomposed into:
- *   `{ header, nonce, ciphertext, sequenceClock, updatedAt }`
- * (header/nonce/ciphertext base64-encoded). Returns 404 if no blob
- * has been uploaded yet for this account.
+ * account, decomposed into `{ header, nonce, ciphertext, sequenceClock,
+ * updatedAt }` (header/nonce/ciphertext base64-encoded).
  *
- * Storage layout matches `upload.ts`:
- *   u32-be(headerLen) || header || u32-be(nonceLen) || nonce || ciphertext
+ * Migrated from `functions/api/blobs/latest.ts`.
  */
 
-import type { Env, R2Object } from '../_shared/env';
-import { checkRateLimit } from '../_shared/env';
-import { jsonError, jsonOk, b64encode } from '../_shared/http';
-import { authenticate } from '../_shared/auth-token';
+import type { RequestHandler } from './$types';
+import type { Env, R2Object } from '$lib/server/api/env';
+import { checkRateLimit } from '$lib/server/api/env';
+import { jsonError, jsonOk, b64encode } from '$lib/server/api/http';
+import { authenticate } from '$lib/server/api/auth-token';
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+export const GET: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
@@ -37,10 +35,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 		return jsonError(404, 'no blob');
 	}
 
-	// Pick the object with the highest sequence_clock (parsed from
-	// the key path). Listing is by R2's natural sort, which is
-	// alphanumeric — '10.bin' sorts before '2.bin' — so we sort
-	// numerically here.
 	let bestKey = listing.objects[0]!.key;
 	let bestClock = parseClock(bestKey);
 	for (const obj of listing.objects) {
@@ -81,7 +75,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 	});
 };
 
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');
 
 function parseClock(key: string): number {
 	const m = key.match(/\/(\d+)\.bin$/);

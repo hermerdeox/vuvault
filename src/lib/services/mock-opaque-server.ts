@@ -23,7 +23,7 @@ import {
 	type PendingRegistration,
 	type PendingLogin,
 	type ServerIdentity
-} from '../../../functions/api/_shared/server-opaque';
+} from '$lib/server/api/server-opaque';
 
 import type {
 	AccountId,

@@ -1,4 +1,15 @@
 // See https://kit.svelte.dev/docs/types#app for information about these interfaces.
+//
+// `Platform.env` mirrors `src/lib/server/api/env.ts::Env` (the
+// shape every /api/* SvelteKit `+server.ts` route consumes via
+// `platform.env`). Keep these in sync.
+
+import type {
+	D1Database,
+	R2Bucket,
+	RateLimit
+} from '$lib/server/api/env';
+
 declare global {
 	namespace App {
 		// interface Error {}
@@ -7,10 +18,25 @@ declare global {
 		// interface PageState {}
 		interface Platform {
 			env?: {
-				PUBLIC_BUNDLE_HASH: string;
-				PUBLIC_VAULT_VERSION: string;
-				// Future: AUTH_DB: D1Database;
-				// Future: VAULT_BLOBS: R2Bucket;
+				// Public env vars surfaced as Pages [vars] (preview) or
+				// `[env.production.vars]` (production), plus injected
+				// at deploy time by .github/workflows/release.yml.
+				PUBLIC_BUNDLE_HASH?: string;
+				PUBLIC_VAULT_VERSION?: string;
+				PUBLIC_ENABLE_DEMO_AUTH?: string;
+				PUBLIC_SYNC_ORIGIN?: string;
+
+				// Cloudflare bindings — see `wrangler.toml`. AUTH_DB
+				// + VAULT_BLOBS are required for /api/* to function;
+				// the three rate-limiters are optional (configure via
+				// the Cloudflare dashboard; runtime fail-opens when
+				// absent per `checkRateLimit()`).
+				AUTH_DB: D1Database;
+				VAULT_BLOBS: R2Bucket;
+				OPAQUE_REGISTER_LIMITER?: RateLimit;
+				OPAQUE_LOGIN_LIMITER?: RateLimit;
+				BLOB_LIMITER?: RateLimit;
+				OPAQUE_SERVER_ID?: string;
 			};
 			context: {
 				waitUntil(promise: Promise<unknown>): void;

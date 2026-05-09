@@ -5,7 +5,7 @@
 --   wrangler d1 execute AUTH_DB \
 --     --env=production \
 --     --remote \
---     --file=functions/api/_shared/migrations/seed_server_identity.sql
+--     --file=migrations/seed_server_identity.sql
 --
 -- Re-running this rotates the OPAQUE server identity. Every existing
 -- registration_record becomes unreadable on rotation; users cannot

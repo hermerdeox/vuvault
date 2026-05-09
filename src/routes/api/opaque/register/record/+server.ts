@@ -3,23 +3,22 @@
  *
  * Body: `{ clientId, requestId, record }` where `record` is the
  *       base64-encoded RFC 9807 registration record bytes.
- *
  * Returns: `{ accountId }` server-allocated UUID for the new account.
  *
- * Side effect: persists the account in D1's `accounts` table and
- * deletes the matching pending registration. Subsequent calls with
- * the same `requestId` fail with 400.
+ * Migrated from `functions/api/opaque/register/record.ts`.
  */
 
-import type { Env } from '../../_shared/env';
-import { getServerId, checkRateLimit } from '../../_shared/env';
-import { OpaqueServerEngine } from '../../_shared/server-opaque';
-import { D1OpaqueStorage, loadServerIdentity } from '../../_shared/d1-storage';
-import { b64decode, jsonError, jsonOk, readJson } from '../../_shared/http';
+import type { RequestHandler } from './$types';
+import type { Env } from '$lib/server/api/env';
+import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
+import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
+import { b64decode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
 
 type Body = { clientId?: string; requestId?: string; record?: string };
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
 	if (!(await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`))) {
 		return jsonError(429, 'rate limit exceeded');
@@ -52,14 +51,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		const serverId = getServerId(env);
 		const identity = await loadServerIdentity(env.AUTH_DB, serverId);
 		const engine = new OpaqueServerEngine(identity, storage);
-		const { accountId } = await engine.registerRecord(
-			body.clientId,
-			body.requestId,
-			recordBytes
-		);
+		const { accountId } = await engine.registerRecord(body.clientId, body.requestId, recordBytes);
 		return jsonOk({ accountId });
 	} catch (err) {
-		// 'unknown registration request' on stale or replayed requestId
 		const msg = err instanceof Error ? err.message : '';
 		if (msg.includes('unknown registration request')) {
 			return jsonError(400, 'registration request expired or unknown');
@@ -74,4 +68,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 	}
 };
 
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');

@@ -30,14 +30,14 @@ PUBLIC_SYNC_ORIGIN = ""
 # D1 binding — OPAQUE record storage + sessions + device pairings.
 # Local development uses Wrangler's auto-provisioned local SQLite
 # under `.wrangler/state`. Production overrides via `[env.production]`
-# with a real database_id. Migrations live under
-# `functions/api/_shared/migrations/` and are applied via
+# with a real database_id. Migrations live under `migrations/` at the
+# repo root and are applied via
 # `wrangler d1 migrations apply AUTH_DB --env <env>`.
 [[d1_databases]]
 binding = "AUTH_DB"
 database_name = "vuvault-auth-preview"
 database_id = "preview-placeholder-id"
-migrations_dir = "functions/api/_shared/migrations"
+migrations_dir = "migrations"
 
 # R2 binding — opaque encrypted vault blobs. Server holds ciphertext
 # only; AES-256-GCM under the v2 hybrid envelope is performed
@@ -63,7 +63,7 @@ bucket_name = "vuvault-blobs-preview"
 #   - BLOB_LIMITER            : 30 req / 60 s, key = accountId
 #
 # The Pages Functions code in `functions/api/` and the `Env` interface
-# in `functions/api/_shared/env.ts` already declare these as OPTIONAL
+# in `src/lib/server/api/env.ts` already declare these as OPTIONAL
 # bindings; if they are not configured, `checkRateLimit()` fail-opens
 # (`return true`) per the comment at env.ts:78. This means a brand-new
 # deploy without the dashboard rate-limits configured will accept
@@ -91,7 +91,7 @@ PUBLIC_ENABLE_DEMO_AUTH = "false"
 binding = "AUTH_DB"
 database_name = "vuvault-auth-production"
 database_id = "6573b583-f483-489d-8faf-2b72b1040fbc"
-migrations_dir = "functions/api/_shared/migrations"
+migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]
 binding = "VAULT_BLOBS"

@@ -23,12 +23,12 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import {
 	OpaqueServerEngine,
 	type ServerIdentity
-} from '../../functions/api/_shared/server-opaque';
-import { D1OpaqueStorage } from '../../functions/api/_shared/d1-storage';
+} from '../../src/lib/server/api/server-opaque';
+import { D1OpaqueStorage } from '../../src/lib/server/api/d1-storage';
 import {
 	authenticate,
 	advanceSequenceClock
-} from '../../functions/api/_shared/auth-token';
+} from '../../src/lib/server/api/auth-token';
 import { register, login } from '../../src/lib/services/opaque-client';
 
 // --- Hand-rolled D1 mock -------------------------------------------

@@ -2,24 +2,18 @@
  * POST /api/blobs/upload
  *
  * Headers: `Authorization: Bearer <token>` from a prior OPAQUE KE3.
+ * Body: `{ header, nonce, ciphertext, sequenceClock }` — opaque
+ *       AES-GCM blob fragments. Server stores ciphertext only.
+ * Returns: `{ updatedAt, sequenceClock }`.
  *
- * Body: `{ header, nonce, ciphertext, sequenceClock }` — all base64
- *       except `sequenceClock` (number). The body together is the
- *       opaque encrypted vault blob; the server stores ciphertext
- *       only.
- *
- * Returns: `{ updatedAt, sequenceClock }` — the new clock the client
- *          must use as the lower bound on its next upload.
- *
- * Monotonicity: `sequenceClock` MUST be strictly greater than the
- * session's current clock (mints at login, bumped here). Replays /
- * reorders return 409.
+ * Migrated from `functions/api/blobs/upload.ts`.
  */
 
-import type { Env } from '../_shared/env';
-import { checkRateLimit } from '../_shared/env';
-import { jsonError, jsonOk, readJson, b64decode } from '../_shared/http';
-import { authenticate, advanceSequenceClock } from '../_shared/auth-token';
+import type { RequestHandler } from './$types';
+import type { Env } from '$lib/server/api/env';
+import { checkRateLimit } from '$lib/server/api/env';
+import { jsonError, jsonOk, readJson, b64decode } from '$lib/server/api/http';
+import { authenticate, advanceSequenceClock } from '$lib/server/api/auth-token';
 
 type Body = {
 	header?: string;
@@ -28,11 +22,12 @@ type Body = {
 	sequenceClock?: number;
 };
 
-const MAX_HEADER_BYTES = 4096; // v2 header is 1660 bytes; tolerate growth.
+const MAX_HEADER_BYTES = 4096;
 const MAX_NONCE_BYTES = 64;
-const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024; // 8 MiB hard cap.
+const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
@@ -77,15 +72,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		return jsonError(400, 'ciphertext size out of range');
 	}
 
-	// R2 key layout: vaults/<accountId>/<sequenceClock>.bin
 	const objectKey = `vaults/${session.accountId}/${body.sequenceClock}.bin`;
 
-	// Server stores the three components serialized into one blob with
-	// a small fixed prefix:
-	//   u32-be(headerLen) || header || u32-be(nonceLen) || nonce || ciphertext
-	// The client reconstructs by reading the prefixed lengths in
-	// `sync-client.fetchBlob()`. R2 customMetadata records the
-	// monotonic clock so list operations don't need to read bodies.
 	const totalLen = 4 + header.length + 4 + nonce.length + ciphertext.length;
 	const buf = new Uint8Array(totalLen);
 	const view = new DataView(buf.buffer);
@@ -120,4 +108,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 	});
 };
 
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');

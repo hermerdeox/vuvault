@@ -3,21 +3,21 @@
  *
  * Body: `{ clientId, requestId, ke3, deviceId? }` where `ke3` is the
  *       base64-encoded RFC 9807 KE3 bytes.
- *
- * Returns: `{ accountId, token, expiresAt, sequenceClock }` —
- *          a bearer token + the monotonic sequence-clock the client
- *          needs to exceed on its next blob upload.
+ * Returns: `{ accountId, token, expiresAt, sequenceClock }`.
  *
  * Mints a fresh session token on success and updates the account's
  * `last_login_at`. Wrong-password rejection (MAC mismatch) returns
  * 401 with no information about whether the clientId existed.
+ *
+ * Migrated from `functions/api/opaque/login/ke3.ts`.
  */
 
-import type { Env } from '../../_shared/env';
-import { getServerId, checkRateLimit } from '../../_shared/env';
-import { OpaqueServerEngine } from '../../_shared/server-opaque';
-import { D1OpaqueStorage, loadServerIdentity } from '../../_shared/d1-storage';
-import { b64decode, jsonError, jsonOk, readJson } from '../../_shared/http';
+import type { RequestHandler } from './$types';
+import type { Env } from '$lib/server/api/env';
+import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
+import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
+import { b64decode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
 
 type Body = { clientId?: string; requestId?: string; ke3?: string; deviceId?: string };
 
@@ -29,7 +29,8 @@ function newToken(): string {
 	return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
 	if (!(await checkRateLimit(env.OPAQUE_LOGIN_LIMITER, `ip:${ip}`))) {
 		return jsonError(429, 'rate limit exceeded');
@@ -66,16 +67,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		const serverId = getServerId(env);
 		const identity = await loadServerIdentity(env.AUTH_DB, serverId);
 		const engine = new OpaqueServerEngine(identity, storage);
-		const { accountId } = await engine.loginKE3(
-			body.clientId,
-			body.requestId,
-			ke3Bytes
-		);
+		const { accountId } = await engine.loginKE3(body.clientId, body.requestId, ke3Bytes);
 
-		// Mint a fresh session token. The sequence_clock starts at the
-		// current account high-water mark so monotonic upload ordering
-		// is preserved across logins. We read it here in the same
-		// transaction shape as the upload handler.
 		const token = newToken();
 		const expiresAt = Date.now() + SESSION_TTL_MS;
 		const lastClock = await env.AUTH_DB
@@ -115,9 +108,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 			return jsonError(400, 'clientId mismatch');
 		}
 		// `serverAkeFinish` throws on MAC mismatch — wrong password.
-		// 401 is the documented status for that case.
 		return jsonError(401, 'authentication failed');
 	}
 };
 
-export const onRequest: PagesFunction<Env> = async () => jsonError(405, 'method not allowed');
+export const fallback: RequestHandler = async () => jsonError(405, 'method not allowed');

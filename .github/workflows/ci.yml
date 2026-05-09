@@ -72,7 +72,7 @@ jobs:
       - name: Wrangler bindings audit
         # `scripts/audit-bindings.mjs` cross-checks `wrangler.toml`
         # against the `Env` interface in
-        # `functions/api/_shared/env.ts`. Catches the common drift
+        # `src/lib/server/api/env.ts`. Catches the common drift
         # where a developer adds a binding to TS but forgets to wire
         # it in wrangler.toml (or vice versa) — would only have
         # surfaced on production traffic before this gate.
