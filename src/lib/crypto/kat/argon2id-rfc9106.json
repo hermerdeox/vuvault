@@ -1,0 +1,26 @@
+{
+	"source": "RFC 9106 §5.3 Argon2id Test Vector",
+	"sourceUrl": "https://www.rfc-editor.org/rfc/rfc9106#section-5.3",
+	"datatrackerUrl": "https://datatracker.ietf.org/doc/html/rfc9106#section-5.3",
+	"algorithm": "Argon2id",
+	"version": 19,
+	"versionHex": "0x13",
+	"hexCase": "lowercase",
+	"notes": "Single canonical test vector published in RFC 9106 §5.3. `password`, `salt`, `secret`, and `ad` are all hex-encoded raw bytes (not UTF-8 strings). `tag` is the expected 32-byte Argon2id output for the listed parameters. The runtime test in `argon2.test.ts` calls `deriveMasterPasswordKey` with `rawHexPassword: true` and asserts byte-for-byte equality with `tag` — locks the OpenPGP.js argon2id WASM (pinned at 1.0.1) to RFC 9106 conformance for this single input set.",
+	"cases": [
+		{
+			"label": "rfc9106-section-5.3-argon2id",
+			"params": {
+				"memoryKiB": 32,
+				"iterations": 3,
+				"parallelism": 4,
+				"tagLength": 32
+			},
+			"password": "0101010101010101010101010101010101010101010101010101010101010101",
+			"salt": "02020202020202020202020202020202",
+			"secret": "0303030303030303",
+			"ad": "040404040404040404040404",
+			"tag": "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659"
+		}
+	]
+}

@@ -1,0 +1,2497 @@
+<!doctype html>
+<html lang="en" data-theme="modern">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>VuVault — Zero-Knowledge Vault</title>
+<style>
+/* ============================================================
+   VUVAULT — ZERO-KNOWLEDGE PASSWORD MANAGER
+   Theme switching via [data-theme] attribute only.
+   No JavaScript style branching, no hex literals outside :root.
+   ============================================================ */
+
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button { font: inherit; cursor: pointer; background: none; border: none; color: inherit; padding: 0; }
+input, textarea { font: inherit; color: inherit; background: none; border: none; outline: none; }
+input::-ms-reveal, input::-ms-clear { display: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+::selection { background: var(--accent); color: var(--bg); }
+
+/* =========================================
+   TOKENS — MODERN
+   ========================================= */
+:root, [data-theme="modern"] {
+  --bg:                #000000;
+  --bg-elev:           #0a0a0a;
+  --surface:           rgba(255,255,255,0.04);
+  --surface-hover:     rgba(255,255,255,0.07);
+  --surface-active:    rgba(255,255,255,0.10);
+  --surface-strong:    rgba(245,245,240,0.08);
+
+  --border:            rgba(255,255,255,0.08);
+  --border-mid:        rgba(255,255,255,0.14);
+  --border-strong:     rgba(255,255,255,0.22);
+
+  --text:              #ffffff;
+  --text-2:            #a8a8a8;
+  --text-3:            #666666;
+  --text-4:            #404040;
+
+  --brand:             #f5f5f0;
+  --brand-dim:         rgba(245,245,240,0.7);
+  --accent:            #00d4ff;
+  --accent-dim:        rgba(0,212,255,0.16);
+  --success:           #22c55e;
+  --success-dim:       rgba(34,197,94,0.16);
+  --danger:            #ef4444;
+  --danger-dim:        rgba(239,68,68,0.14);
+  --warn:              #ffa500;
+
+  --radius-xs:         4px;
+  --radius-sm:         6px;
+  --radius:            10px;
+  --radius-lg:         14px;
+  --radius-xl:         20px;
+
+  --shadow-card:       0 10px 30px rgba(0,0,0,0.5);
+  --shadow-glow:       0 0 0 1px var(--border), 0 8px 30px rgba(0,0,0,0.4);
+  --shadow-press:      none;
+
+  --transition:        200ms cubic-bezier(0.2,0.8,0.2,1);
+  --transition-fast:   120ms ease;
+
+  --grid-color:        rgba(0,212,255,0.045);
+  --spotlight:         rgba(0,212,255,0.07);
+  --backdrop:          blur(24px) saturate(140%);
+
+  --border-w:          1px;
+  --border-w-strong:   1px;
+  --label-transform:   none;
+  --label-spacing:     0;
+  --font-num:          'Inter', sans-serif;
+  --letter-tight:      -0.01em;
+
+  --kbd-bg:            rgba(255,255,255,0.06);
+  --kbd-border:        rgba(255,255,255,0.12);
+
+  --top-bar-h:         56px;
+  --status-bar-h:      32px;
+  --nav-w:             220px;
+  --list-w:            340px;
+}
+
+/* =========================================
+   TOKENS — BRUTALIST
+   ========================================= */
+[data-theme="brutalist"] {
+  --bg:                #ffffff;
+  --bg-elev:           #ffffff;
+  --surface:           #ffffff;
+  --surface-hover:     #f5f5f0;
+  --surface-active:    #000000;
+  --surface-strong:    #f5f5f0;
+
+  --border:            rgba(0,0,0,0.85);
+  --border-mid:        #000000;
+  --border-strong:     #000000;
+
+  --text:              #000000;
+  --text-2:            #4a4a4a;
+  --text-3:            #666666;
+  --text-4:            #999999;
+
+  --brand:             #000000;
+  --brand-dim:         #000000;
+  --accent:            #000000;
+  --accent-dim:        #f5f5f0;
+  --success:           #00aa3c;
+  --success-dim:       #cdf5d6;
+  --danger:            #ff0000;
+  --danger-dim:        #ffd6d6;
+  --warn:              #ff6600;
+
+  --radius-xs:         0;
+  --radius-sm:         0;
+  --radius:            0;
+  --radius-lg:         0;
+  --radius-xl:         0;
+
+  --shadow-card:       6px 6px 0 0 #000000;
+  --shadow-glow:       none;
+  --shadow-press:      2px 2px 0 0 #000000;
+
+  --transition:        0ms;
+  --transition-fast:   0ms;
+
+  --grid-color:        transparent;
+  --spotlight:         transparent;
+  --backdrop:          none;
+
+  --border-w:          2px;
+  --border-w-strong:   3px;
+  --label-transform:   uppercase;
+  --label-spacing:     0.06em;
+  --font-num:          'Inter', sans-serif;
+  --letter-tight:      0;
+
+  --kbd-bg:            #ffffff;
+  --kbd-border:        #000000;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  letter-spacing: var(--letter-tight);
+}
+
+/* =========================================
+   AMBIENT BACKGROUND (modern only)
+   ========================================= */
+.bg-grid {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse at center, #000 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 0%, transparent 80%);
+}
+.bg-spotlight {
+  position: fixed; pointer-events: none; z-index: 0;
+  width: 70vmax; height: 70vmax;
+  top: -25vmax; right: -25vmax;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--spotlight) 0%, transparent 60%);
+  animation: drift 28s ease-in-out infinite;
+}
+.bg-spotlight.s2 {
+  top: auto; right: auto;
+  bottom: -25vmax; left: -25vmax;
+  animation-duration: 36s; animation-direction: reverse;
+}
+@keyframes drift {
+  0%,100% { transform: translate(0,0); }
+  50%     { transform: translate(-8vw, 6vh); }
+}
+
+/* =========================================
+   ICONS
+   ========================================= */
+.icon { width: 16px; height: 16px; flex-shrink: 0; vertical-align: middle; }
+.icon-lg { width: 20px; height: 20px; }
+.icon-xl { width: 24px; height: 24px; }
+[data-theme="brutalist"] .icon { stroke-width: 2.2; }
+
+/* =========================================
+   LOCK SCREEN
+   ========================================= */
+.lock-screen {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center;
+  background: var(--bg);
+  padding: 32px;
+}
+.lock-card {
+  width: 100%; max-width: 440px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 24px;
+  text-align: center;
+}
+.lock-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 800; font-size: 22px; letter-spacing: -0.02em;
+  color: var(--brand);
+}
+.lock-logo .v-mark {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: var(--surface); color: var(--brand);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-lg);
+  font-weight: 900; font-size: 20px;
+  letter-spacing: var(--label-spacing);
+  text-transform: var(--label-transform);
+}
+[data-theme="modern"] .lock-logo .v-mark { backdrop-filter: var(--backdrop); }
+[data-theme="brutalist"] .lock-logo .v-mark { background: #000; color: #fff; }
+
+.lock-headline {
+  font-size: 32px; font-weight: 800; line-height: 1.1;
+  letter-spacing: -0.025em;
+  margin-top: 8px;
+}
+[data-theme="brutalist"] .lock-headline {
+  font-size: 36px; font-weight: 900; letter-spacing: -0.02em;
+  text-transform: var(--label-transform);
+}
+.lock-sub {
+  color: var(--text-2); font-size: 13px; line-height: 1.55;
+  max-width: 360px;
+}
+
+.lock-input-wrap {
+  position: relative; width: 100%;
+  margin-top: 8px;
+}
+.lock-input {
+  width: 100%;
+  padding: 16px 56px 16px 48px;
+  background: var(--surface);
+  border: var(--border-w-strong) solid var(--border);
+  border-radius: var(--radius);
+  font-size: 15px; font-weight: 500;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  transition: var(--transition);
+}
+[data-theme="modern"] .lock-input { backdrop-filter: var(--backdrop); }
+.lock-input::placeholder { color: var(--text-3); letter-spacing: normal; }
+.lock-input:focus { border-color: var(--accent); }
+[data-theme="brutalist"] .lock-input:focus { border-width: 3px; box-shadow: var(--shadow-press); }
+.lock-input.shake { animation: shake 380ms cubic-bezier(0.36,0.07,0.19,0.97); border-color: var(--danger); }
+@keyframes shake {
+  10%,90% { transform: translate3d(-1px,0,0); }
+  20%,80% { transform: translate3d(2px,0,0); }
+  30%,50%,70% { transform: translate3d(-4px,0,0); }
+  40%,60% { transform: translate3d(4px,0,0); }
+}
+.lock-input-icon {
+  position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  color: var(--text-2); pointer-events: none;
+}
+.lock-input-toggle {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+.lock-input-toggle:hover { color: var(--text); background: var(--surface-hover); }
+
+.lock-meta {
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  margin-top: 4px;
+}
+.lock-meta-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 10px; font-weight: 600;
+  color: var(--text-2);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-spacing);
+}
+[data-theme="modern"] .lock-meta-pill { backdrop-filter: var(--backdrop); }
+.lock-meta-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+}
+[data-theme="brutalist"] .lock-meta-pill .dot { width: 8px; height: 8px; border-radius: 0; }
+
+.lock-foot {
+  margin-top: 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 11px; color: var(--text-3); line-height: 1.5;
+}
+.lock-foot strong { color: var(--text-2); font-weight: 700; }
+.lock-foot a { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
+
+.lock-state {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--text-2);
+  height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.lock-state .spin {
+  width: 12px; height: 12px;
+  border: 2px solid var(--border-mid);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+[data-theme="brutalist"] .lock-state .spin {
+  border-radius: 0; border-color: var(--text);
+  border-top-color: transparent;
+  animation: spin 600ms steps(8) infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Lock screen shifts off-screen on unlock */
+.lock-screen.unlocked {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 320ms ease, transform 320ms ease;
+}
+
+/* =========================================
+   APP SHELL
+   ========================================= */
+.app {
+  position: relative; z-index: 1;
+  display: grid;
+  grid-template-rows: var(--top-bar-h) 1fr var(--status-bar-h);
+  height: 100dvh;
+  opacity: 0;
+  transition: opacity 280ms ease 80ms;
+}
+.app.ready { opacity: 1; }
+
+/* TOP BAR ----------------------------------- */
+.topbar {
+  display: grid;
+  grid-template-columns: var(--nav-w) 1fr auto;
+  align-items: center;
+  padding: 0 16px 0 20px;
+  gap: 16px;
+  border-bottom: var(--border-w) solid var(--border);
+  background: var(--surface);
+}
+[data-theme="modern"] .topbar { backdrop-filter: var(--backdrop); }
+[data-theme="brutalist"] .topbar { background: var(--bg); border-bottom-width: var(--border-w-strong); }
+
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 800; font-size: 15px; letter-spacing: -0.015em;
+  color: var(--text);
+}
+.brand .v-mark {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: var(--surface-hover);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 900; font-size: 14px;
+  color: var(--brand);
+}
+[data-theme="brutalist"] .brand .v-mark { background: #000; color: #fff; }
+[data-theme="brutalist"] .brand { text-transform: var(--label-transform); letter-spacing: var(--label-spacing); }
+
+.search-wrap {
+  position: relative;
+  max-width: 520px; width: 100%;
+  justify-self: center;
+}
+.search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 64px 0 36px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  transition: var(--transition);
+}
+.search-input::placeholder { color: var(--text-3); }
+.search-input:focus { border-color: var(--border-strong); background: var(--surface-hover); }
+[data-theme="brutalist"] .search-input:focus { border-color: var(--text); border-width: var(--border-w-strong); }
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-3); pointer-events: none;
+}
+.search-kbd {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 3px; pointer-events: none;
+}
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 20px; min-width: 20px; padding: 0 5px;
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-radius: var(--radius-xs);
+  font-size: 10px; font-weight: 600;
+  color: var(--text-2);
+  font-family: var(--font-num);
+}
+
+.top-actions { display: flex; align-items: center; gap: 6px; }
+.icon-btn {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-2);
+  transition: var(--transition);
+  position: relative;
+}
+.icon-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border); }
+[data-theme="brutalist"] .icon-btn:hover { background: var(--surface-hover); border-color: var(--text); }
+.icon-btn.primary {
+  background: var(--brand); color: var(--bg);
+  border-color: var(--brand);
+}
+.icon-btn.primary:hover { transform: translateY(-1px); }
+[data-theme="brutalist"] .icon-btn.primary:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-press); }
+.icon-btn.danger:hover { color: var(--danger); }
+
+/* MAIN GRID --------------------------------- */
+.main {
+  display: grid;
+  grid-template-columns: var(--nav-w) var(--list-w) 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* SIDEBAR / NAV ----------------------------- */
+.sidebar {
+  border-right: var(--border-w) solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+[data-theme="modern"] .sidebar { backdrop-filter: var(--backdrop); }
+[data-theme="brutalist"] .sidebar { border-right-width: var(--border-w-strong); background: var(--bg); }
+
+.nav-section {
+  padding: 16px 12px 8px;
+  font-size: 10px; font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.nav-list { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-2); font-size: 13px; font-weight: 500;
+  text-align: left; width: 100%;
+  transition: var(--transition);
+}
+.nav-item .nav-count {
+  margin-left: auto;
+  font-size: 11px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.nav-item:hover { background: var(--surface-hover); color: var(--text); }
+.nav-item.active {
+  background: var(--surface-active);
+  color: var(--text);
+  border-color: var(--border);
+}
+[data-theme="brutalist"] .nav-item {
+  font-weight: 700;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-spacing);
+}
+[data-theme="brutalist"] .nav-item.active {
+  background: #000; color: #fff; border-color: #000;
+}
+[data-theme="brutalist"] .nav-item.active .nav-count { color: #fff; }
+
+.sidebar-foot {
+  margin-top: auto;
+  padding: 12px;
+  border-top: var(--border-w) solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+[data-theme="brutalist"] .sidebar-foot { border-top-width: var(--border-w-strong); }
+.foot-stat {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px;
+  font-size: 11px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.foot-stat-label {
+  text-transform: var(--label-transform); letter-spacing: var(--label-spacing);
+  font-weight: 600; font-size: 10px;
+  color: var(--text-3);
+}
+.foot-stat-value { font-weight: 700; color: var(--text); }
+.foot-stat-value.success { color: var(--success); }
+
+.upgrade-card {
+  padding: 12px;
+  background: var(--surface-strong);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 6px;
+}
+[data-theme="brutalist"] .upgrade-card { border-width: var(--border-w-strong); border-color: #000; box-shadow: 4px 4px 0 0 #000; }
+.upgrade-title {
+  font-size: 11px; font-weight: 800;
+  text-transform: var(--label-transform); letter-spacing: var(--label-spacing);
+  color: var(--text);
+}
+.upgrade-price {
+  font-size: 22px; font-weight: 900; color: var(--text);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.upgrade-price small { font-size: 11px; font-weight: 600; color: var(--text-3); margin-left: 4px; letter-spacing: 0; }
+.upgrade-note { font-size: 10px; color: var(--text-3); line-height: 1.4; }
+
+/* ITEM LIST --------------------------------- */
+.list-pane {
+  border-right: var(--border-w) solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+[data-theme="modern"] .list-pane { backdrop-filter: var(--backdrop); }
+[data-theme="brutalist"] .list-pane { border-right-width: var(--border-w-strong); background: var(--bg); }
+
+.list-head {
+  padding: 14px 16px 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  border-bottom: var(--border-w) solid var(--border);
+}
+[data-theme="brutalist"] .list-head { border-bottom-width: var(--border-w-strong); }
+.list-title {
+  font-size: 13px; font-weight: 700;
+}
+[data-theme="brutalist"] .list-title { text-transform: var(--label-transform); letter-spacing: var(--label-spacing); }
+.list-title-count {
+  margin-left: 6px;
+  font-size: 11px; color: var(--text-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.list-sort {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  background: transparent; border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 600; color: var(--text-2);
+  transition: var(--transition);
+}
+.list-sort:hover { color: var(--text); border-color: var(--border-mid); }
+
+.list-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-mid) transparent;
+}
+.list-scroll::-webkit-scrollbar { width: 8px; }
+.list-scroll::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; }
+[data-theme="brutalist"] .list-scroll::-webkit-scrollbar-thumb { background: #000; border-radius: 0; }
+
+.list-empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+}
+
+.list-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 10px;
+  background: transparent;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  text-align: left;
+  margin-bottom: 2px;
+  transition: var(--transition);
+  cursor: pointer;
+}
+.list-item:hover { background: var(--surface-hover); }
+.list-item.active {
+  background: var(--surface-active);
+  border-color: var(--border-mid);
+}
+[data-theme="brutalist"] .list-item.active {
+  background: var(--surface-strong);
+  border-color: #000;
+  border-width: var(--border-w-strong);
+  box-shadow: var(--shadow-press);
+}
+.li-thumb {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: var(--surface-strong);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-weight: 800; font-size: 13px;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="brutalist"] .li-thumb { border-width: var(--border-w); border-color: #000; background: #fff; }
+[data-theme="brutalist"] .list-item.active .li-thumb { background: #000; color: #fff; }
+
+.li-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.li-name {
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.li-sub {
+  font-size: 11px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.li-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  font-size: 10px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.li-tag {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 6px;
+  background: var(--surface-strong);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-xs);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+[data-theme="brutalist"] .li-tag { background: #fff; border-color: #000; color: #000; }
+.li-tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+[data-theme="brutalist"] .li-tag.warn { color: #000; background: #ffff00; border-color: #000; }
+
+/* DETAIL PANE ------------------------------- */
+.detail-pane {
+  display: flex; flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  position: relative;
+}
+
+.detail-empty {
+  margin: auto;
+  text-align: center;
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 32px;
+}
+.detail-empty .glyph {
+  width: 64px; height: 64px;
+  display: grid; place-items: center;
+  border: var(--border-w-strong) solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-3);
+}
+
+.detail-head {
+  padding: 20px 24px 16px;
+  border-bottom: var(--border-w) solid var(--border);
+  display: flex; align-items: flex-start; gap: 14px;
+}
+[data-theme="brutalist"] .detail-head { border-bottom-width: var(--border-w-strong); }
+.detail-thumb {
+  width: 52px; height: 52px;
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--surface-strong);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 800; font-size: 18px;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+[data-theme="brutalist"] .detail-thumb { background: #000; color: #fff; border-color: #000; border-width: var(--border-w-strong); }
+.detail-title-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.detail-title {
+  font-size: 22px; font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-theme="brutalist"] .detail-title { font-weight: 900; text-transform: var(--label-transform); }
+.detail-subtitle {
+  font-size: 12px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.detail-actions { display: flex; gap: 6px; }
+.action-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+  transition: var(--transition);
+}
+.action-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-mid); }
+.action-btn.danger:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+[data-theme="brutalist"] .action-btn { font-weight: 700; text-transform: var(--label-transform); letter-spacing: var(--label-spacing); }
+[data-theme="brutalist"] .action-btn:hover { background: #000; color: #fff; border-color: #000; }
+[data-theme="brutalist"] .action-btn.danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+.detail-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-mid) transparent;
+}
+.detail-scroll::-webkit-scrollbar { width: 8px; }
+.detail-scroll::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; }
+[data-theme="brutalist"] .detail-scroll::-webkit-scrollbar-thumb { background: #000; border-radius: 0; }
+
+.field {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  transition: var(--transition);
+}
+[data-theme="modern"] .field { backdrop-filter: var(--backdrop); }
+.field:hover { border-color: var(--border-mid); background: var(--surface-hover); }
+[data-theme="brutalist"] .field { border-width: var(--border-w); }
+
+.field-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.field-value-wrap { min-width: 0; display: flex; flex-direction: column; }
+.field-value {
+  font-size: 14px; font-weight: 500;
+  font-family: var(--font-num);
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0;
+}
+.field-value.mono { font-feature-settings: 'tnum'; letter-spacing: 0.04em; }
+.field-value.secret {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+  letter-spacing: 0.06em;
+  user-select: none;
+}
+.field-value.secret.revealed { user-select: text; }
+.field-actions { display: flex; gap: 4px; }
+.field-btn {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  transition: var(--transition);
+}
+.field-btn:hover { color: var(--text); background: var(--surface-active); border-color: var(--border); }
+
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 16px 0 8px;
+  padding: 0 2px;
+}
+.section-title {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+/* Strength meter */
+.strength {
+  margin-top: 8px;
+  padding: 14px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+[data-theme="modern"] .strength { backdrop-filter: var(--backdrop); }
+.strength-bars { display: flex; gap: 4px; height: 8px; align-items: stretch; }
+.strength-bar {
+  flex: 1;
+  background: var(--surface-active);
+  border-radius: var(--radius-xs);
+}
+[data-theme="brutalist"] .strength-bar { border: 1px solid var(--text); border-radius: 0; }
+.strength-bar.on.s1 { background: var(--danger); }
+.strength-bar.on.s2 { background: var(--warn); }
+.strength-bar.on.s3 { background: var(--accent); }
+.strength-bar.on.s4 { background: var(--success); }
+.strength-text { font-size: 11px; color: var(--text-2); margin-top: 6px; }
+.strength-bits { font-size: 14px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+.strength-bits small { font-size: 10px; font-weight: 600; color: var(--text-3); margin-left: 3px; }
+
+/* Audit feed */
+.audit {
+  margin-top: 8px;
+  padding: 14px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 8px;
+}
+[data-theme="modern"] .audit { backdrop-filter: var(--backdrop); }
+.audit-row {
+  display: grid; grid-template-columns: 80px 14px 1fr;
+  gap: 8px; align-items: center;
+  font-size: 11px;
+}
+.audit-time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.audit-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success); justify-self: center;
+}
+[data-theme="brutalist"] .audit-dot { width: 8px; height: 8px; border-radius: 0; }
+.audit-text { color: var(--text-2); }
+.audit-text strong { color: var(--text); font-weight: 600; }
+
+/* STATUS BAR -------------------------------- */
+.statusbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 16px;
+  border-top: var(--border-w) solid var(--border);
+  background: var(--surface);
+  font-size: 10px; font-weight: 600;
+  color: var(--text-2);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-spacing);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="modern"] .statusbar { backdrop-filter: var(--backdrop); }
+[data-theme="brutalist"] .statusbar { background: var(--bg); border-top-width: var(--border-w-strong); }
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+}
+.status-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 0 var(--success);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+[data-theme="brutalist"] .status-pill .dot { width: 8px; height: 8px; border-radius: 0; animation: none; }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 50%, transparent); }
+  50%     { box-shadow: 0 0 0 4px transparent; }
+}
+.status-sep {
+  width: 1px; height: 12px; background: var(--border-mid);
+}
+[data-theme="brutalist"] .status-sep { width: 2px; background: var(--text); }
+
+.status-spacer { flex: 1; }
+
+.theme-toggle {
+  display: flex;
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 0;
+}
+[data-theme="brutalist"] .theme-toggle { border-color: #000; border-radius: 0; }
+.theme-opt {
+  padding: 4px 10px;
+  font-size: 10px; font-weight: 700;
+  color: var(--text-3);
+  border-radius: var(--radius-xs);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-spacing);
+  transition: var(--transition);
+}
+.theme-opt.active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+[data-theme="brutalist"] .theme-opt.active { background: #000; color: #fff; border-radius: 0; }
+
+/* =========================================
+   MODAL
+   ========================================= */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.6);
+  display: grid; place-items: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+[data-theme="modern"] .modal-backdrop { backdrop-filter: blur(8px); }
+[data-theme="brutalist"] .modal-backdrop { background: rgba(0,0,0,0.4); }
+.modal-backdrop.open { opacity: 1; pointer-events: auto; }
+.modal {
+  width: 100%; max-width: 480px;
+  background: var(--bg-elev);
+  border: var(--border-w-strong) solid var(--border);
+  border-radius: var(--radius-lg);
+  display: flex; flex-direction: column;
+  max-height: 84dvh;
+  transform: translateY(8px) scale(0.98);
+  transition: transform 240ms cubic-bezier(0.2,0.8,0.2,1);
+}
+[data-theme="brutalist"] .modal { box-shadow: var(--shadow-card); border-color: #000; }
+.modal-backdrop.open .modal { transform: translateY(0) scale(1); }
+.modal-head {
+  padding: 18px 20px;
+  border-bottom: var(--border-w) solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+}
+[data-theme="brutalist"] .modal-head { border-bottom-width: var(--border-w-strong); }
+.modal-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+[data-theme="brutalist"] .modal-title { font-weight: 900; text-transform: var(--label-transform); letter-spacing: var(--label-spacing); }
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.modal-foot {
+  padding: 14px 20px;
+  border-top: var(--border-w) solid var(--border);
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+[data-theme="brutalist"] .modal-foot { border-top-width: var(--border-w-strong); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600;
+  color: var(--text);
+  transition: var(--transition);
+}
+.btn:hover { background: var(--surface-hover); border-color: var(--border-mid); }
+.btn.primary { background: var(--brand); color: var(--bg); border-color: var(--brand); font-weight: 700; }
+.btn.primary:hover { transform: translateY(-1px); }
+[data-theme="brutalist"] .btn { font-weight: 700; text-transform: var(--label-transform); letter-spacing: var(--label-spacing); }
+[data-theme="brutalist"] .btn:hover { background: #000; color: #fff; border-color: #000; }
+[data-theme="brutalist"] .btn.primary:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow-press); }
+[data-theme="brutalist"] .btn.primary { background: #000; color: #fff; }
+
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+.form-label {
+  font-size: 11px; font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.form-input, .form-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  transition: var(--transition);
+}
+.form-input:focus, .form-select:focus { border-color: var(--border-strong); background: var(--surface-hover); }
+[data-theme="brutalist"] .form-input:focus, [data-theme="brutalist"] .form-select:focus { border-width: var(--border-w-strong); border-color: #000; }
+
+.gen-display {
+  padding: 16px;
+  background: var(--bg);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 16px; font-weight: 600;
+  letter-spacing: 0.06em;
+  word-break: break-all;
+  line-height: 1.5;
+  min-height: 80px;
+  display: flex; align-items: center;
+  position: relative;
+}
+[data-theme="brutalist"] .gen-display { background: #f5f5f0; border-color: #000; border-width: var(--border-w-strong); }
+
+.gen-controls { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+.gen-slider-wrap { display: flex; flex-direction: column; gap: 4px; }
+.gen-slider { width: 100%; accent-color: var(--brand); }
+.gen-len { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; color: var(--text); }
+.gen-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+  transition: var(--transition);
+  font-family: var(--font-num);
+}
+.gen-toggle.on {
+  background: var(--surface-active);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+[data-theme="brutalist"] .gen-toggle.on { background: #000; color: #fff; border-color: #000; }
+.gen-toggle .check {
+  width: 14px; height: 14px;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--border-mid);
+  border-radius: var(--radius-xs);
+  color: transparent;
+}
+.gen-toggle.on .check { background: var(--brand); border-color: var(--brand); color: var(--bg); }
+[data-theme="brutalist"] .gen-toggle.on .check { background: #fff; color: #000; border-color: #fff; }
+
+/* TOAST ------------------------------------ */
+.toast-stack {
+  position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%);
+  z-index: 300;
+  display: flex; flex-direction: column-reverse; gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-elev);
+  border: var(--border-w-strong) solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px; font-weight: 600;
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+  min-width: 280px; max-width: 420px;
+  animation: toast-in 280ms cubic-bezier(0.2,0.8,0.2,1);
+}
+[data-theme="brutalist"] .toast { box-shadow: var(--shadow-card); border-color: #000; }
+.toast.leaving { animation: toast-out 200ms ease forwards; }
+@keyframes toast-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes toast-out {
+  to { transform: translateY(8px); opacity: 0; }
+}
+.toast .countdown {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.toast.danger { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); color: var(--danger); }
+[data-theme="brutalist"] .toast.danger { background: var(--danger); color: #fff; border-color: #000; }
+
+/* RESPONSIVE -------------------------------- */
+@media (max-width: 960px) {
+  .topbar { grid-template-columns: auto 1fr auto; }
+  .brand .brand-text { display: none; }
+  :root, [data-theme] { --nav-w: 60px; --list-w: 280px; }
+  .nav-item-text { display: none; }
+  .nav-section { text-align: center; padding: 12px 0 8px; }
+  .nav-list { padding: 0 6px; }
+  .nav-item { justify-content: center; padding: 10px 8px; }
+  .nav-item .nav-count { display: none; }
+  .upgrade-card, .foot-stat { display: none; }
+}
+@media (max-width: 720px) {
+  .main { grid-template-columns: var(--nav-w) 1fr; }
+  .list-pane { display: var(--list-display, flex); }
+  .detail-pane { display: var(--detail-display, none); }
+  body[data-mobile-view="detail"] { --list-display: none; --detail-display: flex; }
+}
+
+/* Lock screen unlocking transition */
+.lock-stage-enter {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: lockStage 220ms ease forwards;
+}
+@keyframes lockStage {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   CREDIT CARD VISUALIZATION
+   ============================================================ */
+.cc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+@media (max-width: 1180px) {
+  .cc-layout { grid-template-columns: 1fr; }
+}
+.cc-fields-col, .cc-card-col { min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.cc-card-col > .field { margin-bottom: 8px; }
+
+.cc-flipper {
+  width: 100%;
+  perspective: 1400px;
+  margin-bottom: 12px;
+}
+.cc-card {
+  width: 100%;
+  aspect-ratio: 1.586 / 1;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 700ms cubic-bezier(0.4, 0.05, 0.2, 1);
+  cursor: pointer;
+}
+[data-theme="brutalist"] .cc-card { transition: none; }
+.cc-card.flipped { transform: rotateY(180deg); }
+.cc-flipper:hover .cc-card:not(.flipped) { transform: rotateY(-3deg) rotateX(2deg); }
+[data-theme="brutalist"] .cc-flipper:hover .cc-card:not(.flipped) { transform: none; }
+
+.cc-face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 14px;
+  overflow: hidden;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+[data-theme="modern"] .cc-face {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 -1px 0 rgba(0,0,0,0.4) inset,
+    0 12px 30px rgba(0,0,0,0.6),
+    0 4px 12px rgba(0,0,0,0.4);
+}
+.cc-back { transform: rotateY(180deg); }
+
+[data-theme="brutalist"] .cc-face {
+  border-radius: 0;
+  border: 3px solid #000;
+  background: #ffffff;
+  color: #000;
+  box-shadow: 6px 6px 0 0 #000;
+}
+
+/* --- VISA (Bank of America blue) --- */
+[data-theme="modern"] .cc-visa .cc-front {
+  background:
+    radial-gradient(140% 90% at 0% 0%, rgba(255,255,255,0.22) 0%, transparent 50%),
+    radial-gradient(80% 60% at 100% 100%, rgba(120,180,255,0.18) 0%, transparent 60%),
+    linear-gradient(135deg, #050d1f 0%, #0a1d3d 30%, #14377a 65%, #1d4ed8 100%);
+}
+[data-theme="modern"] .cc-visa .cc-back {
+  background: linear-gradient(135deg, #050d1f 0%, #14377a 100%);
+}
+
+/* --- AMEX (Platinum silver) --- */
+[data-theme="modern"] .cc-amex .cc-front {
+  background:
+    radial-gradient(140% 90% at 0% 0%, rgba(255,255,255,0.45) 0%, transparent 50%),
+    radial-gradient(70% 50% at 100% 100%, rgba(255,255,255,0.15) 0%, transparent 60%),
+    linear-gradient(135deg, #d8dde4 0%, #a3acba 45%, #6b7585 100%);
+  color: #0a0a0a;
+}
+[data-theme="modern"] .cc-amex .cc-back {
+  background: linear-gradient(135deg, #d8dde4 0%, #6b7585 100%);
+  color: #0a0a0a;
+}
+
+/* Top row: bank + contactless */
+.cc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.cc-bank { display: flex; flex-direction: column; gap: 1px; }
+.cc-bank-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.cc-bank-tier {
+  font-size: 8px;
+  font-weight: 600;
+  opacity: 0.85;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-top: 1px;
+}
+[data-theme="brutalist"] .cc-bank-name,
+[data-theme="brutalist"] .cc-bank-tier {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cc-contactless { width: 22px; height: 22px; opacity: 0.85; }
+
+/* Middle: chip + number */
+.cc-middle {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cc-chip {
+  width: 40px;
+  height: 30px;
+  border-radius: 4px;
+  position: relative;
+  flex-shrink: 0;
+}
+[data-theme="brutalist"] .cc-chip { border-radius: 0; }
+.cc-chip svg { width: 100%; height: 100%; display: block; }
+
+.cc-number {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-feature-settings: 'tnum';
+  text-shadow: 0 1px 0 rgba(0,0,0,0.35), 0 0 0.5px rgba(255,255,255,0.2);
+  white-space: nowrap;
+}
+[data-theme="modern"] .cc-amex .cc-number { text-shadow: 0 1px 0 rgba(255,255,255,0.5), 0 -1px 0 rgba(0,0,0,0.15); }
+[data-theme="brutalist"] .cc-number { text-shadow: none; font-weight: 800; }
+
+/* Bottom row */
+.cc-bottom {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 14px;
+  align-items: end;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.cc-meta-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-label {
+  font-size: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+}
+.cc-value {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Network logo */
+.cc-network-visa {
+  font-family: 'Inter', sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  color: #ffffff;
+}
+[data-theme="brutalist"] .cc-network-visa {
+  font-style: normal;
+  letter-spacing: 0;
+  color: #000;
+}
+.cc-network-amex {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-align: right;
+  line-height: 1.05;
+  color: #0a0a0a;
+  border: 1.5px solid currentColor;
+  padding: 5px 8px;
+  border-radius: 2px;
+}
+[data-theme="brutalist"] .cc-network-amex { border-radius: 0; border-width: 2px; }
+
+/* BACK */
+.cc-back-stripe {
+  width: calc(100% + 44px);
+  height: 40px;
+  background: rgba(0,0,0,0.92);
+  margin: 12px -22px 0;
+}
+[data-theme="brutalist"] .cc-back-stripe { background: #000; }
+[data-theme="modern"] .cc-amex .cc-back-stripe { background: rgba(0,0,0,0.85); }
+
+.cc-back-sig {
+  margin: 18px 0 6px;
+  height: 32px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.95) 0 5px, rgba(240,233,220,0.85) 5px 10px);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  position: relative;
+}
+[data-theme="brutalist"] .cc-back-sig {
+  background: #ffffff;
+  border: 2px solid #000;
+  border-radius: 0;
+}
+.cc-back-cvc {
+  margin-left: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  font-style: italic;
+  color: #000;
+  letter-spacing: 0.12em;
+  background: rgba(255,255,255,0.85);
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+[data-theme="brutalist"] .cc-back-cvc {
+  background: #fff;
+  font-style: normal;
+  border-radius: 0;
+  border-left: 2px solid #000;
+}
+.cc-back-text {
+  font-size: 8px;
+  opacity: 0.65;
+  margin-top: auto;
+  line-height: 1.5;
+  padding-top: 8px;
+}
+[data-theme="brutalist"] .cc-back-text { opacity: 0.85; }
+
+.cc-back-flip-hint {
+  position: absolute;
+  top: 8px; right: 12px;
+  font-size: 8px;
+  opacity: 0.6;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Multi-line address display */
+.field-value.multiline {
+  white-space: pre-line;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+.field.field-multi {
+  align-items: flex-start;
+  grid-template-columns: 1fr auto;
+}
+.field.field-multi .field-actions { margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- AMBIENT BACKGROUND -->
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="bg-spotlight" aria-hidden="true"></div>
+<div class="bg-spotlight s2" aria-hidden="true"></div>
+
+<!-- ============================================================
+     LOCK SCREEN
+     ============================================================ -->
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-card">
+    <div class="lock-logo">
+      <span class="v-mark">V</span>
+      <span>VuVault</span>
+    </div>
+
+    <div>
+      <h1 class="lock-headline">Your vault is encrypted.</h1>
+      <p class="lock-sub">Enter your master password to derive the decryption key locally. Even we cannot read what is inside.</p>
+    </div>
+
+    <div class="lock-input-wrap">
+      <span class="lock-input-icon">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      </span>
+      <input id="masterPw" class="lock-input" type="password" placeholder="Master password" autocomplete="off" autofocus>
+      <button class="lock-input-toggle" id="pwToggle" type="button" aria-label="Toggle password visibility">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+
+    <div class="lock-meta">
+      <span class="lock-meta-pill"><span class="dot"></span>Argon2id · 600 ms</span>
+      <span class="lock-meta-pill"><span class="dot"></span>AES-256-GCM</span>
+      <span class="lock-meta-pill"><span class="dot"></span>0 servers contacted</span>
+    </div>
+
+    <div class="lock-state" id="lockState" aria-live="polite"></div>
+
+    <div class="lock-foot">
+      <span><strong>vault.vu</strong> — 12.4 KB · last opened never</span>
+      <span>Hint: type any password and press <kbd class="kbd">↵</kbd> to unlock the demo</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP
+     ============================================================ -->
+<div class="app" id="app" hidden>
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="v-mark">V</span>
+      <span class="brand-text">VuVault</span>
+    </div>
+
+    <div class="search-wrap">
+      <span class="search-icon">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      </span>
+      <input id="search" class="search-input" type="text" placeholder="Search 38 items by name, username, url, tag…" autocomplete="off">
+      <span class="search-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+    </div>
+
+    <div class="top-actions">
+      <button class="icon-btn" id="openGenerator" title="Password generator (G)" aria-label="Password generator">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4"/><path d="M3 5h4"/><path d="M6 17v4"/><path d="M4 19h4"/><path d="M14 4l2.5 5L22 11.5 16.5 14 14 19l-2.5-5L6 11.5 11.5 9 14 4z"/></svg>
+      </button>
+      <button class="icon-btn" id="openSettings" title="Settings" aria-label="Settings">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09A1.65 1.65 0 0015 4.6a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn primary" id="openAdd" title="Add new item (N)" aria-label="Add new item">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button class="icon-btn" id="lockBtn" title="Lock vault (⌘L)" aria-label="Lock vault">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="nav-section">Vault</div>
+      <nav class="nav-list" id="navList">
+        <button class="nav-item active" data-cat="all">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span class="nav-item-text">All items</span>
+          <span class="nav-count" data-count="all">38</span>
+        </button>
+        <button class="nav-item" data-cat="login">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          <span class="nav-item-text">Logins</span>
+          <span class="nav-count" data-count="login">21</span>
+        </button>
+        <button class="nav-item" data-cat="card">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          <span class="nav-item-text">Cards</span>
+          <span class="nav-count" data-count="card">4</span>
+        </button>
+        <button class="nav-item" data-cat="note">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="nav-item-text">Secure notes</span>
+          <span class="nav-count" data-count="note">5</span>
+        </button>
+        <button class="nav-item" data-cat="ssh">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="nav-item-text">SSH keys</span>
+          <span class="nav-count" data-count="ssh">3</span>
+        </button>
+        <button class="nav-item" data-cat="crypto">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 8h4.5a2.5 2.5 0 010 5H9m0 0h5a2.5 2.5 0 010 5H9m0-10v10"/></svg>
+          <span class="nav-item-text">Crypto wallets</span>
+          <span class="nav-count" data-count="crypto">3</span>
+        </button>
+        <button class="nav-item" data-cat="identity">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h3M15 12h3M5 18s1-2 4-2 4 2 4 2"/></svg>
+          <span class="nav-item-text">Identities</span>
+          <span class="nav-count" data-count="identity">2</span>
+        </button>
+      </nav>
+
+      <div class="nav-section" style="margin-top:8px">Health</div>
+      <nav class="nav-list">
+        <button class="nav-item" data-cat="weak">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span class="nav-item-text">Weak passwords</span>
+          <span class="nav-count" data-count="weak">2</span>
+        </button>
+        <button class="nav-item" data-cat="reused">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+          <span class="nav-item-text">Reused</span>
+          <span class="nav-count" data-count="reused">3</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="upgrade-card">
+          <div class="upgrade-title">VuVault Lifetime</div>
+          <div class="upgrade-price">$2.56<small>/once</small></div>
+          <div class="upgrade-note">256 bits of entropy × $0.01. Honest math, no subscription. Compare: 1Password $35.88/year, NordPass $35.76/year.</div>
+        </div>
+        <div class="foot-stat">
+          <span class="foot-stat-label">Encryption</span>
+          <span class="foot-stat-value success">Active</span>
+        </div>
+        <div class="foot-stat">
+          <span class="foot-stat-label">Telemetry calls</span>
+          <span class="foot-stat-value success">0</span>
+        </div>
+        <div class="foot-stat">
+          <span class="foot-stat-label">Sync</span>
+          <span class="foot-stat-value">Local only</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- LIST -->
+    <section class="list-pane">
+      <div class="list-head">
+        <div class="list-title">All items <span class="list-title-count" id="listCount">38</span></div>
+        <button class="list-sort" id="sortBtn" title="Sort">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+          <span id="sortLabel">A — Z</span>
+        </button>
+      </div>
+      <div class="list-scroll" id="listScroll" role="listbox" aria-label="Vault items"></div>
+    </section>
+
+    <!-- DETAIL -->
+    <section class="detail-pane" id="detailPane">
+      <!-- Populated dynamically -->
+    </section>
+  </main>
+
+  <!-- STATUS BAR -->
+  <footer class="statusbar">
+    <span class="status-pill"><span class="dot"></span>Zero-knowledge active</span>
+    <span class="status-sep"></span>
+    <span class="status-pill" id="bytesPill">0 bytes transmitted this session</span>
+    <span class="status-sep"></span>
+    <span class="status-pill">AES-256-GCM · Argon2id</span>
+    <span class="status-sep"></span>
+    <span class="status-pill">vault.vu · 12.4 KB</span>
+    <span class="status-spacer"></span>
+    <span class="status-pill" id="autoLockPill">Auto-lock 14:59</span>
+    <span class="status-sep"></span>
+    <div class="theme-toggle" role="tablist" aria-label="Theme">
+      <button class="theme-opt active" data-set-theme="modern" role="tab">Modern</button>
+      <button class="theme-opt" data-set-theme="brutalist" role="tab">Brutalist</button>
+    </div>
+  </footer>
+</div>
+
+<!-- ============================================================
+     MODAL: GENERATOR
+     ============================================================ -->
+<div class="modal-backdrop" id="genModal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-labelledby="genTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="genTitle">Generate password</div>
+      <button class="icon-btn" data-close-modal="genModal" aria-label="Close">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="gen-display" id="genDisplay">—</div>
+      <div class="gen-controls">
+        <div class="gen-slider-wrap">
+          <span class="form-label">Length</span>
+          <input type="range" min="8" max="64" value="24" class="gen-slider" id="genLen">
+        </div>
+        <div class="gen-len" id="genLenLabel">24</div>
+      </div>
+      <div class="gen-toggles" id="genToggles">
+        <button class="gen-toggle on" data-gen="upper">
+          <span class="check"><svg class="icon" style="width:10px;height:10px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          A–Z
+        </button>
+        <button class="gen-toggle on" data-gen="lower">
+          <span class="check"><svg class="icon" style="width:10px;height:10px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          a–z
+        </button>
+        <button class="gen-toggle on" data-gen="digit">
+          <span class="check"><svg class="icon" style="width:10px;height:10px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          0–9
+        </button>
+        <button class="gen-toggle on" data-gen="symbol">
+          <span class="check"><svg class="icon" style="width:10px;height:10px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          !@#$
+        </button>
+        <button class="gen-toggle" data-gen="ambig">
+          <span class="check"><svg class="icon" style="width:10px;height:10px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Avoid look-alikes (0/O, 1/l)
+        </button>
+      </div>
+      <div class="strength" id="genStrength">
+        <div>
+          <div class="strength-bars">
+            <div class="strength-bar on s4"></div>
+            <div class="strength-bar on s4"></div>
+            <div class="strength-bar on s4"></div>
+            <div class="strength-bar on s4"></div>
+          </div>
+          <div class="strength-text" id="genStrengthText">Quantum-resistant. ~158 bits of entropy.</div>
+        </div>
+        <div class="strength-bits"><span id="genBits">158</span><small>bits</small></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="genRegen">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+          Regenerate
+      </button>
+      <button class="btn primary" id="genCopy">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Copy
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL: ADD ITEM
+     ============================================================ -->
+<div class="modal-backdrop" id="addModal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-labelledby="addTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="addTitle">New login</div>
+      <button class="icon-btn" data-close-modal="addModal" aria-label="Close">
+        <svg class="icon icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <span class="form-label">Item type</span>
+        <select class="form-select" id="addType">
+          <option value="login">Login</option>
+          <option value="card">Credit card</option>
+          <option value="note">Secure note</option>
+          <option value="ssh">SSH key</option>
+          <option value="crypto">Crypto wallet</option>
+          <option value="identity">Identity / Passport</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <span class="form-label">Name</span>
+        <input class="form-input" id="addName" type="text" placeholder="e.g. GitHub, Bank, Personal Email" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <span class="form-label">Username</span>
+        <input class="form-input" id="addUser" type="text" placeholder="username or email" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <span class="form-label">Password</span>
+        <input class="form-input" id="addPw" type="text" placeholder="paste or generate" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <span class="form-label">URL</span>
+        <input class="form-input" id="addUrl" type="text" placeholder="https://" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close-modal="addModal">Cancel</button>
+      <button class="btn primary" id="addSave">Encrypt &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST STACK -->
+<div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+<script>
+/* ============================================================
+   DATA — demo vault contents
+   ============================================================ */
+const ITEMS = [
+  { id: 'i1',  type: 'login',  name: 'GitHub',           user: 'mr-lopez',                pw: 'Tg9!fA2$pXz#mNqL7vBe5R',  url: 'https://github.com',         tag: '2FA',     created: '2024-08-12', accessed: '2 hrs ago',   strength: 4, totp: true },
+  { id: 'i2',  type: 'login',  name: 'Bank of America',  user: 'lopez.r@protonmail.com',  pw: 'kLm@8nVw2!rZqP4xT^bF',     url: 'https://bankofamerica.com',  tag: '2FA',     created: '2023-04-02', accessed: '1 day ago',   strength: 4, totp: true },
+  { id: 'i3',  type: 'login',  name: 'Netflix',          user: 'home@familybox.tv',       pw: 'sun-quartz-river-12',     url: 'https://netflix.com',        tag: 'shared', created: '2022-11-18', accessed: '3 days ago',  strength: 3 },
+  { id: 'i4',  type: 'login',  name: 'AWS Console',      user: 'root@vu-prod',            pw: 'Q7&pLm3@fXaH9!nT$rWeY',    url: 'https://aws.amazon.com',     tag: 'critical', created: '2023-09-30', accessed: '5 hrs ago', strength: 4, totp: true },
+  { id: 'i5',  type: 'login',  name: 'Cloudflare',       user: 'admin@vu.app',            pw: 'Hx3#mLo9!pQ@8rVw2&zNy',    url: 'https://dash.cloudflare.com', tag: '2FA', created: '2024-01-04', accessed: '4 hrs ago', strength: 4, totp: true },
+  { id: 'i6',  type: 'login',  name: 'Proton Mail',      user: 'mr-lopez@proton.me',      pw: 'Bn8&kVp2!qMxL@9rTwZ',      url: 'https://mail.proton.me',     tag: '2FA',     created: '2022-06-14', accessed: 'just now',    strength: 4, totp: true },
+  { id: 'i7',  type: 'login',  name: 'Stripe',           user: 'billing@vu.app',          pw: '!Vp@kLm9#fXz3$rTw7nQ',     url: 'https://dashboard.stripe.com', tag: '2FA', created: '2024-02-21', accessed: '6 hrs ago', strength: 4 },
+  { id: 'i8',  type: 'login',  name: 'Hacker News',      user: 'rlopez',                  pw: 'password123',             url: 'https://news.ycombinator.com', tag: 'weak', created: '2014-03-11', accessed: '2 weeks ago', strength: 1 },
+  { id: 'i9',  type: 'login',  name: 'Old Forum',        user: 'rlopez99',                pw: 'qwerty12',                url: 'http://oldforum.example',     tag: 'weak',   created: '2010-05-01', accessed: '4 mo ago',   strength: 1 },
+  { id: 'i10', type: 'login',  name: 'Twitter / X',      user: '@mrlopez',                pw: 'sun-quartz-river-12',     url: 'https://x.com',              tag: 'reused', created: '2019-08-22', accessed: '2 days ago', strength: 3 },
+  { id: 'i11', type: 'login',  name: 'Reddit',           user: 'lopez_dev',               pw: 'sun-quartz-river-12',     url: 'https://reddit.com',         tag: 'reused', created: '2020-02-12', accessed: '1 wk ago',   strength: 3 },
+  { id: 'i12', type: 'login',  name: 'Notion',           user: 'rlopez@vu.app',           pw: 'fK9!pVm2#xLn@8qRw',       url: 'https://notion.so',          tag: '',       created: '2024-03-18', accessed: '6 hrs ago',  strength: 4 },
+
+  { id: 'c1',  type: 'card',   name: 'Visa Signature',   user: '•••• 4821',               pw: '423',                     url: 'Bank of America',            tag: '',       created: '2024-01-10', accessed: '2 wks ago',  strength: 4,
+    network: 'visa', cardFull: '4147 1234 5678 4821', cardholder: 'R LOPEZ', expiry: '09/28',
+    billing: '128 Catawba Place\nGreenville, SC 29609\nUnited States' },
+  { id: 'c2',  type: 'card',   name: 'Amex Platinum',    user: '•••• 1003',               pw: '7842',                    url: 'American Express',           tag: '',       created: '2023-09-01', accessed: '1 mo ago',   strength: 4,
+    network: 'amex', cardFull: '3782 822463 91003',  cardholder: 'R LOPEZ', expiry: '11/27',
+    billing: '128 Catawba Place\nGreenville, SC 29609\nUnited States' },
+
+  { id: 'n1',  type: 'note',   name: 'Wi-Fi: Casa',      user: 'WPA3-Enterprise',         pw: 'lighthouse-fern-velvet-ember',  url: '—',                    tag: '',       created: '2024-06-12', accessed: '3 days ago', strength: 4 },
+  { id: 'n2',  type: 'note',   name: 'Recovery codes — Proton', user: '8 codes remaining', pw: '4kp3-9xnq-h7vm-2w8j-5fce-rt9b-mp4x-vn2k', url: '—',          tag: 'critical', created: '2024-05-30', accessed: '1 mo ago', strength: 4 },
+
+  { id: 's1',  type: 'ssh',    name: 'id_ed25519 — laptop', user: 'mr-lopez@osprey',      pw: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtN2qX9pLm8...',  url: '—', tag: 'ed25519', created: '2024-07-04', accessed: '6 hrs ago', strength: 4 },
+  { id: 's2',  type: 'ssh',    name: 'GitHub deploy key', user: 'deploy@vu-prod',         pw: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA9pXz...',         url: 'github.com/vu', tag: 'ed25519', created: '2024-09-12', accessed: '1 day ago', strength: 4 },
+
+  { id: 'k1',  type: 'crypto', name: 'BTC — Cold wallet', user: 'bc1q... seed (24w)',     pw: 'orbit · velvet · meadow · raven · ... (+20 words)', url: '—', tag: 'cold',   created: '2023-02-08', accessed: '3 mo ago', strength: 4 },
+  { id: 'k2',  type: 'crypto', name: 'XMR — Hot wallet',  user: '4Aabc... seed (25w)',    pw: 'pebble · gravity · cinnamon · kestrel · ...',       url: '—', tag: 'hot',    created: '2024-10-03', accessed: '2 days ago', strength: 4 },
+
+  { id: 'd1',  type: 'identity', name: 'US Passport',    user: 'LOPEZ, R.',               pw: '5•• 0•• ••5',             url: 'Expires 2032-04-12',         tag: '',       created: '2022-04-14', accessed: '1 yr ago',   strength: 4 },
+  { id: 'd2',  type: 'identity', name: 'SC Driver License', user: 'LOPEZ, R.',            pw: 'SC •••• 8421',            url: 'Greenville, SC',             tag: '',       created: '2023-06-22', accessed: '2 mo ago',   strength: 4 },
+];
+
+/* Initial counts pre-render */
+const COUNTS = ITEMS.reduce((a, it) => { a[it.type] = (a[it.type]||0)+1; return a; }, {});
+COUNTS.all     = ITEMS.length;
+COUNTS.weak    = ITEMS.filter(i => i.tag === 'weak').length;
+COUNTS.reused  = ITEMS.filter(i => i.tag === 'reused').length;
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const $ = (s, c=document) => c.querySelector(s);
+const $$ = (s, c=document) => Array.from(c.querySelectorAll(s));
+
+const lockScreen = $('#lockScreen');
+const masterPw = $('#masterPw');
+const pwToggle = $('#pwToggle');
+const lockState = $('#lockState');
+const app = $('#app');
+
+const navList = $('#navList');
+const listScroll = $('#listScroll');
+const listCount = $('#listCount');
+const detailPane = $('#detailPane');
+const search = $('#search');
+
+const genModal = $('#genModal');
+const addModal = $('#addModal');
+
+let state = {
+  category: 'all',
+  query: '',
+  selectedId: null,
+  reveal: {},      // id => boolean
+  countdowns: {},  // id => seconds
+  sort: 'name',
+};
+
+/* ============================================================
+   THEME
+   ============================================================ */
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.querySelector('meta[name="theme-color"]').setAttribute(
+    'content', t === 'modern' ? '#000000' : '#ffffff'
+  );
+  $$('.theme-opt').forEach(b => b.classList.toggle('active', b.dataset.setTheme === t));
+}
+$$('.theme-opt').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.setTheme)));
+
+/* ============================================================
+   LOCK / UNLOCK
+   ============================================================ */
+pwToggle.addEventListener('click', () => {
+  const showing = masterPw.type === 'text';
+  masterPw.type = showing ? 'password' : 'text';
+});
+
+masterPw.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') tryUnlock();
+});
+
+async function tryUnlock() {
+  const v = masterPw.value;
+  if (!v || v.length < 1) {
+    masterPw.classList.remove('shake');
+    void masterPw.offsetWidth;
+    masterPw.classList.add('shake');
+    return;
+  }
+  // Simulate Argon2id -> decrypt sequence
+  lockState.innerHTML = '<span class="spin"></span> Deriving key with Argon2id…';
+  await sleep(520);
+  lockState.innerHTML = '<span class="spin"></span> Decrypting vault.vu locally…';
+  await sleep(420);
+  lockState.textContent = 'Vault opened.';
+  await sleep(180);
+  lockScreen.classList.add('unlocked');
+  app.hidden = false;
+  requestAnimationFrame(() => app.classList.add('ready'));
+  setTimeout(() => { lockScreen.style.display = 'none'; }, 360);
+  // Render
+  buildNav();
+  renderList();
+  selectItem(ITEMS[0].id);
+  startAutoLock();
+}
+
+function lockNow() {
+  lockScreen.style.display = '';
+  lockScreen.classList.remove('unlocked');
+  app.classList.remove('ready');
+  setTimeout(() => { app.hidden = true; }, 280);
+  masterPw.value = '';
+  masterPw.focus();
+  lockState.textContent = '';
+  state.reveal = {};
+}
+$('#lockBtn').addEventListener('click', lockNow);
+
+/* ============================================================
+   NAV
+   ============================================================ */
+function buildNav() {
+  $$('.nav-count').forEach(el => {
+    const k = el.dataset.count;
+    if (k in COUNTS) el.textContent = COUNTS[k];
+  });
+  $$('#navList .nav-item, .sidebar .nav-item').forEach(b => {
+    b.addEventListener('click', () => {
+      $$('.nav-item').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      state.category = b.dataset.cat;
+      renderList();
+      // Auto-select first match
+      const first = filteredItems()[0];
+      if (first) selectItem(first.id);
+      else clearDetail();
+    });
+  });
+}
+
+/* ============================================================
+   LIST
+   ============================================================ */
+function filteredItems() {
+  let arr = ITEMS.slice();
+  const c = state.category;
+  if (c === 'all') {/* nothing */}
+  else if (c === 'weak') arr = arr.filter(i => i.tag === 'weak');
+  else if (c === 'reused') arr = arr.filter(i => i.tag === 'reused');
+  else arr = arr.filter(i => i.type === c);
+  if (state.query) {
+    const q = state.query.toLowerCase();
+    arr = arr.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      (i.user||'').toLowerCase().includes(q) ||
+      (i.url||'').toLowerCase().includes(q) ||
+      (i.tag||'').toLowerCase().includes(q)
+    );
+  }
+  arr.sort((a,b) => a.name.localeCompare(b.name));
+  return arr;
+}
+
+function renderList() {
+  const arr = filteredItems();
+  listCount.textContent = arr.length;
+  if (!arr.length) {
+    listScroll.innerHTML = `<div class="list-empty">
+      <svg class="icon icon-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>No items match. Try another search.</span>
+    </div>`;
+    return;
+  }
+  listScroll.innerHTML = arr.map(i => listItemHTML(i)).join('');
+  $$('.list-item', listScroll).forEach(el => {
+    el.addEventListener('click', () => selectItem(el.dataset.id));
+  });
+  if (state.selectedId) {
+    const cur = $(`.list-item[data-id="${state.selectedId}"]`, listScroll);
+    if (cur) cur.classList.add('active');
+  }
+}
+function listItemHTML(i) {
+  const tag = i.tag ? `<span class="li-tag ${i.tag==='weak'?'warn':''}">${i.tag}</span>` : '';
+  const initials = i.name.replace(/[^A-Za-z0-9]/g,'').slice(0,2).toUpperCase() || 'VU';
+  return `
+    <button class="list-item${i.id===state.selectedId?' active':''}" data-id="${i.id}">
+      <span class="li-thumb">${initials}</span>
+      <span class="li-body">
+        <span class="li-name">${escape(i.name)}</span>
+        <span class="li-sub">${escape(i.user || '—')}</span>
+      </span>
+      <span class="li-meta">
+        ${tag}
+        <span>${escape(i.accessed || '')}</span>
+      </span>
+    </button>`;
+}
+
+/* ============================================================
+   DETAIL
+   ============================================================ */
+function selectItem(id) {
+  state.selectedId = id;
+  $$('.list-item', listScroll).forEach(x => x.classList.toggle('active', x.dataset.id === id));
+  const it = ITEMS.find(x => x.id === id);
+  if (!it) { clearDetail(); return; }
+  document.body.dataset.mobileView = 'detail';
+  renderDetail(it);
+}
+function clearDetail() {
+  state.selectedId = null;
+  detailPane.innerHTML = `
+    <div class="detail-empty">
+      <span class="glyph">
+        <svg class="icon icon-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      </span>
+      <span>Select an item to decrypt and view its contents.</span>
+      <span style="font-size:11px;opacity:0.7">Decryption happens locally. Nothing is requested from a server.</span>
+    </div>`;
+}
+
+function renderDetail(it) {
+  const initials = it.name.replace(/[^A-Za-z0-9]/g,'').slice(0,2).toUpperCase() || 'VU';
+  const isSecret = ['login','card','ssh','crypto','note','identity'].includes(it.type);
+  const revealed = !!state.reveal[it.id];
+  const masked = mask(it.pw);
+
+  const userLabel  = labelFor(it.type, 'user');
+  const pwLabel    = labelFor(it.type, 'pw');
+  const urlLabel   = labelFor(it.type, 'url');
+
+  const pwField = `
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">${pwLabel}</span>
+        <span class="field-value secret ${revealed?'revealed':''}" id="pwField">${revealed ? escape(it.pw) : masked}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" id="revealBtn" title="${revealed?'Hide':'Reveal'}">
+          ${revealed
+            ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-10-7-10-7a18.7 18.7 0 015-5.94"/><path d="M9.9 4.24A11.05 11.05 0 0112 4c7 0 10 7 10 7a18.7 18.7 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+            : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>'}
+        </button>
+        <button class="field-btn" data-copy="${escape(it.pw)}" data-label="${pwLabel.toLowerCase()}" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+
+  const userField = `
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">${userLabel}</span>
+        <span class="field-value mono">${escape(it.user || '—')}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" data-copy="${escape(it.user||'')}" data-label="${userLabel.toLowerCase()}" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+
+  const urlField = it.url && it.url !== '—' ? `
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">${urlLabel}</span>
+        <span class="field-value">${escape(it.url)}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" data-copy="${escape(it.url||'')}" data-label="${urlLabel.toLowerCase()}" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+  ` : '';
+
+  const totpField = it.totp ? `
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">One-time code (TOTP)</span>
+        <span class="field-value mono"><span id="totpCode">${currentTotp()}</span></span>
+      </div>
+      <div class="field-actions">
+        <span class="field-btn" id="totpRing" title="Refreshing">
+          <svg class="icon" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" stroke-width="2" opacity="0.2"/><circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" id="totpArc" pathLength="100" stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 18 18)"/></svg>
+        </span>
+        <button class="field-btn" id="totpCopy" title="Copy code"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+      </div>
+    </div>
+  ` : '';
+
+  const strength = it.strength || 4;
+  const strengthLabel = strengthCopy(strength);
+  const bits = approxBits(it.pw, strength);
+
+  // Card type gets a 2-column layout with a hyper-realistic card visualization
+  const isCard = it.type === 'card';
+  const cardSide = isCard ? cardMockHTML(it, !!state.reveal[it.id]) : '';
+  const cardExtraFields = isCard ? `
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">Cardholder</span>
+        <span class="field-value mono">${escape(it.cardholder || '—')}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" data-copy="${escape(it.cardholder||'')}" data-label="cardholder name" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-value-wrap">
+        <span class="field-label">Expiry</span>
+        <span class="field-value mono">${escape(it.expiry || '—')}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" data-copy="${escape(it.expiry||'')}" data-label="expiry" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="field field-multi">
+      <div class="field-value-wrap">
+        <span class="field-label">Billing address</span>
+        <span class="field-value multiline">${escape(it.billing || '—')}</span>
+      </div>
+      <div class="field-actions">
+        <button class="field-btn" data-copy="${escape(it.billing||'')}" data-label="billing address" title="Copy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+    </div>
+  ` : '';
+
+  const fieldStack = `
+    ${userField}
+    ${pwField}
+    ${totpField}
+    ${urlField}
+  `;
+
+  const detailBody = isCard
+    ? `<div class="cc-layout">
+         <div class="cc-fields-col">${fieldStack}</div>
+         <div class="cc-card-col">${cardSide}${cardExtraFields}</div>
+       </div>`
+    : fieldStack;
+
+  detailPane.innerHTML = `
+    <div class="detail-head">
+      <div class="detail-thumb">${initials}</div>
+      <div class="detail-title-wrap">
+        <div class="detail-title">${escape(it.name)}</div>
+        <div class="detail-subtitle">${escape(it.url || '—')} · created ${escape(it.created || '')} · last accessed ${escape(it.accessed || 'never')}</div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>
+        <button class="action-btn danger">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          Delete
+        </button>
+      </div>
+    </div>
+    <div class="detail-scroll">
+      ${detailBody}
+
+      <div class="section-head"><span class="section-title">Strength</span></div>
+      <div class="strength">
+        <div>
+          <div class="strength-bars">
+            ${[1,2,3,4].map(n => `<div class="strength-bar ${n<=strength?'on s'+strength:''}"></div>`).join('')}
+          </div>
+          <div class="strength-text">${strengthLabel}</div>
+        </div>
+        <div class="strength-bits">${bits}<small>bits</small></div>
+      </div>
+
+      <div class="section-head"><span class="section-title">Local audit</span></div>
+      <div class="audit">
+        <div class="audit-row"><span class="audit-time">just now</span><span class="audit-dot"></span><span class="audit-text">Item <strong>decrypted</strong> from vault.vu (local)</span></div>
+        <div class="audit-row"><span class="audit-time">${escape(it.accessed || '—')}</span><span class="audit-dot"></span><span class="audit-text">${isCard ? 'CVC copied · clipboard cleared after 30s' : 'Password copied · clipboard cleared after 30s'}</span></div>
+        <div class="audit-row"><span class="audit-time">${escape(it.created || '—')}</span><span class="audit-dot"></span><span class="audit-text">Item <strong>created</strong> · encrypted with key derived from master password</span></div>
+      </div>
+
+      <div class="section-head"><span class="section-title">What is NOT happening</span></div>
+      <div class="audit">
+        <div class="audit-row"><span class="audit-time">—</span><span class="audit-dot" style="background:var(--text-3)"></span><span class="audit-text">No request sent to a sync server</span></div>
+        <div class="audit-row"><span class="audit-time">—</span><span class="audit-dot" style="background:var(--text-3)"></span><span class="audit-text">No telemetry, no analytics, no error reporting</span></div>
+        <div class="audit-row"><span class="audit-time">—</span><span class="audit-dot" style="background:var(--text-3)"></span><span class="audit-text">No third-party script loaded by this page</span></div>
+        <div class="audit-row"><span class="audit-time">—</span><span class="audit-dot" style="background:var(--text-3)"></span><span class="audit-text">vault.vu file remains on this device only</span></div>
+      </div>
+    </div>
+  `;
+
+  // Wire up
+  const revealBtn = $('#revealBtn');
+  if (revealBtn) revealBtn.addEventListener('click', () => toggleReveal(it));
+  $$('.field-btn[data-copy]').forEach(b => b.addEventListener('click', () => copyField(b.dataset.copy, b.dataset.label)));
+  if (it.totp) {
+    const tc = $('#totpCopy');
+    if (tc) tc.addEventListener('click', () => copyField($('#totpCode').textContent, 'one-time code'));
+  }
+  // Card click flips it
+  const ccCard = $('#ccCard');
+  if (ccCard) ccCard.addEventListener('click', () => toggleReveal(it));
+}
+
+/* ============================================================
+   CREDIT CARD MOCKUP
+   ============================================================ */
+function cardMockHTML(it, flipped) {
+  const number = it.cardFull || '';
+  const numberFmt = formatCardNumber(number, it.network);
+  const cvc = flipped ? (it.pw || '•••') : '•••';
+  return `
+    <div class="cc-flipper" title="Click to flip">
+      <div class="cc-card cc-${it.network} ${flipped ? 'flipped' : ''}" id="ccCard">
+
+        <div class="cc-face cc-front">
+          <div class="cc-top">
+            <div class="cc-bank">
+              <div class="cc-bank-name">${escape(it.url || 'Bank')}</div>
+              <div class="cc-bank-tier">${escape(it.name)}</div>
+            </div>
+            <div class="cc-contactless" title="Contactless">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg"><path d="M5.5 7.5c2.4 2.4 2.4 6.6 0 9"/><path d="M9 5c4 4 4 10 0 14"/><path d="M12.5 2.5c5.4 5.4 5.4 13.6 0 19"/></svg>
+            </div>
+          </div>
+
+          <div class="cc-middle">
+            <div class="cc-chip">${chipSVG()}</div>
+            <div class="cc-number">${numberFmt}</div>
+          </div>
+
+          <div class="cc-bottom">
+            <div class="cc-meta-block">
+              <span class="cc-label">Cardholder</span>
+              <span class="cc-value">${escape(it.cardholder || '')}</span>
+            </div>
+            <div class="cc-meta-block">
+              <span class="cc-label">Valid thru</span>
+              <span class="cc-value">${escape(it.expiry || '')}</span>
+            </div>
+            ${networkLogo(it.network)}
+          </div>
+        </div>
+
+        <div class="cc-face cc-back">
+          <span class="cc-back-flip-hint">Click to flip</span>
+          <div class="cc-back-stripe"></div>
+          <div class="cc-back-sig">
+            <span class="cc-back-cvc">${escape(cvc)}</span>
+          </div>
+          <div class="cc-back-text">For customer service call ${escape(it.url || '')}. Use of this card is governed by the cardmember agreement and constitutes acceptance of its terms. If found, please return to issuer.</div>
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
+function formatCardNumber(num, network) {
+  const n = (num || '').replace(/\s/g, '');
+  const NB = '\u00A0'; // non-breaking space
+  if (network === 'amex' && n.length >= 15) {
+    return `${n.slice(0,4)}${NB}${n.slice(4,10)}${NB}${n.slice(10,15)}`;
+  }
+  if (n.length >= 16) {
+    return `${n.slice(0,4)}${NB}${n.slice(4,8)}${NB}${n.slice(8,12)}${NB}${n.slice(12,16)}`;
+  }
+  return n;
+}
+
+function networkLogo(network) {
+  if (network === 'visa') return `<div class="cc-network-visa">VISA</div>`;
+  if (network === 'amex') return `<div class="cc-network-amex">AMERICAN<br>EXPRESS</div>`;
+  return `<div class="cc-network-visa">${(network||'').toUpperCase()}</div>`;
+}
+
+function chipSVG() {
+  return `<svg viewBox="0 0 40 30" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="chipG" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ead49a"/>
+        <stop offset="50%" stop-color="#a88e51"/>
+        <stop offset="100%" stop-color="#e3c98c"/>
+      </linearGradient>
+    </defs>
+    <rect class="cc-chip-bg" x="0.5" y="0.5" width="39" height="29" rx="3" fill="url(#chipG)" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>
+    <g class="cc-chip-lines" stroke="rgba(0,0,0,0.45)" stroke-width="0.5" fill="none">
+      <line x1="0" y1="10" x2="14" y2="10"/>
+      <line x1="0" y1="20" x2="14" y2="20"/>
+      <line x1="26" y1="10" x2="40" y2="10"/>
+      <line x1="26" y1="20" x2="40" y2="20"/>
+      <line x1="14" y1="0" x2="14" y2="30"/>
+      <line x1="26" y1="0" x2="26" y2="30"/>
+      <rect x="14" y="10" width="12" height="10"/>
+    </g>
+  </svg>`;
+}
+
+function toggleReveal(it) {
+  state.reveal[it.id] = !state.reveal[it.id];
+  renderDetail(it);
+  if (state.reveal[it.id]) {
+    setTimeout(() => {
+      if (state.reveal[it.id] && state.selectedId === it.id) {
+        state.reveal[it.id] = false;
+        renderDetail(it);
+        toast('Auto-hidden after 30s.');
+      }
+    }, 30000);
+  }
+}
+
+function labelFor(type, key) {
+  const m = {
+    login:    { user: 'Username',         pw: 'Password',           url: 'Website' },
+    card:     { user: 'Card number',      pw: 'CVC',                url: 'Issuer' },
+    note:     { user: 'Type',             pw: 'Contents',           url: 'Reference' },
+    ssh:      { user: 'Comment',          pw: 'Public key',         url: 'Host' },
+    crypto:   { user: 'Address',          pw: 'Seed phrase',        url: 'Network' },
+    identity: { user: 'Name',             pw: 'Number',             url: 'Notes' },
+  };
+  return m[type] ? m[type][key] : key;
+}
+
+/* ============================================================
+   COPY / TOAST / CLIPBOARD CLEAR
+   ============================================================ */
+function copyField(text, label='value') {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(()=>{});
+  }
+  toast(`${capitalize(label)} copied. Clearing clipboard in 30s.`, 30);
+}
+function toast(msg, countdownSec) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>${escape(msg)}</span>
+    ${countdownSec ? `<span class="countdown" data-cd="${countdownSec}">${countdownSec}s</span>` : ''}
+  `;
+  $('#toastStack').appendChild(el);
+  if (countdownSec) {
+    let s = countdownSec;
+    const cdEl = el.querySelector('.countdown');
+    const t = setInterval(() => {
+      s -= 1;
+      if (cdEl) cdEl.textContent = s + 's';
+      if (s <= 0) clearInterval(t);
+    }, 1000);
+  }
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 220);
+  }, (countdownSec || 3) * 1000);
+}
+
+/* ============================================================
+   GENERATOR
+   ============================================================ */
+const genState = { len: 24, upper: true, lower: true, digit: true, symbol: true, ambig: false };
+function genPassword() {
+  let pool = '';
+  if (genState.upper)  pool += genState.ambig ? 'ABCDEFGHJKLMNPQRSTUVWXYZ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (genState.lower)  pool += genState.ambig ? 'abcdefghijkmnpqrstuvwxyz' : 'abcdefghijklmnopqrstuvwxyz';
+  if (genState.digit)  pool += genState.ambig ? '23456789' : '0123456789';
+  if (genState.symbol) pool += '!@#$%^&*()_+-=[]{};:,.<>/?';
+  if (!pool) return '';
+  const arr = new Uint32Array(genState.len);
+  crypto.getRandomValues(arr);
+  let out = '';
+  for (let i=0; i<genState.len; i++) out += pool[arr[i] % pool.length];
+  return out;
+}
+function bitsOfPool() {
+  let pool = 0;
+  if (genState.upper)  pool += genState.ambig ? 24 : 26;
+  if (genState.lower)  pool += genState.ambig ? 24 : 26;
+  if (genState.digit)  pool += genState.ambig ? 8 : 10;
+  if (genState.symbol) pool += 27;
+  if (!pool) return 0;
+  return Math.round(Math.log2(pool) * genState.len);
+}
+function refreshGen() {
+  const pw = genPassword();
+  $('#genDisplay').textContent = pw || '— pick at least one character set —';
+  $('#genLenLabel').textContent = genState.len;
+  const b = bitsOfPool();
+  $('#genBits').textContent = b;
+  // strength bars
+  const bars = $('#genStrength').querySelectorAll('.strength-bar');
+  let lvl = 1;
+  if (b >= 50) lvl = 2;
+  if (b >= 80) lvl = 3;
+  if (b >= 128) lvl = 4;
+  bars.forEach((bar, i) => {
+    bar.classList.remove('on','s1','s2','s3','s4');
+    if (i < lvl) bar.classList.add('on','s'+lvl);
+  });
+  let txt = 'Trivially crackable.';
+  if (b >= 50) txt = 'Reasonable. ~' + b + ' bits.';
+  if (b >= 80) txt = 'Strong. ~' + b + ' bits.';
+  if (b >= 128) txt = 'Quantum-resistant. ~' + b + ' bits of entropy.';
+  $('#genStrengthText').textContent = txt;
+  return pw;
+}
+$('#genLen').addEventListener('input', (e) => { genState.len = +e.target.value; refreshGen(); });
+$('#genToggles').addEventListener('click', (e) => {
+  const b = e.target.closest('.gen-toggle');
+  if (!b) return;
+  const k = b.dataset.gen;
+  genState[k] = !genState[k];
+  b.classList.toggle('on', genState[k]);
+  refreshGen();
+});
+$('#genRegen').addEventListener('click', refreshGen);
+$('#genCopy').addEventListener('click', () => {
+  const pw = $('#genDisplay').textContent;
+  copyField(pw, 'generated password');
+});
+
+/* ============================================================
+   MODALS
+   ============================================================ */
+function openModal(id) {
+  $('#'+id).classList.add('open');
+  $('#'+id).setAttribute('aria-hidden','false');
+  if (id === 'genModal') refreshGen();
+}
+function closeModal(id) {
+  $('#'+id).classList.remove('open');
+  $('#'+id).setAttribute('aria-hidden','true');
+}
+$('#openGenerator').addEventListener('click', () => openModal('genModal'));
+$('#openAdd').addEventListener('click', () => openModal('addModal'));
+$('#openSettings').addEventListener('click', () => toast('Settings — coming in v0.2'));
+$$('[data-close-modal]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.closeModal)));
+$$('.modal-backdrop').forEach(bd => bd.addEventListener('click', (e) => { if (e.target === bd) closeModal(bd.id); }));
+
+$('#addSave').addEventListener('click', () => {
+  const name = $('#addName').value.trim();
+  if (!name) { toast('Name is required.'); return; }
+  closeModal('addModal');
+  toast(`Encrypting "${name}" with key derived locally…`);
+  setTimeout(() => toast('Saved to vault.vu (encrypted blob).'), 700);
+  $('#addName').value = $('#addUser').value = $('#addPw').value = $('#addUrl').value = '';
+});
+
+/* ============================================================
+   SEARCH + KEYBOARD
+   ============================================================ */
+search.addEventListener('input', (e) => {
+  state.query = e.target.value;
+  renderList();
+});
+
+document.addEventListener('keydown', (e) => {
+  // ⌘K / Ctrl-K → focus search
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !app.hidden) {
+    e.preventDefault(); search.focus(); search.select();
+  }
+  // ⌘L → lock
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l' && !app.hidden) {
+    e.preventDefault(); lockNow();
+  }
+  // Escape → close any modal
+  if (e.key === 'Escape') {
+    $$('.modal-backdrop.open').forEach(m => closeModal(m.id));
+  }
+  // n → add (when not in input)
+  if (!app.hidden && e.key.toLowerCase() === 'n' && !inInput(e.target)) {
+    e.preventDefault(); openModal('addModal');
+  }
+  // g → generator
+  if (!app.hidden && e.key.toLowerCase() === 'g' && !inInput(e.target)) {
+    e.preventDefault(); openModal('genModal');
+  }
+});
+
+function inInput(el) {
+  if (!el) return false;
+  const t = el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || el.isContentEditable;
+}
+
+/* ============================================================
+   AUTO-LOCK COUNTDOWN (cosmetic)
+   ============================================================ */
+let autoLockSeconds = 15 * 60;
+let autoLockTimer = null;
+function startAutoLock() {
+  clearInterval(autoLockTimer);
+  autoLockSeconds = 15 * 60;
+  autoLockTimer = setInterval(() => {
+    autoLockSeconds -= 1;
+    if (autoLockSeconds <= 0) { clearInterval(autoLockTimer); lockNow(); return; }
+    const m = Math.floor(autoLockSeconds/60);
+    const s = autoLockSeconds % 60;
+    const pill = $('#autoLockPill');
+    if (pill) pill.textContent = `Auto-lock ${m}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+  // Reset on activity
+  ['mousemove','keydown','click'].forEach(ev => {
+    document.addEventListener(ev, () => { autoLockSeconds = 15 * 60; });
+  });
+}
+
+/* ============================================================
+   TOTP TICKER
+   ============================================================ */
+function currentTotp() {
+  // Cosmetic only: stable per minute
+  const now = new Date();
+  const seed = now.getMinutes() * 17 + now.getHours() * 31 + now.getDate();
+  const code = String(((seed * 9301 + 49297) % 233280) % 1000000).padStart(6,'0');
+  return code.slice(0,3) + ' ' + code.slice(3);
+}
+setInterval(() => {
+  const arc = $('#totpArc');
+  const code = $('#totpCode');
+  if (!arc || !code) return;
+  const sec = new Date().getSeconds() % 30;
+  const pct = (30 - sec) / 30 * 100;
+  arc.style.strokeDashoffset = (100 - pct).toFixed(2);
+  code.textContent = currentTotp();
+}, 1000);
+
+/* ============================================================
+   UTIL
+   ============================================================ */
+function mask(pw) { return '•'.repeat(Math.max(8, Math.min(20, (pw||'').length))); }
+function escape(s) { return String(s||'').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function strengthCopy(n) {
+  return ({
+    1: 'Weak. Crackable in seconds. Replace immediately.',
+    2: 'Mediocre. Crackable in days with off-the-shelf hardware.',
+    3: 'Good. Centuries to crack with current hardware.',
+    4: 'Excellent. Quantum-resistant. Effectively unbreakable.',
+  })[n] || '—';
+}
+function approxBits(pw, fallback) {
+  const len = (pw||'').length;
+  if (!len) return ({1:24,2:48,3:80,4:128})[fallback];
+  let pool = 0;
+  if (/[a-z]/.test(pw)) pool += 26;
+  if (/[A-Z]/.test(pw)) pool += 26;
+  if (/[0-9]/.test(pw)) pool += 10;
+  if (/[^A-Za-z0-9]/.test(pw)) pool += 27;
+  if (pool === 0) return 0;
+  return Math.round(Math.log2(pool) * len);
+}
+</script>
+</body>
+</html>

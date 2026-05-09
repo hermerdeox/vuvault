@@ -1,0 +1,53 @@
+/* ============================================================
+   VU-BRUTALIST — stark white · ink black
+   Activated by [data-theme="brutalist"] on documentElement.
+   Parity-equal to VU-MODERN: same token names, different values.
+   No hex literals should appear in .svelte components — only
+   reference these vars.
+   ============================================================ */
+
+[data-theme='brutalist'] {
+	/* surfaces */
+	--bg: #f5f5f0;
+	--bg-elev: #ffffff;
+	--paper: #ffffff;
+	--surface: rgba(0, 0, 0, 0.04);
+	--surface-hover: rgba(0, 0, 0, 0.07);
+	--surface-strong: rgba(10, 10, 10, 0.08);
+
+	/* lines */
+	--border: rgba(10, 10, 10, 0.14);
+	--border-mid: rgba(10, 10, 10, 0.22);
+	--border-strong: rgba(10, 10, 10, 0.45);
+	--line: rgba(10, 10, 10, 0.45);
+	--line-strong: rgba(10, 10, 10, 0.9);
+	--line-dim: rgba(10, 10, 10, 0.18);
+	--grid-color: rgba(10, 10, 10, 0.06);
+	--spotlight: rgba(10, 10, 10, 0.05);
+	--spotlight-2: rgba(10, 10, 10, 0.03);
+
+	/* text */
+	--text: #0a0a0a;
+	--text-2: #404040;
+	--text-3: #707070;
+	--text-4: #a8a8a8;
+
+	/* brand & accents */
+	--brand: #0a0a0a;
+	--accent: #0a0a0a;
+	--accent-dim: rgba(10, 10, 10, 0.08);
+	--accent-faint: rgba(10, 10, 10, 0.04);
+
+	/* semantic — same hue family, less saturated for paper */
+	--success: #166534;
+	--success-dim: rgba(22, 101, 52, 0.12);
+	--warn: #b45309;
+	--warn-dim: rgba(180, 83, 9, 0.12);
+	--danger: #991b1b;
+	--danger-dim: rgba(153, 27, 27, 0.12);
+
+	/* shadows — sharper, less blurred for brutalist */
+	--shadow-glow: 4px 4px 0 #0a0a0a;
+	--shadow-card: 6px 6px 0 #0a0a0a;
+	--shadow-modal: 8px 8px 0 #0a0a0a;
+}

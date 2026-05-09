@@ -1,0 +1,495 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+
+	import VaultSidebar from './VaultSidebar.svelte';
+	import VaultList from './VaultList.svelte';
+	import VaultDetail from './VaultDetail.svelte';
+	import ItemEditor from './ItemEditor.svelte';
+	import CommandK from './CommandK.svelte';
+	import MasterPasswordSettings from './MasterPasswordSettings.svelte';
+	import QuickGenerator from './QuickGenerator.svelte';
+
+	import BrandMark from '$lib/components/BrandMark.svelte';
+	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import AuditFooter from '$lib/components/AuditFooter.svelte';
+	import {
+		IconSearch,
+		IconPlus,
+		IconKey,
+		IconLock,
+		IconRefresh,
+		IconShield,
+		IconNote
+	} from '$lib/icons';
+
+	import { vault, type ItemKind, type VaultItem } from '$lib/stores/vault.svelte';
+	import { audit } from '$lib/stores/audit.svelte';
+
+	let editorOpen = $state(false);
+	let editorMode = $state<'create' | 'edit'>('create');
+	let editorInitial = $state<VaultItem | null>(null);
+	let editorKind = $state<ItemKind | null>(null);
+
+	let paletteOpen = $state(false);
+	let settingsOpen = $state(false);
+	let quickGenOpen = $state(false);
+	let locking = $state(false);
+
+	async function lockVault() {
+		if (locking) return;
+		locking = true;
+		try {
+			await vault.lock();
+		} finally {
+			locking = false;
+		}
+		goto('/unlock');
+	}
+
+	function openCreateEditor() {
+		editorMode = 'create';
+		editorInitial = null;
+		editorKind = null;
+		editorOpen = true;
+	}
+
+	function openEditEditor(item: VaultItem) {
+		editorMode = 'edit';
+		editorInitial = item;
+		editorKind = item.kind;
+		editorOpen = true;
+	}
+
+	// Top-bar IconKey button. Opens the standalone QuickGenerator
+	// popover for ad-hoc generation (copy-to-clipboard, no item
+	// created). The in-modal generator inside ItemEditor is the
+	// separate path for "create a new login with this password".
+	function toggleQuickGenerator() {
+		quickGenOpen = !quickGenOpen;
+	}
+
+	function notifySyncDisabled() {
+		audit.push('info', 'Sync · local-only mode (server sync arrives in Phase 5)');
+	}
+
+	function onKeydown(e: KeyboardEvent) {
+		const tag = (e.target as HTMLElement | null)?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+			e.preventDefault();
+			paletteOpen = true;
+		}
+	}
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+<svelte:head>
+	<title>Vault — VuVault</title>
+</svelte:head>
+
+<div class="app">
+	<header class="topbar">
+		<div class="left">
+			<BrandMark showPill="Vault" />
+		</div>
+
+		<div class="center">
+			<div class="search">
+				<IconSearch size={14} stroke={1.6} />
+				<input
+					type="text"
+					placeholder="Search the vault…"
+					bind:value={vault.searchQuery}
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<button
+					class="kbd"
+					onclick={() => (paletteOpen = true)}
+					title="Open command palette"
+					aria-label="Open command palette">⌘K</button
+				>
+			</div>
+		</div>
+
+		<div class="right">
+			<button
+				class="ico-btn"
+				class:active={quickGenOpen}
+				onclick={toggleQuickGenerator}
+				aria-label="Generate password"
+				aria-haspopup="dialog"
+				aria-expanded={quickGenOpen}
+				title="Generate password"
+			>
+				<IconKey size={14} stroke={1.6} />
+			</button>
+			<button
+				class="ico-btn"
+				onclick={notifySyncDisabled}
+				aria-label="Sync"
+				title="Local-only mode · sync coming in Phase 5"
+			>
+				<IconRefresh size={14} stroke={1.6} />
+			</button>
+			<button
+				class="ico-btn"
+				onclick={() => (settingsOpen = true)}
+				aria-label="Master password settings"
+				title="Master password (advanced)"
+				data-testid="open-mp-settings"
+			>
+				<IconShield size={14} stroke={1.6} />
+			</button>
+			<button class="add-btn" onclick={openCreateEditor} aria-label="Add item">
+				<IconPlus size={14} stroke={2.2} />
+				<span>Add</span>
+			</button>
+			<ThemeToggle />
+			<button
+				class="lock-btn"
+				onclick={lockVault}
+				disabled={locking}
+				aria-label="Lock vault"
+			>
+				<IconLock size={14} stroke={1.8} />
+				<span>{locking ? 'Locking…' : 'Lock'}</span>
+			</button>
+		</div>
+	</header>
+
+	{#if vault.otherTabActivity}
+		<aside class="tab-banner" role="status" data-testid="tab-activity">
+			<div>
+				<strong>Vault changed in another tab.</strong>
+				{#if vault.otherTabActivity.kind === 'wiped'}
+					Local data was wiped from another tab.
+				{:else}
+					An edit was persisted from another tab — reload to see the latest items.
+				{/if}
+			</div>
+			<button
+				class="tab-banner-action"
+				onclick={() => location.reload()}
+				aria-label="Reload page"
+			>
+				Reload
+			</button>
+			<button
+				class="tab-banner-dismiss"
+				onclick={() => (vault.otherTabActivity = null)}
+				aria-label="Dismiss"
+			>
+				✕
+			</button>
+		</aside>
+	{/if}
+
+	<main class="panes" data-mobile-pane={vault.mobilePane}>
+		<div class="pane sidebar-pane"><VaultSidebar /></div>
+		<div class="pane list-pane-wrap"><VaultList /></div>
+		<div class="pane detail-pane"><VaultDetail onEdit={openEditEditor} /></div>
+	</main>
+
+	<nav class="mobile-tabs" aria-label="Vault sections">
+		<button
+			class="tab"
+			class:active={vault.mobilePane === 'sidebar'}
+			onclick={() => (vault.mobilePane = 'sidebar')}
+			aria-label="Categories"
+		>
+			<IconShield size={16} stroke={1.6} />
+			<span>Categories</span>
+		</button>
+		<button
+			class="tab"
+			class:active={vault.mobilePane === 'list'}
+			onclick={() => (vault.mobilePane = 'list')}
+			aria-label="Items"
+		>
+			<IconNote size={16} stroke={1.6} />
+			<span>Items</span>
+		</button>
+		<button
+			class="tab"
+			class:active={vault.mobilePane === 'detail'}
+			onclick={() => (vault.mobilePane = 'detail')}
+			aria-label="Detail"
+		>
+			<IconKey size={16} stroke={1.6} />
+			<span>Detail</span>
+		</button>
+	</nav>
+</div>
+
+<AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
+
+<ItemEditor
+	open={editorOpen}
+	mode={editorMode}
+	initial={editorInitial}
+	kind={editorKind}
+	onClose={() => (editorOpen = false)}
+/>
+
+<CommandK
+	open={paletteOpen}
+	onClose={() => (paletteOpen = false)}
+	onLock={lockVault}
+/>
+
+<MasterPasswordSettings
+	open={settingsOpen}
+	onClose={() => (settingsOpen = false)}
+/>
+
+<QuickGenerator
+	open={quickGenOpen}
+	onClose={() => (quickGenOpen = false)}
+/>
+
+<style>
+	.app {
+		height: 100dvh;
+		display: grid;
+		grid-template-rows: var(--header-h) 1fr;
+		padding-bottom: var(--footer-h);
+		background: var(--bg);
+	}
+
+	.tab-banner {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 10px 16px;
+		background: color-mix(in srgb, var(--warn) 12%, var(--bg-elev));
+		border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+		color: var(--text);
+		font-size: 13px;
+		flex-shrink: 0;
+	}
+	.tab-banner > div {
+		flex: 1;
+		min-width: 0;
+	}
+	.tab-banner strong {
+		color: var(--warn);
+		margin-right: 4px;
+	}
+	.tab-banner-action {
+		padding: 6px 14px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--bg);
+		background: var(--warn);
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+	}
+	.tab-banner-dismiss {
+		padding: 6px 10px;
+		font-size: 12px;
+		color: var(--text-3);
+		background: transparent;
+		border: none;
+		cursor: pointer;
+	}
+	.tab-banner-dismiss:hover {
+		color: var(--text);
+	}
+	.topbar {
+		display: grid;
+		grid-template-columns: 240px 1fr auto;
+		align-items: center;
+		gap: 16px;
+		padding: 0 18px;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--bg) 60%, transparent);
+		backdrop-filter: blur(18px);
+		-webkit-backdrop-filter: blur(18px);
+	}
+
+	.center {
+		display: flex;
+		justify-content: center;
+	}
+	.search {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 7px 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		width: 100%;
+		max-width: 460px;
+		color: var(--text-3);
+	}
+	.search input {
+		flex: 1;
+		font-size: 13px;
+		color: var(--text);
+	}
+	.search input::placeholder {
+		color: var(--text-3);
+	}
+	.kbd {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		padding: 2px 6px;
+		background: var(--surface-strong);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-xs);
+		color: var(--text-2);
+		cursor: pointer;
+		transition: var(--transition);
+	}
+	.kbd:hover {
+		color: var(--text);
+		border-color: var(--border-mid);
+	}
+
+	.right {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.ico-btn {
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		border-radius: var(--radius-sm);
+		color: var(--text-3);
+		transition: var(--transition);
+	}
+	.ico-btn:hover {
+		background: var(--surface);
+		color: var(--text);
+	}
+	.ico-btn.active {
+		background: var(--accent-dim);
+		color: var(--accent);
+	}
+	.add-btn,
+	.lock-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border);
+		color: var(--text-2);
+		background: var(--surface);
+		transition: var(--transition);
+	}
+	.add-btn {
+		background: var(--accent);
+		color: var(--bg);
+		border-color: var(--accent);
+	}
+	.add-btn:hover {
+		filter: brightness(1.1);
+	}
+	.lock-btn:hover:not(:disabled) {
+		color: var(--text);
+		background: var(--surface-hover);
+	}
+	.lock-btn:disabled {
+		opacity: 0.6;
+		cursor: progress;
+	}
+
+	.panes {
+		display: grid;
+		grid-template-columns: 240px 320px 1fr;
+		min-height: 0;
+		overflow: hidden;
+		height: 100%;
+	}
+	.pane {
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* Bottom-tab navigation only renders ≤720px. */
+	.mobile-tabs {
+		display: none;
+	}
+
+	@media (max-width: 1100px) {
+		.topbar {
+			grid-template-columns: auto 1fr auto;
+		}
+		.left {
+			display: none;
+		}
+		.panes {
+			grid-template-columns: 200px 280px 1fr;
+		}
+	}
+	@media (max-width: 720px) {
+		.app {
+			grid-template-rows: var(--header-h) 1fr auto;
+			padding-bottom: calc(var(--footer-h) + 56px);
+		}
+		.panes {
+			grid-template-columns: 1fr;
+		}
+		.center {
+			display: none;
+		}
+		.pane {
+			display: none;
+		}
+		.panes[data-mobile-pane='sidebar'] .sidebar-pane {
+			display: block;
+		}
+		.panes[data-mobile-pane='list'] .list-pane-wrap {
+			display: block;
+		}
+		.panes[data-mobile-pane='detail'] .detail-pane {
+			display: block;
+		}
+
+		.mobile-tabs {
+			position: fixed;
+			bottom: var(--footer-h);
+			left: 0;
+			right: 0;
+			height: 56px;
+			z-index: 25;
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			background: color-mix(in srgb, var(--bg) 70%, transparent);
+			backdrop-filter: blur(18px);
+			-webkit-backdrop-filter: blur(18px);
+			border-top: 1px solid var(--border);
+		}
+		.tab {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 2px;
+			padding: 6px;
+			color: var(--text-3);
+			font-family: var(--font-mono);
+			font-size: 9px;
+			font-weight: 700;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			transition: var(--transition);
+			cursor: pointer;
+		}
+		.tab.active {
+			color: var(--accent);
+			background: var(--accent-dim);
+		}
+	}
+</style>

@@ -1,0 +1,128 @@
+name = "vuvault"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".svelte-kit/cloudflare"
+
+# ============================================================
+# DEFAULT (PREVIEW) BINDINGS
+# ============================================================
+# These bindings are used for `wrangler pages dev` (local preview)
+# and for non-production deploys. The release workflow targets the
+# `production` environment below by passing `--env production` /
+# `--branch main` so production traffic is isolated.
+#
+# Production deploys MUST set `PUBLIC_BUNDLE_HASH` from the release
+# workflow's pass-2 digest — never the placeholder. CI's two-pass
+# guard refuses to merge if it leaks. This file's [vars] block is
+# the dev/preview default; the release workflow overrides via env.
+
+[vars]
+PUBLIC_BUNDLE_HASH = "9f4c7d2e8b16a4f122e0d5c83a7e91b4"
+PUBLIC_VAULT_VERSION = "0.1.0"
+# Production builds MUST leave demo auth disabled. CI verifies this.
+PUBLIC_ENABLE_DEMO_AUTH = "false"
+# Empty string means local-only mode (sync-client.ts returns NOT_WIRED).
+# Production sets this to the deployed origin (same-origin only).
+# Preview environments leave it empty so a stray `wrangler pages dev`
+# can never accidentally talk to production OPAQUE records.
+PUBLIC_SYNC_ORIGIN = ""
+
+# D1 binding — OPAQUE record storage + sessions + device pairings.
+# Local development uses Wrangler's auto-provisioned local SQLite
+# under `.wrangler/state`. Production overrides via `[env.production]`
+# with a real database_id. Migrations live under
+# `functions/api/_shared/migrations/` and are applied via
+# `wrangler d1 migrations apply AUTH_DB --env <env>`.
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "vuvault-auth-preview"
+database_id = "preview-placeholder-id"
+migrations_dir = "functions/api/_shared/migrations"
+
+# R2 binding — opaque encrypted vault blobs. Server holds ciphertext
+# only; AES-256-GCM under the v2 hybrid envelope is performed
+# client-side by `vault-session.ts`. Server-side R2 encryption-at-rest
+# is additional defense-in-depth, never relied upon.
+[[r2_buckets]]
+binding = "VAULT_BLOBS"
+bucket_name = "vuvault-blobs-preview"
+
+# Rate-limiting bindings (Cloudflare Workers Rate Limiting API).
+# All three are zero-knowledge-preserving: the binding only stores
+# a counter against an opaque key. We deliberately use IP-based keys
+# for register/login (no account exists yet on register; login rate
+# limit by IP defends against credential stuffing) and account-based
+# for blob ops. None of these accumulate per-user behavior trails.
+#
+# `unsafe.bindings` is documented as a temporary location while the
+# rate-limit API stabilizes. The dashboard-controlled rate-limit
+# rules are the safety net if this binding format changes.
+
+[[unsafe.bindings]]
+name = "OPAQUE_REGISTER_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "OPAQUE_LOGIN_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
+[[unsafe.bindings]]
+name = "BLOB_LIMITER"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 30, period = 60 }
+
+# ============================================================
+# PRODUCTION ENV
+# ============================================================
+# Selected via `wrangler pages deploy --env=production` or the
+# release workflow's `--branch=main` flag. The database_id and
+# bucket_name MUST be different from the preview environment so a
+# botched deploy can never read or overwrite preview state.
+
+[env.production.vars]
+PUBLIC_VAULT_VERSION = "0.1.0"
+PUBLIC_ENABLE_DEMO_AUTH = "false"
+# `PUBLIC_BUNDLE_HASH` and `PUBLIC_SYNC_ORIGIN` are injected at deploy
+# time by `.github/workflows/release.yml`. We deliberately do NOT
+# bake them into this file so a manual `wrangler pages deploy`
+# without the workflow's env-var pass cannot ship a placeholder hash
+# to production.
+
+[[env.production.d1_databases]]
+binding = "AUTH_DB"
+database_name = "vuvault-auth-production"
+database_id = "production-placeholder-id"
+migrations_dir = "functions/api/_shared/migrations"
+
+[[env.production.r2_buckets]]
+binding = "VAULT_BLOBS"
+bucket_name = "vuvault-blobs-production"
+
+[[env.production.unsafe.bindings]]
+name = "OPAQUE_REGISTER_LIMITER"
+type = "ratelimit"
+namespace_id = "2001"
+simple = { limit = 10, period = 60 }
+
+[[env.production.unsafe.bindings]]
+name = "OPAQUE_LOGIN_LIMITER"
+type = "ratelimit"
+namespace_id = "2002"
+simple = { limit = 30, period = 60 }
+
+[[env.production.unsafe.bindings]]
+name = "BLOB_LIMITER"
+type = "ratelimit"
+namespace_id = "2003"
+simple = { limit = 30, period = 60 }
+
+[build]
+command = "npm run build"
+# NODE_VERSION is honored by Cloudflare Pages via the dashboard's
+# environment variable, not the legacy [node] block which Wrangler 4
+# rejects with an "Unexpected fields" warning.

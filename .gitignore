@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+
+# build output
+.svelte-kit/
+build/
+dist/
+.output/
+
+# wrangler / cloudflare
+.wrangler/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# env files (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# coverage / test artifacts
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# vitest cache
+.vitest-cache/
+
+# generated bundle hash (re-derived in CI)
+.bundle-manifest

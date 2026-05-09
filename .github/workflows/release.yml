@@ -1,0 +1,213 @@
+name: Release — sign + publish + deploy
+
+# Triggered by `gh release create vX.Y.Z` or the GitHub UI's release page.
+# Builds the bundle reproducibly, signs the aggregate digest with cosign
+# in keyless mode (OIDC token from GitHub Actions → Sigstore Fulcio →
+# Rekor transparency log), attaches the manifest + signature + cert +
+# Rekor entry pointer to the release, and deploys to Cloudflare Pages
+# with the real `PUBLIC_BUNDLE_HASH` baked in.
+#
+# Why keyless: no long-lived signing key to rotate or leak. The
+# certificate chain is rooted in Sigstore Fulcio, which trusts the
+# GitHub OIDC token's `iss` + `sub` claim. The Rekor entry binds the
+# certificate to the artifact and timestamp; tampering produces a
+# different digest, breaks the signature, and is detectable
+# out-of-band by anyone fetching the Rekor record.
+
+on:
+  release:
+    types: [published]
+  # Manual dispatch is allowed for release rehearsals on a long-lived
+  # tag like `release-rehearsal`. The tagged release path is the
+  # canonical one.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to release (tag, e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  # `id-token: write` is what unlocks keyless cosign — GitHub Actions
+  # mints an OIDC token that Sigstore Fulcio exchanges for a
+  # short-lived signing certificate.
+  id-token: write
+  # Read repo contents to build, write release artifacts back to the
+  # release page.
+  contents: write
+
+jobs:
+  release:
+    name: sign and publish release artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Compute reproducible-build env
+        # Pin SOURCE_DATE_EPOCH and PUBLIC_VAULT_VERSION so the bundle
+        # hash matches what `reproducible-build` CI computed for the
+        # same SHA. PUBLIC_VAULT_VERSION uses the tag name (strip
+        # leading 'v' so 0.1.0-style versions are clean).
+        run: |
+          set -euo pipefail
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+          REF_NAME="${{ github.event.inputs.ref || github.ref_name }}"
+          # strip a single leading 'v' if present (v0.1.0 -> 0.1.0)
+          VERSION="${REF_NAME#v}"
+          echo "PUBLIC_VAULT_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build (pass 1 — empty hash)
+        run: npm run build
+        env:
+          PUBLIC_BUNDLE_HASH: ''
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+
+      - name: Capture pass-1 digest
+        run: |
+          set -euo pipefail
+          BUNDLE_HASH=$(tr -d '[:space:]' < .bundle-digest)
+          if [ -z "$BUNDLE_HASH" ]; then
+            echo "::error::pass-1 .bundle-digest was empty"
+            exit 1
+          fi
+          echo "PUBLIC_BUNDLE_HASH=$BUNDLE_HASH" >> "$GITHUB_ENV"
+
+      - name: Build (pass 2 — real hash baked in)
+        run: npm run build
+        env:
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+
+      - name: Verify two-pass convergence
+        # Sanity check: the same fixed-point assertion as the quality
+        # job's two-pass guard. Divergence here means the release would
+        # ship a bundle whose embedded hash doesn't match its manifest
+        # aggregate, which would brick verifyBundleIntegrity().
+        run: |
+          set -euo pipefail
+          PASS2=$(tr -d '[:space:]' < .bundle-digest)
+          if [ "$PASS2" != "$PUBLIC_BUNDLE_HASH" ]; then
+            echo "::error::release build non-convergent — pass1=$PUBLIC_BUNDLE_HASH pass2=$PASS2"
+            exit 1
+          fi
+          echo "Release bundle digest: $PUBLIC_BUNDLE_HASH"
+
+      - name: Install cosign (pinned)
+        # Pinned exact version so a silent cosign upgrade can't change
+        # the certificate-chain or signature-format expectations under
+        # us. Bump deliberately when re-tested.
+        uses: sigstore/cosign-installer@v3.5.0
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Sign bundle digest (keyless, Sigstore Fulcio + Rekor)
+        # `cosign sign-blob` over the `.bundle-digest` file:
+        #   - `--yes`: skip the interactive Y/N (CI is non-interactive)
+        #   - `--output-signature` / `--output-certificate`: artifacts
+        #   - the OIDC identity token is auto-discovered from
+        #     GITHUB_TOKEN (id-token: write granted above)
+        # The signature + cert are uploaded to Rekor automatically by
+        # cosign in keyless mode. The Rekor UUID is printed to stdout.
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --yes \
+            --output-signature .bundle-digest.sig \
+            --output-certificate .bundle-digest.pem \
+            .bundle-digest \
+            2>&1 | tee cosign.log
+          # Cosign prints "tlog entry created with index: NNN" — pull
+          # the index out and print the canonical Rekor URL for the
+          # release notes.
+          REKOR_INDEX=$(grep -oE 'tlog entry created with index: [0-9]+' cosign.log | grep -oE '[0-9]+$' | head -1)
+          if [ -z "$REKOR_INDEX" ]; then
+            echo "::error::cosign did not emit a Rekor tlog index — keyless flow regressed"
+            exit 1
+          fi
+          # Discrete .rekor-index artifact alongside .bundle-digest.sig
+          # and .bundle-digest.pem so verification tooling never has to
+          # scrape RELEASE.txt to find the Rekor entry. Format: a single
+          # decimal integer terminated by a newline.
+          printf '%s\n' "$REKOR_INDEX" > .rekor-index
+          {
+            echo "VuVault release ${PUBLIC_VAULT_VERSION}"
+            echo
+            echo "Bundle SHA-384: ${PUBLIC_BUNDLE_HASH}"
+            echo "Rekor entry:    https://search.sigstore.dev/?logIndex=${REKOR_INDEX}"
+            echo "Rekor by hash:  https://search.sigstore.dev/?hash=sha384:${PUBLIC_BUNDLE_HASH}"
+            echo "Rekor index:    ${REKOR_INDEX}"
+            echo
+            echo "Reproducibility: any clean checkout of this commit, built with"
+            echo "  SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+            echo "  PUBLIC_VAULT_VERSION=${PUBLIC_VAULT_VERSION}"
+            echo "produces the same .bundle-digest. The reproducible-build CI"
+            echo "job runs this assertion on every PR."
+          } > RELEASE.txt
+          echo "REKOR_INDEX=$REKOR_INDEX" >> "$GITHUB_ENV"
+
+      - name: Verify signature locally
+        # Confirm cosign can verify what it just signed. Catches
+        # OIDC / Fulcio / Rekor regressions before users see them.
+        run: |
+          set -euo pipefail
+          cosign verify-blob \
+            --certificate .bundle-digest.pem \
+            --signature .bundle-digest.sig \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/release.yml@.+" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            .bundle-digest
+
+      - name: Bundle release artifacts
+        # Bundle the manifest + digest + signature + cert + release
+        # notes into a single tarball so users grab one file, verify
+        # everything offline, then bind it to the deployed bundle.
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          cp .bundle-digest release-artifacts/
+          cp .bundle-digest.sig release-artifacts/
+          cp .bundle-digest.pem release-artifacts/
+          cp .rekor-index release-artifacts/
+          cp .svelte-kit/cloudflare/_app/immutable/bundle-manifest.json release-artifacts/
+          cp RELEASE.txt release-artifacts/
+          tar -czf "vuvault-${PUBLIC_VAULT_VERSION}-bundle.tar.gz" -C release-artifacts .
+
+      - name: Attach artifacts to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vuvault-${{ env.PUBLIC_VAULT_VERSION }}-bundle.tar.gz
+            release-artifacts/.bundle-digest
+            release-artifacts/.bundle-digest.sig
+            release-artifacts/.bundle-digest.pem
+            release-artifacts/.rekor-index
+            release-artifacts/bundle-manifest.json
+            release-artifacts/RELEASE.txt
+
+      - name: Deploy to Cloudflare Pages
+        # The deploy step is gated on `release` (tagged release) — a
+        # workflow_dispatch run produces artifacts but does NOT push to
+        # production. To dry-run a deploy, target a `--branch=preview`
+        # via a separate workflow.
+        if: github.event_name == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler pages deploy .svelte-kit/cloudflare \
+            --project-name=vuvault \
+            --branch=main \
+            --commit-hash="${{ github.sha }}"

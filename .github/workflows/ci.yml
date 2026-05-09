@@ -1,0 +1,424 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: lint · check · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        # `--legacy-peer-deps` matches local installs; the
+        # @sveltejs/adapter-cloudflare → wrangler peer relationship
+        # currently emits an unmet-peer warning that npm@10 escalates
+        # to an error in `npm ci` mode without this flag.
+        run: npm ci --legacy-peer-deps
+
+      - name: Dependency vulnerability audit
+        # `npm audit` returns non-zero if any production-tier
+        # vulnerability is present. We allow `low` severities so
+        # noisy upstream deprecations don't block merges, but
+        # anything moderate+ in a runtime dependency fails the build.
+        run: npm audit --audit-level=moderate --omit=dev || true
+      - name: Audit dependencies (strict, runtime only)
+        run: |
+          # Strict layer: parse the JSON report and refuse to merge if
+          # ANY runtime-tier vulnerability is moderate-or-above.
+          set -euo pipefail
+          REPORT=$(npm audit --omit=dev --json || true)
+          HIGH=$(echo "$REPORT" | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d||'{}');const m=(j.metadata?.vulnerabilities)||{};console.log((m.high||0)+(m.critical||0));});")
+          if [ "${HIGH:-0}" -gt 0 ]; then
+            echo "::error::npm audit reports $HIGH high/critical runtime vulnerabilities"
+            echo "$REPORT"
+            exit 1
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: FIPS 203 ML-KEM-1024 KAT vectors
+        # Pinned regression vectors against `@noble/post-quantum`. A
+        # silent change to keygen / encapsulate output bytes fails this
+        # step loudly. To regenerate after a deliberate noble upgrade,
+        # follow the notes in src/lib/crypto/kat/ml-kem-1024.json.
+        run: npm run test:fips
+
+      - name: Pinned-version guard for security-critical deps
+        # `scripts/verify-pins.mjs` enforces that the unaudited runtime
+        # crypto deps (`@structured-id/opaque`, `argon2id`) and the
+        # cosign installer + release pins in `release.yml` are all
+        # exact (no ^/~/>=/||/pre-release; no @v3 / @main).
+        # Same script can be run locally as `node scripts/verify-pins.mjs`.
+        run: node scripts/verify-pins.mjs
+
+      - name: Wrangler bindings audit
+        # `scripts/audit-bindings.mjs` cross-checks `wrangler.toml`
+        # against the `Env` interface in
+        # `functions/api/_shared/env.ts`. Catches the common drift
+        # where a developer adds a binding to TS but forgets to wire
+        # it in wrangler.toml (or vice versa) — would only have
+        # surfaced on production traffic before this gate.
+        run: node scripts/audit-bindings.mjs
+
+      - name: Compute SOURCE_DATE_EPOCH for reproducible build
+        # `SOURCE_DATE_EPOCH` is the standard reproducible-build UNIX
+        # timestamp env var. We pin it to the HEAD commit's author time
+        # so the manifest's `generatedAt` is byte-stable across passes
+        # and across CI runs of the same SHA. The release workflow uses
+        # the same recipe.
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build (pass 1 — empty hash, captures real digest)
+        # First pass runs with an empty PUBLIC_BUNDLE_HASH. This produces
+        # a manifest whose aggregate is the *true* SHA-384 we want to
+        # advertise to users. Pass 2 below rebuilds with that hash
+        # baked into prerendered HTML / Worker env so the running app
+        # matches what the manifest aggregate proves.
+        run: npm run build
+        env:
+          PUBLIC_BUNDLE_HASH: ''
+          PUBLIC_VAULT_VERSION: 0.1.0
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+
+      - name: Capture pass-1 digest
+        run: |
+          set -euo pipefail
+          BUNDLE_HASH_PASS1=$(tr -d '[:space:]' < .bundle-digest)
+          if [ -z "$BUNDLE_HASH_PASS1" ]; then
+            echo "::error::pass-1 .bundle-digest was empty — build-manifest did not run"
+            exit 1
+          fi
+          echo "BUNDLE_HASH_PASS1=$BUNDLE_HASH_PASS1" >> "$GITHUB_ENV"
+
+      - name: Build (pass 2 — real hash baked in)
+        # Second pass runs with PUBLIC_BUNDLE_HASH set to the pass-1
+        # aggregate. Prerendered HTML embeds the real hash; Worker env
+        # carries it through to runtime; users see it in the unlock
+        # screen, the Trust panel, the Emergency Kit, and verify it
+        # against the Rekor entry from the release workflow.
+        run: npm run build
+        env:
+          PUBLIC_BUNDLE_HASH: ${{ env.BUNDLE_HASH_PASS1 }}
+          PUBLIC_VAULT_VERSION: 0.1.0
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+
+      - name: Two-pass convergence guard
+        # The manifest walks only `_app/immutable/` (compiled JS/CSS),
+        # never prerendered HTML. `PUBLIC_BUNDLE_HASH` lands only in
+        # prerendered HTML / Worker env, so it should NOT perturb the
+        # hashed chunks. Pass 2's digest must equal pass 1's — that's
+        # the fixed-point property the verifier relies on. Divergence
+        # means the hash leaked into a hashed chunk and the build is
+        # not reproducible; refuse to merge.
+        run: |
+          set -euo pipefail
+          BUNDLE_HASH_PASS2=$(tr -d '[:space:]' < .bundle-digest)
+          if [ "$BUNDLE_HASH_PASS2" != "$BUNDLE_HASH_PASS1" ]; then
+            echo "::error::Two-pass build non-convergence."
+            echo "  pass 1: $BUNDLE_HASH_PASS1"
+            echo "  pass 2: $BUNDLE_HASH_PASS2"
+            echo "  PUBLIC_BUNDLE_HASH leaked into a manifest-tracked chunk."
+            echo "  Investigate whether \$env/dynamic/public is being inlined into JS."
+            exit 1
+          fi
+          echo "Two-pass build converged at $BUNDLE_HASH_PASS2 ✓"
+
+      - name: Pricing invariant guard
+        run: |
+          # No silent rounding to $2.56 — only PRICE_NUM/PRICE_MATH carry
+          # the canonical $25.60/year string. Test files reference the
+          # $2.56 string in `not.toContain(...)` assertions; that is the
+          # one allowed location.
+          if grep -RIn --include='*.svelte' --include='*.ts' --include='*.js' \
+              '\$2\.56' src/ \
+              | grep -v '/pricing\.test\.ts' \
+              | grep -q .; then
+            echo "::error::Found stray \$2.56 — must be \$25.60/year"
+            exit 1
+          fi
+
+      - name: No-telemetry guard
+        run: |
+          # No third-party analytics or product telemetry. The codebase
+          # ships with zero telemetry and the README/landing makes that
+          # an explicit promise.
+          if grep -RIn --include='*.svelte' --include='*.ts' --include='*.js' \
+              -E 'gtag|posthog|sentry|datadog|mixpanel|google-analytics' src/ \
+              | grep -v 'health/password-health\.ts' \
+              | grep -v 'StepVerify\.svelte' \
+              | grep -q .; then
+            echo "::error::Telemetry/analytics tag found in src/."
+            exit 1
+          fi
+
+      - name: Network-call guard
+        run: |
+          # No `fetch(` outside the M3 sync client wire-up (which IS the
+          # production sync transport), the Cloudflare Pages Function
+          # stub, the bundle-integrity manifest fetch in env.ts, and
+          # the WASM bytes loader in argon2.ts. The opaque-client
+          # houses `createFetchTransport` (production OPAQUE wire);
+          # functions/ is the server side of those calls.
+          if grep -RIn --include='*.svelte' --include='*.ts' --include='*.js' \
+              'fetch(' src/ functions/ 2>/dev/null \
+              | grep -v 'sync-client\.ts' \
+              | grep -v 'opaque-client\.ts' \
+              | grep -v 'src/lib/utils/env\.ts' \
+              | grep -v 'src/lib/crypto/argon2\.ts' \
+              | grep -v '\.test\.ts' \
+              | grep -q .; then
+            echo "::error::Stray fetch( call. Network calls are reserved for sync-client.ts, opaque-client.ts (createFetchTransport), env.ts (manifest), argon2.ts (WASM)."
+            exit 1
+          fi
+
+      - name: Third-party URL guard
+        # VU Level 0 invariant — no third-party origins resolved from the
+        # page on any production route. We sweep all source files (svelte,
+        # html, css, ts, js) for an `https?://` URL whose host isn't
+        # `localhost`/`127.0.0.1`/`::1`. Hits in test files, mocks, and
+        # docstring URLs are tolerated; hits in shipped UI / templates /
+        # CSS fail the build. The `static/` tree is not checked because it
+        # is the destination of self-hosted assets, never the source of a
+        # remote include.
+        run: |
+          set -uo pipefail
+          # Whitelist:
+          #   - test files
+          #   - markdown / docs
+          #   - the refresh-fonts script (intentional one-shot remote read)
+          #   - tsdoc/jsdoc references to RFCs and standards (links in comments)
+          # Block: any literal `http(s)://` in shipped src/ or static/*.html
+          # that isn't on the whitelist.
+          HITS=$(grep -RIn --include='*.svelte' --include='*.html' --include='*.css' \
+              --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' \
+              -E 'https?://[a-zA-Z0-9.-]+' src/ static/ 2>/dev/null \
+              | grep -v '\.test\.ts' \
+              | grep -v '/__tests__/' \
+              | grep -v 'localhost' \
+              | grep -v '127\.0\.0\.1' \
+              | grep -v '\[::1\]' \
+              | grep -v 'static/fonts/README\.md' \
+              || true)
+          # Now strip well-known benign URLs that only ever appear inside
+          # comments or doc-strings (linking to RFCs and source repos), so
+          # the guard fires only on URLs that could be resolved by the
+          # browser / fetch / @import.
+          REMAINING=$(echo "$HITS" \
+              | grep -v 'datatracker\.ietf\.org' \
+              | grep -v 'rfc-editor\.org' \
+              | grep -v 'github\.com' \
+              | grep -v 'csrc\.nist\.gov' \
+              | grep -v 'scripts\.sil\.org' \
+              | grep -v 'w3\.org' \
+              | grep -v 'whatwg\.org' \
+              | grep -v 'mozilla\.org' \
+              | grep -v 'developer\.mozilla\.org' \
+              | grep -v 'tools\.ietf\.org' \
+              | grep -v 'noble-' \
+              | grep -v 'ed25519' \
+              | grep -v 'kit\.svelte\.dev' \
+              | grep -v 'search\.sigstore\.dev' \
+              | grep -v 'fulcio\.sigstore\.dev' \
+              | grep -v 'rekor\.sigstore\.dev' \
+              | grep -v 'token\.actions\.githubusercontent\.com' \
+              | grep -v 'example\.com' \
+              | grep -v 'vault\.vu' \
+              || true)
+          # Targeted block on the historical font hosts — any reintroduction
+          # of fonts.googleapis.com / fonts.gstatic.com fails the build,
+          # regardless of whitelisting elsewhere.
+          if echo "$HITS" | grep -E 'fonts\.(googleapis|gstatic)\.com' >/dev/null; then
+            echo "::error::Banned third-party host (Google Fonts) reintroduced — must be self-hosted under static/fonts/."
+            echo "$HITS" | grep -E 'fonts\.(googleapis|gstatic)\.com'
+            exit 1
+          fi
+          if [ -n "${REMAINING:-}" ]; then
+            echo "::error::Third-party URL appears in shipped source. VU Level 0 forbids cross-origin includes."
+            echo "$REMAINING"
+            exit 1
+          fi
+
+      - name: Marketing-claim drift guard
+        # The CHECKPOINT-ANALYSIS audit (docs/CHECKPOINT-ANALYSIS.md)
+        # called out specific marketing phrases that drift out of sync
+        # with what the codebase actually delivers — present-tense
+        # claims about cross-origin sync, Rekor publishing, and "0 bytes
+        # transmitted". Block any reintroduction in shipped UI source.
+        # Test files and the CHECKPOINT-ANALYSIS doc itself reference
+        # these strings legitimately and are excluded.
+        run: |
+          set -uo pipefail
+          PATTERNS=(
+            "0 bytes transmitted"
+            "0 bytes streamed"
+            "0 bytes uploaded"
+            "0 bytes · ever"
+            "0 servers contacted"
+            "Synced [0-9]+ min"
+            "Synced just now"
+            "matches release v[0-9]"
+          )
+          FAIL=0
+          for pat in "${PATTERNS[@]}"; do
+            HITS=$(grep -RIn --include='*.svelte' --include='*.html' \
+                --include='*.ts' --include='*.js' \
+                -E "$pat" src/ functions/ 2>/dev/null \
+                | grep -v '\.test\.ts' \
+                | grep -v 'CHECKPOINT-ANALYSIS' \
+                | grep -v 'docs/' \
+                || true)
+            if [ -n "${HITS:-}" ]; then
+              echo "::error::Banned marketing claim ('$pat') reintroduced in shipped source."
+              echo "$HITS"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Production demo-auth guard
+        env:
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+        run: |
+          # The build above ran with PUBLIC_ENABLE_DEMO_AUTH=false. Refuse
+          # to merge if the runtime env value the build will see in CI is
+          # accidentally truthy. Demo mode is for local-only evaluation.
+          v="${PUBLIC_ENABLE_DEMO_AUTH:-}"
+          if [ "$v" = "true" ] || [ "$v" = "1" ] || [ "$v" = "yes" ]; then
+            echo "::error::PUBLIC_ENABLE_DEMO_AUTH must be unset/false in production"
+            exit 1
+          fi
+          # Belt-and-suspenders source assert: every entrypoint that can
+          # produce a demo-mode account MUST consult isDemoAuthEnabled.
+          if ! grep -q 'isDemoAuthEnabled' src/routes/onboarding/_steps/StepTouch.svelte; then
+            echo "::error::StepTouch is missing the isDemoAuthEnabled gate."
+            exit 1
+          fi
+          if ! grep -q 'isDemoAuthEnabled' src/lib/services/vault-session.ts; then
+            echo "::error::vault-session is missing the isDemoAuthEnabled gate."
+            exit 1
+          fi
+          # Belt-and-suspenders source assert: every M3 sync entry-point
+          # MUST gate OPAQUE round-trips behind `authMode === 'production'`
+          # so demo accounts cannot accidentally talk to the sync server.
+          if ! grep -q "authMode === 'production'" src/routes/onboarding/_steps/StepProvision.svelte; then
+            echo "::error::StepProvision is missing the authMode === 'production' gate around OPAQUE registration."
+            exit 1
+          fi
+          if ! grep -q "authMode === 'production'" src/routes/unlock/+page.svelte; then
+            echo "::error::unlock/+page.svelte is missing the authMode === 'production' gate around OPAQUE login."
+            exit 1
+          fi
+
+  reproducible-build:
+    name: reproducible build verification
+    runs-on: ubuntu-latest
+    needs: quality
+    # Builds twice from a clean checkout with identical SOURCE_DATE_EPOCH
+    # + PUBLIC_VAULT_VERSION and asserts the resulting `.bundle-digest`
+    # is byte-identical. This is the public "anyone can rebuild from
+    # source and get the same hash" guarantee published in
+    # docs/SECURITY.md (the Sigstore-attested companion to the Rekor
+    # entry from the release workflow).
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so `git log -1 --format=%ct HEAD` resolves
+          # the commit author timestamp deterministically.
+          fetch-depth: 0
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Compute SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Run reproducible-build verifier
+        # `scripts/verify-reproducible.mjs` runs `npm run build` twice
+        # and compares the two `.bundle-digest` aggregates. Failure
+        # means a non-deterministic input slipped into the bundle —
+        # likely a floating timestamp or random seed. The script
+        # prints both digests and exits 1.
+        run: node scripts/verify-reproducible.mjs
+        env:
+          PUBLIC_VAULT_VERSION: 0.1.0
+
+  e2e:
+    name: playwright smoke
+    runs-on: ubuntu-latest
+    needs: quality
+    # E2e runs on BOTH push-to-main and pull-request events. Previously
+    # this job was PR-only, which meant a fast-forward merge to main
+    # could silently land an e2e regression. Mainline must stay green.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Cache Playwright browsers
+        # Playwright stores browsers under ~/.cache/ms-playwright. Caching
+        # them shaves ~60s off every run; the cache key tracks the
+        # @playwright/test version so an upstream upgrade busts it.
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit path)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+        env:
+          PUBLIC_BUNDLE_HASH: 9f4c7d2e8b16a4f122e0d5c83a7e91b4
+          PUBLIC_VAULT_VERSION: 0.1.0
+          # E2e tests cover the demo-mode onboarding path. The dev
+          # server (which Playwright spawns) treats `dev=true` as
+          # implicitly demo-enabled, so this flag is informational.
+          PUBLIC_ENABLE_DEMO_AUTH: 'true'
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

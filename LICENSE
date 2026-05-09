@@ -1,0 +1,18 @@
+VuVault — License (Pending Final Decision)
+
+Copyright (c) 2026 The VuVault Authors
+
+The final license for this codebase is intentionally undetermined while
+the project is in pre-release. The current intent is:
+
+  - Client / SvelteKit application code: GPLv3 or AGPLv3.
+  - Protocol specifications and reference test vectors: MIT or Apache-2.0.
+
+Until a license is formally adopted, all rights are reserved. You may
+inspect, audit, run, and develop locally for the purposes of code review,
+security analysis, and contribution evaluation. You may NOT redistribute
+modified or unmodified copies, fork the project as a public-facing
+service, or use the source as the basis for a competing product.
+
+This file will be replaced with a final OSI-approved license before the
+v1.0 release.

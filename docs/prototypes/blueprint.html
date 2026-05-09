@@ -1,0 +1,1808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000">
+<title>VuVault — Architectural Blueprint v0.5.0 · Shippable to Frontier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   VUVAULT BLUEPRINT v0.5.0
+   Reorganized by shipping order: Tier 1 (now) → Tier 4 (frontier)
+   ============================================================ */
+
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:                #000000;
+  --bg-elev:           #060606;
+  --paper:             #0a0a0a;
+  --surface:           rgba(255,255,255,0.03);
+  --surface-2:         rgba(255,255,255,0.05);
+
+  --line:              rgba(0,212,255,0.18);
+  --line-strong:       rgba(0,212,255,0.45);
+  --line-dim:          rgba(0,212,255,0.08);
+  --grid-line:         rgba(0,212,255,0.04);
+
+  --border:            rgba(255,255,255,0.08);
+  --border-mid:        rgba(255,255,255,0.16);
+
+  --text:              #ffffff;
+  --text-2:            #b8b8b8;
+  --text-3:            #707070;
+  --text-4:            #404040;
+
+  --accent:            #00d4ff;
+  --accent-dim:        rgba(0,212,255,0.14);
+
+  /* Tier color coding */
+  --t1:                #22c55e;    /* green: ship now */
+  --t1-dim:            rgba(34,197,94,0.14);
+  --t2:                #00d4ff;    /* cyan: 2027 */
+  --t2-dim:            rgba(0,212,255,0.14);
+  --t3:                #ffa500;    /* amber: 2028 */
+  --t3-dim:            rgba(255,165,0,0.14);
+  --t4:                #c084fc;    /* purple: frontier */
+  --t4-dim:            rgba(192,132,252,0.14);
+
+  --danger:            #ef4444;
+  --brand:             #f5f5f0;
+
+  --font-sans:         'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif:        'Instrument Serif', ui-serif, Georgia, serif;
+  --font-mono:         'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+body {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+  min-height: 100dvh;
+}
+
+button { font: inherit; cursor: pointer; background: none; border: none; color: inherit; padding: 0; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent); color: var(--bg); }
+
+.italic-serif { font-family: var(--font-serif); font-style: italic; font-weight: 400; }
+.mono { font-family: var(--font-mono); }
+
+/* ============================================================
+   PAGE FRAME
+   ============================================================ */
+.page {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 32px 48px 64px;
+  position: relative;
+}
+.frame {
+  position: relative;
+  border: 1px solid var(--line);
+  padding: 28px 32px;
+  background: var(--paper);
+}
+.frame::before, .frame::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  border: 1px solid var(--line-strong);
+}
+.frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.frame::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.frame-corners > span {
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1px solid var(--line-strong);
+  pointer-events: none;
+}
+.frame-corners > span:nth-child(1) { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+.frame-corners > span:nth-child(2) { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+
+/* ============================================================
+   TITLE BLOCK
+   ============================================================ */
+.title-block {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: end;
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.title-block::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line-strong) 20%, var(--line-strong) 80%, transparent);
+  pointer-events: none;
+}
+.title-eyebrow {
+  display: flex;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.title-eyebrow span:first-child { color: var(--accent); }
+.title-eyebrow .sep { color: var(--text-4); }
+.title-h1 {
+  font-size: clamp(36px, 5vw, 64px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+.title-h1 .italic-serif { font-size: 1.06em; letter-spacing: -0.02em; }
+.title-sub {
+  margin-top: 14px;
+  font-size: 15px;
+  color: var(--text-2);
+  max-width: 760px;
+  line-height: 1.55;
+}
+.title-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--line);
+  padding: 14px 18px;
+  background: var(--bg);
+  min-width: 280px;
+  letter-spacing: 0;
+}
+.title-meta dt {
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.title-meta dd { color: var(--text); font-weight: 600; }
+.title-meta dd.accent { color: var(--accent); }
+
+/* ============================================================
+   ORDERING LEGEND
+   ============================================================ */
+.legend {
+  margin-top: 32px;
+  padding: 20px 24px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: center;
+}
+.legend-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.legend-tracks {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.legend-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+.legend-bar {
+  width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.legend-bar.t1 { background: var(--t1); }
+.legend-bar.t2 { background: var(--t2); }
+.legend-bar.t3 { background: var(--t3); }
+.legend-bar.t4 { background: var(--t4); }
+.legend-track-name { font-weight: 600; color: var(--text); display: block; margin-bottom: 2px; font-size: 11px; }
+.legend-track-desc { color: var(--text-3); font-size: 11px; line-height: 1.5; }
+
+/* ============================================================
+   SECTION HEADER
+   ============================================================ */
+.sect {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px dashed var(--line);
+  position: relative;
+}
+.sect::before {
+  content: '';
+  position: absolute;
+  top: -5px; left: 0;
+  width: 9px; height: 9px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+.sect-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.sect-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.sect-sub {
+  font-size: 14px;
+  color: var(--text-2);
+  max-width: 820px;
+  line-height: 1.55;
+}
+
+/* ============================================================
+   TIER HEADER
+   ============================================================ */
+.tier {
+  margin-top: 48px;
+  position: relative;
+}
+.tier-head {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 24px;
+  align-items: center;
+  padding: 18px 0 18px 0;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.tier-head::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -32px;
+  width: 4px;
+}
+.tier.t1 .tier-head::before { background: var(--t1); }
+.tier.t2 .tier-head::before { background: var(--t2); }
+.tier.t3 .tier-head::before { background: var(--t3); }
+.tier.t4 .tier-head::before { background: var(--t4); }
+.tier-num {
+  font-family: var(--font-mono);
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.tier.t1 .tier-num { color: var(--t1); }
+.tier.t2 .tier-num { color: var(--t2); }
+.tier.t3 .tier-num { color: var(--t3); }
+.tier.t4 .tier-num { color: var(--t4); }
+.tier-info { display: flex; flex-direction: column; gap: 4px; }
+.tier-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.tier.t1 .tier-eyebrow { color: var(--t1); }
+.tier.t2 .tier-eyebrow { color: var(--t2); }
+.tier.t3 .tier-eyebrow { color: var(--t3); }
+.tier.t4 .tier-eyebrow { color: var(--t4); }
+.tier-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.tier-title .italic-serif { font-size: 1.08em; }
+.tier-tagline {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 4px;
+  font-style: italic;
+  font-family: var(--font-serif);
+}
+.tier-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.tier-meta-row { display: flex; gap: 8px; }
+.tier-meta-key {
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  font-size: 9px;
+}
+.tier-meta-val { color: var(--text); }
+
+/* ============================================================
+   LAYER ROWS (per tier)
+   ============================================================ */
+.layers {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.layers::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 64px;
+  width: 1px;
+  background: repeating-linear-gradient(180deg, var(--line) 0, var(--line) 4px, transparent 4px, transparent 8px);
+}
+.tier.t1 .layers::before { background: repeating-linear-gradient(180deg, var(--t1-dim) 0, var(--t1-dim) 4px, transparent 4px, transparent 8px); }
+.tier.t2 .layers::before { background: repeating-linear-gradient(180deg, var(--t2-dim) 0, var(--t2-dim) 4px, transparent 4px, transparent 8px); }
+.tier.t3 .layers::before { background: repeating-linear-gradient(180deg, var(--t3-dim) 0, var(--t3-dim) 4px, transparent 4px, transparent 8px); }
+.tier.t4 .layers::before { background: repeating-linear-gradient(180deg, var(--t4-dim) 0, var(--t4-dim) 4px, transparent 4px, transparent 8px); }
+
+.layer {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  position: relative;
+  border-bottom: 1px dashed var(--line-dim);
+}
+.layer:last-child { border-bottom: none; }
+
+.layer-num-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  position: relative;
+}
+.layer-num-block::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 14px;
+  height: 1px;
+}
+.tier.t1 .layer-num-block::after { background: var(--t1); }
+.tier.t2 .layer-num-block::after { background: var(--t2); }
+.tier.t3 .layer-num-block::after { background: var(--t3); }
+.tier.t4 .layer-num-block::after { background: var(--t4); }
+.layer-num {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.tier.t1 .layer-num { color: var(--t1); }
+.tier.t2 .layer-num { color: var(--t2); }
+.tier.t3 .layer-num { color: var(--t3); }
+.tier.t4 .layer-num { color: var(--t4); }
+.layer-num-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--text-3);
+  letter-spacing: 0.12em;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.layer-content {
+  padding: 24px 0 24px 28px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.layer-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.layer-cat {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.tier.t1 .layer-cat { color: var(--t1); }
+.tier.t2 .layer-cat { color: var(--t2); }
+.tier.t3 .layer-cat { color: var(--t3); }
+.tier.t4 .layer-cat { color: var(--t4); }
+.layer-name {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  color: var(--text);
+}
+.layer-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin-top: 4px;
+}
+
+.layer-spec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spec-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+.spec-key {
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  font-size: 10px;
+  padding-top: 1px;
+}
+.spec-val { color: var(--text); font-weight: 500; }
+.spec-val.t1 { color: var(--t1); }
+.spec-val.t2 { color: var(--t2); }
+.spec-val.t3 { color: var(--t3); }
+.spec-val.t4 { color: var(--t4); }
+
+.layer-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.threat {
+  font-size: 11px;
+  line-height: 1.55;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+.threat-head {
+  font-size: 9px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.threat-prevented {
+  color: var(--t1);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 3px;
+}
+.threat-prevented::before { content: '✓'; font-weight: 700; line-height: 1.4; flex-shrink: 0; }
+.threat-residual {
+  color: var(--t3);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 3px;
+}
+.threat-residual::before { content: '△'; font-weight: 700; line-height: 1.4; flex-shrink: 0; }
+
+.shipped-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+  border-radius: 2px;
+  width: fit-content;
+}
+.shipped-tag.alone {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+}
+.shipped-tag.partial {
+  background: rgba(255,165,0,0.12);
+  color: #ffa500;
+  border: 1px solid rgba(255,165,0,0.35);
+}
+.shipped-tag.research {
+  background: rgba(192,132,252,0.12);
+  color: var(--t4);
+  border: 1px solid rgba(192,132,252,0.35);
+}
+
+.risk-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.risk-bar-label {
+  color: var(--text-3);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.risk-bar-meter {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+.risk-bar-cell {
+  width: 18px;
+  height: 4px;
+  background: var(--text-4);
+  border-radius: 1px;
+}
+.risk-bar-cell.on.t1 { background: var(--t1); }
+.risk-bar-cell.on.t2 { background: var(--t2); }
+.risk-bar-cell.on.t3 { background: var(--t3); }
+.risk-bar-cell.on.t4 { background: var(--t4); }
+
+/* ============================================================
+   ROADMAP TIMELINE
+   ============================================================ */
+.timeline {
+  margin-top: 32px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  position: relative;
+}
+.tline-card {
+  border: 1px solid var(--line);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+.tline-card.t1 { border-color: rgba(34,197,94,0.4); }
+.tline-card.t2 { border-color: rgba(0,212,255,0.4); }
+.tline-card.t3 { border-color: rgba(255,165,0,0.4); }
+.tline-card.t4 { border-color: rgba(192,132,252,0.4); }
+.tline-tier {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.tline-card.t1 .tline-tier { color: var(--t1); }
+.tline-card.t2 .tline-tier { color: var(--t2); }
+.tline-card.t3 .tline-tier { color: var(--t3); }
+.tline-card.t4 .tline-tier { color: var(--t4); }
+.tline-when {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.tline-deliver {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.55;
+  letter-spacing: 0;
+}
+.tline-deliver li {
+  list-style: none;
+  padding-left: 14px;
+  position: relative;
+  margin-bottom: 4px;
+}
+.tline-deliver li::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.tline-claim {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-mid);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.stamp {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: end;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0;
+}
+.stamp-left { display: flex; flex-direction: column; gap: 4px; }
+.stamp-tag {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0;
+}
+.stamp-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.stamp-classification {
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+.toolbar {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: 200ms;
+}
+.tool-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+
+/* ============================================================
+   REFS GRID
+   ============================================================ */
+.refs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+}
+.ref-cell {
+  padding: 16px 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.ref-cell:nth-child(3n) { border-right: none; }
+.ref-id {
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+.ref-desc { color: var(--text-2); line-height: 1.5; }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 1100px) {
+  .layer-content { grid-template-columns: 1fr; gap: 18px; padding: 20px 0 20px 18px; }
+  .layers::before { left: 50px; }
+  .layer { grid-template-columns: 50px 1fr; }
+  .timeline { grid-template-columns: 1fr 1fr; }
+  .legend-tracks { grid-template-columns: 1fr 1fr; }
+  .refs { grid-template-columns: 1fr 1fr; }
+  .ref-cell:nth-child(3n) { border-right: 1px solid var(--line); }
+  .ref-cell:nth-child(2n) { border-right: none; }
+}
+@media (max-width: 720px) {
+  .page { padding: 16px; }
+  .frame { padding: 18px; }
+  .title-block { grid-template-columns: 1fr; }
+  .title-meta { min-width: auto; }
+  .timeline { grid-template-columns: 1fr; }
+  .legend-tracks { grid-template-columns: 1fr; }
+  .refs { grid-template-columns: 1fr; }
+  .ref-cell { border-right: none; }
+  .tier-head { grid-template-columns: 1fr; gap: 12px; }
+  .tier-meta { align-items: flex-start; text-align: left; }
+}
+
+@media print {
+  body { background: white; color: black; }
+  .toolbar { display: none; }
+  .frame, .layer, .timeline, .stamp { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <button class="tool-btn" onclick="window.print()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    Print
+  </button>
+  <a class="tool-btn" href="vuvault-landing.html">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Landing
+  </a>
+</div>
+
+<div class="page">
+<div class="frame">
+<div class="frame-corners"><span></span><span></span></div>
+
+<!-- TITLE BLOCK -->
+<header class="title-block">
+  <div>
+    <div class="title-eyebrow">
+      <span>VuVault</span>
+      <span class="sep">·</span>
+      <span>Architectural Blueprint v0.5.0</span>
+      <span class="sep">·</span>
+      <span>Shippable to Frontier</span>
+    </div>
+    <h1 class="title-h1">
+      Eighteen layers.<br>
+      <span class="italic-serif">Four shipping tiers.</span>
+    </h1>
+    <p class="title-sub">
+      Reorganized by what we can ship today versus what's still in the lab. Tier 1 is everything with a published RFC, an audited reference library, and zero research risk — production in Q3 2026. Tier 4 is the frontier — primitives published in 2024–2025 academic venues that will mature into products by 2030. Every layer cites the standard, the production library, and the threat it actually closes.
+    </p>
+  </div>
+  <dl class="title-meta">
+    <dt>Document</dt><dd>VV-ARCH-002</dd>
+    <dt>Version</dt><dd class="accent">v0.5.0</dd>
+    <dt>Released</dt><dd>2026-05-07</dd>
+    <dt>Supersedes</dt><dd>VV-ARCH-001 v0.4.2</dd>
+    <dt>Layers</dt><dd>18 across 4 tiers</dd>
+    <dt>Classification</dt><dd class="accent">PUBLIC</dd>
+  </dl>
+</header>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-title">Tier ordering<br>by research risk</div>
+  <div class="legend-tracks">
+    <div class="legend-track">
+      <div class="legend-bar t1"></div>
+      <div>
+        <span class="legend-track-name">Tier 1 — Ship Q3 2026</span>
+        <span class="legend-track-desc">Standardized RFC/FIPS, audited reference library, zero novel work</span>
+      </div>
+    </div>
+    <div class="legend-track">
+      <div class="legend-bar t2"></div>
+      <div>
+        <span class="legend-track-name">Tier 2 — Ship 2027</span>
+        <span class="legend-track-desc">Standardized, production deployments elsewhere, integration work</span>
+      </div>
+    </div>
+    <div class="legend-track">
+      <div class="legend-bar t3"></div>
+      <div>
+        <span class="legend-track-name">Tier 3 — Ship 2028</span>
+        <span class="legend-track-desc">RFC-grade primitives, less production track record, more glue</span>
+      </div>
+    </div>
+    <div class="legend-track">
+      <div class="legend-bar t4"></div>
+      <div>
+        <span class="legend-track-name">Tier 4 — Frontier · 2029-2030</span>
+        <span class="legend-track-desc">Recent academic results, real research risk, transformational potential</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 01 — DESIGN PRINCIPLES
+     ============================================================ -->
+<section class="sect" style="margin-top: 48px;">
+  <div class="sect-num">§ 01 — Design principles</div>
+  <h2 class="sect-title">Five non-negotiable invariants.</h2>
+  <p class="sect-sub">
+    Every layer is checked against these five before it ships. If a feature breaks one, it does not ship — even if a competitor offers it, even if it's convenient.
+  </p>
+  <div style="margin-top: 24px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px;">
+    <div style="border: 1px solid var(--line); padding: 18px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;">P1</div>
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">Server cannot read user data.</div>
+      <div style="font-size: 11px; color: var(--text-3); line-height: 1.5;">Mathematical, not policy. The wire only carries opaque ciphertext.</div>
+    </div>
+    <div style="border: 1px solid var(--line); padding: 18px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;">P2</div>
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">Server cannot infer user data.</div>
+      <div style="font-size: 11px; color: var(--text-3); line-height: 1.5;">No metadata leaks: not which item changed, not how many items exist.</div>
+    </div>
+    <div style="border: 1px solid var(--line); padding: 18px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;">P3</div>
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">Resistant to harvest-now-decrypt-later.</div>
+      <div style="font-size: 11px; color: var(--text-3); line-height: 1.5;">Hybrid post-quantum encryption from day one. FIPS 203.</div>
+    </div>
+    <div style="border: 1px solid var(--line); padding: 18px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;">P4</div>
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">Verifiable by anyone.</div>
+      <div style="font-size: 11px; color: var(--text-3); line-height: 1.5;">Reproducible builds, transparency log, open source. No trust required.</div>
+    </div>
+    <div style="border: 1px solid var(--line); padding: 18px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px;">P5</div>
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 6px;">No silent updates.</div>
+      <div style="font-size: 11px; color: var(--text-3); line-height: 1.5;">Bundle hash visible at unlock. SRI on every asset. User-consented updates only.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SECTION 02 — STACK BY SHIPPABILITY
+     ============================================================ -->
+<section class="sect">
+  <div class="sect-num">§ 02 — Stack ordering by shippability</div>
+  <h2 class="sect-title">Ship now → ship 2030.</h2>
+  <p class="sect-sub">
+    Eighteen layers organized by research risk, not architectural elegance. Tier 1 contains everything VuVault can ship today using only published RFCs and audited libraries. Tier 4 contains primitives whose academic results were published in 2024 or 2025 and are not yet ready for production but are likely to mature into shippable engineering by 2030. Each tier is a coherent deliverable.
+  </p>
+
+  <!-- ============================================================
+       TIER 1 — SHIP Q3 2026
+       ============================================================ -->
+  <div class="tier t1">
+    <div class="tier-head">
+      <div class="tier-num">T1</div>
+      <div class="tier-info">
+        <div class="tier-eyebrow">Tier 1 · v1.0 · Q3 2026</div>
+        <div class="tier-title">The five layers <span class="italic-serif">already shippable.</span></div>
+        <div class="tier-tagline">Published RFC, audited library, zero novel cryptographic work required.</div>
+      </div>
+      <div class="tier-meta">
+        <div class="tier-meta-row"><span class="tier-meta-key">Risk</span><span class="tier-meta-val">Engineering only</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Layers</span><span class="tier-meta-val">L01 — L05</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Marketing</span><span class="tier-meta-val">Defensible day one</span></div>
+      </div>
+    </div>
+
+    <div class="layers">
+
+      <!-- L01 OPAQUE -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">01</div>
+          <div class="layer-num-label">Auth</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Authentication · base</div>
+            <div class="layer-name">OPAQUE — server never sees the password</div>
+            <div class="layer-desc">Augmented PAKE. The server learns no information about the password — not plaintext, not a hash, not even during registration. RFC 9807 finalized July 2025; production deployments at WhatsApp, Facebook Messenger for chat-history backup. Ships with audited Rust library from Meta, compiles to WASM.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t1"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Spec</div><div class="spec-val t1">RFC 9807 — July 2025</div></div>
+            <div class="spec-row"><div class="spec-key">Variant</div><div class="spec-val">OPAQUE-3DH</div></div>
+            <div class="spec-row"><div class="spec-key">OPRF</div><div class="spec-val">RFC 9497 · ristretto255</div></div>
+            <div class="spec-row"><div class="spec-key">KDF</div><div class="spec-val">Argon2id (mandatory)</div></div>
+            <div class="spec-row"><div class="spec-key">Library</div><div class="spec-val">Meta opaque-ke (Rust→WASM)</div></div>
+            <div class="spec-row"><div class="spec-key">Audit</div><div class="spec-val">NCC Group · 2021 · WhatsApp</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Server-side password leaks (no hash exists)</div>
+              <div class="threat-prevented">Pre-computation / rainbow-table attacks</div>
+              <div class="threat-prevented">Forward secrecy compromise</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L02 PRF + Secret Key -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">02</div>
+          <div class="layer-num-label">KDF</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Key derivation · core</div>
+            <div class="layer-name">PRF + 256-bit Secret Key</div>
+            <div class="layer-desc">Vault key = HKDF over WebAuthn PRF output (passkey-bound) and a 256-bit Secret Key generated client-side. Argon2id-stretched master password as optional third factor. Bitwarden shipped PRF in Nov 2025; Dashlane uses it to replace master passwords. Apple has it via iCloud Keychain on macOS 15+, Windows Hello on 25H2.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag partial">Bitwarden, Dashlane partial</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t1"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">PRF</div><div class="spec-val t1">WebAuthn L3 PRF extension</div></div>
+            <div class="spec-row"><div class="spec-key">Secret Key</div><div class="spec-val">256 bits · client-only</div></div>
+            <div class="spec-row"><div class="spec-key">KDF</div><div class="spec-val">HKDF-SHA512 · domain-sep</div></div>
+            <div class="spec-row"><div class="spec-key">Optional MP</div><div class="spec-val">Argon2id m=64MB t=3 p=4</div></div>
+            <div class="spec-row"><div class="spec-key">Storage</div><div class="spec-val">TPM / Secure Enclave</div></div>
+            <div class="spec-row"><div class="spec-key">Coverage</div><div class="spec-val">Apple, Windows 11 25H2, Chrome 147</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Master-password phishing</div>
+              <div class="threat-prevented">Keylogger capture</div>
+              <div class="threat-prevented">Argon2id-only brute force on stolen vault</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L03 PQ vault envelope -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">03</div>
+          <div class="layer-num-label">Crypto</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Encryption · core</div>
+            <div class="layer-name">Hybrid PQ vault envelope</div>
+            <div class="layer-desc">Vault file encrypted under hybrid <code style="font-family:var(--font-mono);font-size:11px;">ML-KEM-1024 + X25519</code> KEM with AES-256-GCM. Resistant to harvest-now-decrypt-later: a vault exfiltrated today remains undecryptable in 2032+. Sub-millisecond cryptographic overhead — matches X25519. AWS rolled out ML-KEM in TLS for KMS, ACM, Secrets Manager during 2025.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t1"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">PQ KEM</div><div class="spec-val t1">ML-KEM-1024 · FIPS 203</div></div>
+            <div class="spec-row"><div class="spec-key">Classical</div><div class="spec-val">X25519 · RFC 7748</div></div>
+            <div class="spec-row"><div class="spec-key">Combiner</div><div class="spec-val">Concat-KDF · HKDF-SHA512</div></div>
+            <div class="spec-row"><div class="spec-key">AEAD</div><div class="spec-val">AES-256-GCM</div></div>
+            <div class="spec-row"><div class="spec-key">Library</div><div class="spec-val">liboqs · @noble/post-quantum</div></div>
+            <div class="spec-row"><div class="spec-key">Overhead</div><div class="spec-val t1">&lt; 1ms · matches X25519</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Future quantum decryption (HNDL)</div>
+              <div class="threat-prevented">Server-side blob exfiltration</div>
+              <div class="threat-prevented">Classical cryptanalytic break</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L04 Stateful HBS for releases -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">04</div>
+          <div class="layer-num-label">Sig</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Release signatures · long-lived</div>
+            <div class="layer-name">Stateful hash-based release signatures</div>
+            <div class="layer-desc">Release manifests signed with <code style="font-family:var(--font-mono);font-size:11px;">XMSS-SHA256</code>. NIST specifically recommends stateful HBS for software updates — long key lifetimes, conservative security assumptions, no trusted setup. Quantum-secure based on hash function security alone, the most well-understood primitive in cryptography.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t1"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Spec</div><div class="spec-val t1">NIST SP 800-208</div></div>
+            <div class="spec-row"><div class="spec-key">Scheme</div><div class="spec-val">XMSS · RFC 8391</div></div>
+            <div class="spec-row"><div class="spec-key">Hash</div><div class="spec-val">SHA-256 · 256-bit security</div></div>
+            <div class="spec-row"><div class="spec-key">Tree height</div><div class="spec-val">h=20 · 1M signatures</div></div>
+            <div class="spec-row"><div class="spec-key">Sig size</div><div class="spec-val">~2.5 KB</div></div>
+            <div class="spec-row"><div class="spec-key">State mgmt</div><div class="spec-val">HSM-backed counter</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Future quantum signature forgery on updates</div>
+              <div class="threat-prevented">Lattice-attack on Ed25519/ML-DSA release keys</div>
+              <div class="threat-residual">State reuse if HSM fails (operational)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L05 Reproducible builds + Sigstore -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">05</div>
+          <div class="layer-num-label">Trust</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Build &amp; release transparency</div>
+            <div class="layer-name">Reproducible builds + Sigstore</div>
+            <div class="layer-desc">Every shipped binary is byte-reproducible from public source. Releases signed (via L04) and recorded in public Rekor transparency log. Bundle hash appears in unlock screen — users can verify what is running matches what is published. Sigstore is mature; used by NPM, PyPI, Kubernetes.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t1"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Primitive</div><div class="spec-val t1">Sigstore (cosign + Rekor)</div></div>
+            <div class="spec-row"><div class="spec-key">SCA</div><div class="spec-val">in-toto attestation v1</div></div>
+            <div class="spec-row"><div class="spec-key">Build</div><div class="spec-val">Reproducible Nix toolchain</div></div>
+            <div class="spec-row"><div class="spec-key">Asset SRI</div><div class="spec-val">SHA-384 on every asset</div></div>
+            <div class="spec-row"><div class="spec-key">CSP</div><div class="spec-val">strict-dynamic, no eval</div></div>
+            <div class="spec-row"><div class="spec-key">Verification</div><div class="spec-val">vu-verify CLI · public</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Compromised release pipeline</div>
+              <div class="threat-prevented">Targeted user-specific binary</div>
+              <div class="threat-prevented">Silent backdoor injection</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TIER 2 — SHIP 2027
+       ============================================================ -->
+  <div class="tier t2">
+    <div class="tier-head">
+      <div class="tier-num">T2</div>
+      <div class="tier-info">
+        <div class="tier-eyebrow">Tier 2 · v2.0 · 2027</div>
+        <div class="tier-title">Five layers <span class="italic-serif">production-validated</span> elsewhere.</div>
+        <div class="tier-tagline">Standardized, deployed at WhatsApp/Apple/Meta scale, integration work for VuVault.</div>
+      </div>
+      <div class="tier-meta">
+        <div class="tier-meta-row"><span class="tier-meta-key">Risk</span><span class="tier-meta-val">Integration</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Layers</span><span class="tier-meta-val">L06 — L10</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Marketing</span><span class="tier-meta-val">Sync, sharing, transparency</span></div>
+      </div>
+    </div>
+
+    <div class="layers">
+
+      <!-- L06 MLS -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">06</div>
+          <div class="layer-num-label">Group</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Family &amp; team sharing</div>
+            <div class="layer-name">MLS for shared vaults</div>
+            <div class="layer-desc">Family/team shared credentials use Messaging Layer Security (RFC 9420, July 2023). Forward secrecy and post-compromise security at any group size up to 50,000. Add or remove a member, all keys rotate automatically. AWS ships <code style="font-family:var(--font-mono);font-size:11px;">mls-rs</code> in production. Wire's full deployment validates the protocol at enterprise scale.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault for credentials</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Spec</div><div class="spec-val t2">RFC 9420 + RFC 9750</div></div>
+            <div class="spec-row"><div class="spec-key">Library</div><div class="spec-val">awslabs/mls-rs</div></div>
+            <div class="spec-row"><div class="spec-key">Cipher suite</div><div class="spec-val">MLS_256_DHKEMP384_AES256GCM</div></div>
+            <div class="spec-row"><div class="spec-key">Properties</div><div class="spec-val">FS + PCS + async</div></div>
+            <div class="spec-row"><div class="spec-key">Group size</div><div class="spec-val">2 → 50,000</div></div>
+            <div class="spec-row"><div class="spec-key">Production</div><div class="spec-val">Wire, RCS UP 3.0, Matrix WIP</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Ex-member retains decryption capability</div>
+              <div class="threat-prevented">Pairwise-encryption explosion at scale</div>
+              <div class="threat-prevented">Compromised device permanently breaks group</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L07 Encrypted CRDT sync -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">07</div>
+          <div class="layer-num-label">Sync</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Sync transport</div>
+            <div class="layer-name">Encrypted CRDT operations</div>
+            <div class="layer-desc">Per-item encrypted CRDT operation log via Yjs. Two devices editing offline merge without conflict. Server only sees opaque encrypted operation deltas with power-of-two padding — cannot tell which item changed or how many items exist. Yjs is mature (used by JupyterLab, GitBook, hundreds of production apps).</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault for vaults</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">CRDT</div><div class="spec-val t2">Yjs (Y.Doc)</div></div>
+            <div class="spec-row"><div class="spec-key">Encryption</div><div class="spec-val">HPKE + ML-KEM-768</div></div>
+            <div class="spec-row"><div class="spec-key">Padding</div><div class="spec-val">Power-of-two bucketing</div></div>
+            <div class="spec-row"><div class="spec-key">Storage</div><div class="spec-val">CF R2 / S3 / BYO</div></div>
+            <div class="spec-row"><div class="spec-key">BYO storage</div><div class="spec-val t1">First-class option</div></div>
+            <div class="spec-row"><div class="spec-key">Conflict</div><div class="spec-val">CRDT merge · automatic</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Metadata inference (which item changed)</div>
+              <div class="threat-prevented">Multi-device edit conflicts</div>
+              <div class="threat-prevented">Vendor lock-in (BYO storage)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L08 Pairing -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">08</div>
+          <div class="layer-num-label">Pair</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Multi-device pairing</div>
+            <div class="layer-name">WebRTC + ECDH device pairing</div>
+            <div class="layer-desc">New device enrollment via QR-encoded ephemeral X25519 key + WebRTC offer. Device-to-device ECDH derives session key. Signaling relay sees only opaque WebRTC traffic. 4-word EFF phrase verification confirms authentic pairing. Server is not in the trust path.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Transport</div><div class="spec-val t2">WebRTC DataChannel</div></div>
+            <div class="spec-row"><div class="spec-key">KEX</div><div class="spec-val">X25519 ECDH (ephemeral)</div></div>
+            <div class="spec-row"><div class="spec-key">Symmetric</div><div class="spec-val">ChaCha20-Poly1305</div></div>
+            <div class="spec-row"><div class="spec-key">UX</div><div class="spec-val">QR · 4-word EFF verify</div></div>
+            <div class="spec-row"><div class="spec-key">Signaling</div><div class="spec-val">CF TURN — opaque</div></div>
+            <div class="spec-row"><div class="spec-key">Fallback</div><div class="spec-val">CXP via FIDO (RFC draft)</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">MITM during device pairing</div>
+              <div class="threat-prevented">Server reading paired-device secrets</div>
+              <div class="threat-residual">Local screen capture during QR scan</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L09 Key Transparency -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">09</div>
+          <div class="layer-num-label">Log</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Vault key transparency</div>
+            <div class="layer-name">CONIKS-derived AKD log</div>
+            <div class="layer-desc">Per-account append-only Merkle map indexed by VRF hash (RFC 9381). Every device verifies inclusion proofs and gossips log roots out-of-band. Detects split-view attacks where a compromised server tries to serve different vault states to different devices. Production at WhatsApp (since 2023), Apple iMessage (late 2023), Meta Messenger (Nov 2025).</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault for credentials</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Design</div><div class="spec-val t2">CONIKS + Meta AKD</div></div>
+            <div class="spec-row"><div class="spec-key">Hash</div><div class="spec-val">BLAKE3 · 256-bit</div></div>
+            <div class="spec-row"><div class="spec-key">VRF</div><div class="spec-val">RFC 9381 · ECVRF-Ed25519</div></div>
+            <div class="spec-row"><div class="spec-key">Merge cadence</div><div class="spec-val">≤ 60 s · 48 h max delay</div></div>
+            <div class="spec-row"><div class="spec-key">Auditor</div><div class="spec-val">Cloudflare KT auditor</div></div>
+            <div class="spec-row"><div class="spec-key">Gossip</div><div class="spec-val">In-band log root checks</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Server lying about vault contents</div>
+              <div class="threat-prevented">Split-view / equivocation attacks</div>
+              <div class="threat-prevented">Silent rollback of vault state</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L10 Private breach checks -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">10</div>
+          <div class="layer-num-label">PIR</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Privacy-preserving queries</div>
+            <div class="layer-name">PIR + unbalanced PSI breach checks</div>
+            <div class="layer-desc">Hybrid: single-server PIR with VOPRF for low-overhead checks, unbalanced PSI with downloadable hint for high-assurance. Server learns zero — not the password, not a hash, not even a 5-character prefix. Replaces the leaky k-anonymity-over-SHA-1 pattern that every incumbent ships. Recent unbalanced PSI yields ~4s for 2³² password set with reusable 240MB hint.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell on t2"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">PIR</div><div class="spec-val t2">SimplePIR / FrodoPIR</div></div>
+            <div class="spec-row"><div class="spec-key">VOPRF</div><div class="spec-val">RFC 9497 · P-384</div></div>
+            <div class="spec-row"><div class="spec-key">PSI</div><div class="spec-val">Unbalanced w/ reusable hint</div></div>
+            <div class="spec-row"><div class="spec-key">Bandwidth</div><div class="spec-val">&lt; 1 KB / online query</div></div>
+            <div class="spec-row"><div class="spec-key">Server compute</div><div class="spec-val t1">sub-millisecond</div></div>
+            <div class="spec-row"><div class="spec-key">Runtime</div><div class="spec-val">Cloudflare Workers</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Hash-prefix leakage to server (k-anon)</div>
+              <div class="threat-prevented">Query-frequency pattern inference</div>
+              <div class="threat-prevented">Server-injected unbreached lure passwords</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TIER 3 — SHIP 2028
+       ============================================================ -->
+  <div class="tier t3">
+    <div class="tier-head">
+      <div class="tier-num">T3</div>
+      <div class="tier-info">
+        <div class="tier-eyebrow">Tier 3 · v3.0 · 2028</div>
+        <div class="tier-title">Four layers <span class="italic-serif">RFC-grade</span>, more glue.</div>
+        <div class="tier-tagline">Mature primitives, smaller production track records, more integration work per layer.</div>
+      </div>
+      <div class="tier-meta">
+        <div class="tier-meta-row"><span class="tier-meta-key">Risk</span><span class="tier-meta-val">Moderate · novel composition</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Layers</span><span class="tier-meta-val">L11 — L14</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Marketing</span><span class="tier-meta-val">Recovery, agentic AI, compactness</span></div>
+      </div>
+    </div>
+
+    <div class="layers">
+
+      <!-- L11 FROST -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">11</div>
+          <div class="layer-num-label">Recovery</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Threshold recovery</div>
+            <div class="layer-name">FROST t-of-n device recovery</div>
+            <div class="layer-desc">Master signing key split via FROST distributed key generation across user's own devices in t-of-n scheme. Lose any single device, vault is fine. The server holds zero shares. RFC 9591 ratified, Zcash Foundation ships audited Rust implementation. The integration challenge is the UX of distributed key generation across consumer devices, not the cryptography.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Spec</div><div class="spec-val t3">RFC 9591 — FROST</div></div>
+            <div class="spec-row"><div class="spec-key">Suite</div><div class="spec-val">Schnorr · Ed25519</div></div>
+            <div class="spec-row"><div class="spec-key">Default</div><div class="spec-val">3-of-5 across devices</div></div>
+            <div class="spec-row"><div class="spec-key">DKG</div><div class="spec-val">No trusted dealer</div></div>
+            <div class="spec-row"><div class="spec-key">Library</div><div class="spec-val">Zcash frost (Rust→WASM)</div></div>
+            <div class="spec-row"><div class="spec-key">Audit</div><div class="spec-val">NCC Group · 2023</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Single-device-loss permanent lockout</div>
+              <div class="threat-prevented">Centralized recovery dependency</div>
+              <div class="threat-residual">Loss of all devices — vault gone (by design)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L12 TEE -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">12</div>
+          <div class="layer-num-label">TEE</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Optional server compute</div>
+            <div class="layer-name">TEE-attested enclaves</div>
+            <div class="layer-desc">Any feature requiring server-side compute runs in a hardware-attested enclave (AMD SEV-SNP, Intel TDX). Attestation measurements written to public log so users or auditors can verify the server is running the exact open-source code claimed. Microsoft Password Manager already deployed this for passkeys via Azure Confidential Containers in 2026.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag partial">Microsoft passkeys only</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">CPU</div><div class="spec-val t3">SEV-SNP / TDX</div></div>
+            <div class="spec-row"><div class="spec-key">Attestation</div><div class="spec-val">Remote + DCAP</div></div>
+            <div class="spec-row"><div class="spec-key">Log</div><div class="spec-val">Sigstore-style append-only</div></div>
+            <div class="spec-row"><div class="spec-key">Provider</div><div class="spec-val">Azure CC + GCP CVM</div></div>
+            <div class="spec-row"><div class="spec-key">Use cases</div><div class="spec-val">Optional · audit-only</div></div>
+            <div class="spec-row"><div class="spec-key">Counter</div><div class="spec-val">Azure Confidential Ledger</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Untrusted host inspecting compute</div>
+              <div class="threat-prevented">Sysadmin / cloud-provider snooping</div>
+              <div class="threat-residual">Side-channel on CPU (SGX-class issues)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L13 Agentic Autofill -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">13</div>
+          <div class="layer-num-label">Agent</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Agentic autofill</div>
+            <div class="layer-name">Noise-channel agent credential delivery</div>
+            <div class="layer-desc">AI agents authenticate to web services without ever seeing credentials. End-to-end encrypted Noise-protocol channel between the user's approving device and the browser-side injector, with FIDO-attested agent identity. Credentials never enter LLM context. 1Password shipped first version with Browserbase (Oct 2025); VuVault matches with open Noise spec and broader agent compatibility.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag partial">1Password partial · proprietary</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Channel</div><div class="spec-val t3">Noise XK · trevor-perrin</div></div>
+            <div class="spec-row"><div class="spec-key">Agent ID</div><div class="spec-val">FIDO platform attestation</div></div>
+            <div class="spec-row"><div class="spec-key">Approval</div><div class="spec-val">Push to user device · Touch ID</div></div>
+            <div class="spec-row"><div class="spec-key">Injection</div><div class="spec-val">Per-form scoped, JIT</div></div>
+            <div class="spec-row"><div class="spec-key">LLM context</div><div class="spec-val t1">Never sees credential</div></div>
+            <div class="spec-row"><div class="spec-key">Audit log</div><div class="spec-val">Signed user-device record</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Embedded secrets in agent code</div>
+              <div class="threat-prevented">Credential-bearing prompt logs</div>
+              <div class="threat-prevented">DOM clickjacking against autofill</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L14 FN-DSA compact transparency -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">14</div>
+          <div class="layer-num-label">Compact</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Compact PQ signatures</div>
+            <div class="layer-name">FN-DSA for transparency-log entries</div>
+            <div class="layer-desc">Migrate transparency-log entries (L09) and CT-style logs to FN-DSA (Falcon) signatures once FIPS 206 finalizes. ~666-byte signatures vs ML-DSA's multi-kilobyte outputs — close to ECC compactness. Critical when log entries are gossiped peer-to-peer or shipped over bandwidth-constrained channels. NIST submitted draft for approval Aug 2025; final standard expected late 2026 / early 2027.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag alone">Only VuVault</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell on t3"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Spec</div><div class="spec-val t3">FIPS 206 — draft Aug 2025</div></div>
+            <div class="spec-row"><div class="spec-key">Variant</div><div class="spec-val">FN-DSA-512</div></div>
+            <div class="spec-row"><div class="spec-key">Sig size</div><div class="spec-val t1">~666 bytes</div></div>
+            <div class="spec-row"><div class="spec-key">Pubkey size</div><div class="spec-val">~897 bytes</div></div>
+            <div class="spec-row"><div class="spec-key">Use case</div><div class="spec-val">L09 log entries · CT</div></div>
+            <div class="spec-row"><div class="spec-key">Final</div><div class="spec-val">expected late 2026 / 2027</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Quantum forgery on transparency logs</div>
+              <div class="threat-prevented">Bandwidth tax of multi-KB signatures</div>
+              <div class="threat-residual">FN-DSA signing complexity (HSM-only)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TIER 4 — FRONTIER · 2029-2030
+       ============================================================ -->
+  <div class="tier t4">
+    <div class="tier-head">
+      <div class="tier-num">T4</div>
+      <div class="tier-info">
+        <div class="tier-eyebrow">Tier 4 · v4.0 · 2029-2030</div>
+        <div class="tier-title">Four layers from <span class="italic-serif">the frontier.</span></div>
+        <div class="tier-tagline">Recent research (2024-2025), real risk, transformational if they ship.</div>
+      </div>
+      <div class="tier-meta">
+        <div class="tier-meta-row"><span class="tier-meta-key">Risk</span><span class="tier-meta-val">Substantial · research-grade</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Layers</span><span class="tier-meta-val">L15 — L18</span></div>
+        <div class="tier-meta-row"><span class="tier-meta-key">Marketing</span><span class="tier-meta-val">Selective disclosure, time-locks</span></div>
+      </div>
+    </div>
+
+    <div class="layers">
+
+      <!-- L15 zkSNARK selective disclosure -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">15</div>
+          <div class="layer-num-label">ZK</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Selective disclosure</div>
+            <div class="layer-name">zkSNARK credential proofs</div>
+            <div class="layer-desc">Prove "I have a valid credential matching domain X" without revealing the credential itself. Built on Groth16/PLONK in browser. zkLogin demonstrated this pattern works for blockchain identity in 2024 with offloaded proving. The eventual answer to phishing-by-clickjacking: the autofill primitive returns a zero-knowledge proof of credential validity, not the credential.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag research">Research-grade · zkLogin pattern</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">System</div><div class="spec-val t4">Groth16 / Halo2-KZG</div></div>
+            <div class="spec-row"><div class="spec-key">Circuit</div><div class="spec-val">Pedersen + Merkle membership</div></div>
+            <div class="spec-row"><div class="spec-key">Frame</div><div class="spec-val">circom-snarkjs · gnark</div></div>
+            <div class="spec-row"><div class="spec-key">Proof size</div><div class="spec-val">~192 bytes (Groth16)</div></div>
+            <div class="spec-row"><div class="spec-key">Browser perf</div><div class="spec-val">offloaded prover service</div></div>
+            <div class="spec-row"><div class="spec-key">Reference</div><div class="spec-val">Sui zkLogin, Polygon ID</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Credential phished from autofill DOM</div>
+              <div class="threat-prevented">Re-use of leaked credential off-platform</div>
+              <div class="threat-residual">Trusted setup ceremony (mitigated by SRS)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L16 Timelock encryption -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">16</div>
+          <div class="layer-num-label">Time</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Time-bound features</div>
+            <div class="layer-name">Timelock encryption via drand</div>
+            <div class="layer-desc">Encrypt-to-the-future using League of Entropy threshold BLS signatures (drand mainnet, GA since 2023). Enables genuinely new features: dead-man's-switch credential delivery, scheduled inheritance unlocks, time-released backups. tlock library mature in Go, TypeScript, Rust. The crypto is proven; the UX of "encrypt this credential to release at 2030-01-01" is novel for a password manager.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag research">No password manager · novel UX</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell"></span><span class="risk-bar-cell"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Beacon</div><div class="spec-val t4">drand quicknet (LoE)</div></div>
+            <div class="spec-row"><div class="spec-key">Scheme</div><div class="spec-val">BF-IBE on threshold BLS</div></div>
+            <div class="spec-row"><div class="spec-key">Curve</div><div class="spec-val">BLS12-381 · G1 sigs</div></div>
+            <div class="spec-row"><div class="spec-key">Cadence</div><div class="spec-val">3-second rounds</div></div>
+            <div class="spec-row"><div class="spec-key">Library</div><div class="spec-val">tlock-js · tlock (Go)</div></div>
+            <div class="spec-row"><div class="spec-key">Audit</div><div class="spec-val">Kudelski Security · 2023</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Trusted-third-party for time-released keys</div>
+              <div class="threat-prevented">Inheritance lockout (no executor needed)</div>
+              <div class="threat-residual">Threshold compromise of LoE network</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L17 Threshold HBS -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">17</div>
+          <div class="layer-num-label">T-HBS</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Threshold release signing</div>
+            <div class="layer-name">Threshold stateful hash-based signatures</div>
+            <div class="layer-desc">Migrate L04 from single-signer XMSS to threshold-signed XMSS/LMS via Haystack (CIC 2025). Multiple parties cooperatively sign release manifests, no single party holds the full key. Eliminates the last single point of trust in the supply chain. Reference Python implementation exists; production engineering is the open problem.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag research">Academic only · CIC 2025</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Reference</div><div class="spec-val t4">Haystack (CIC 2025)</div></div>
+            <div class="spec-row"><div class="spec-key">Underlying</div><div class="spec-val">XMSS / LMS · NIST SP 800-208</div></div>
+            <div class="spec-row"><div class="spec-key">Scheme</div><div class="spec-val">t-of-n with trusted dealer</div></div>
+            <div class="spec-row"><div class="spec-key">CRS size</div><div class="spec-val">several GiB · one-time</div></div>
+            <div class="spec-row"><div class="spec-key">Coalitions</div><div class="spec-val">&lt; ~100 viable</div></div>
+            <div class="spec-row"><div class="spec-key">Status</div><div class="spec-val">reference Python impl</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Single-signer release-key compromise</div>
+              <div class="threat-prevented">Insider attack on signing infrastructure</div>
+              <div class="threat-residual">Trusted-dealer setup ceremony</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- L18 Pure-PQ recovery -->
+      <div class="layer">
+        <div class="layer-num-block">
+          <div class="layer-num">18</div>
+          <div class="layer-num-label">PQ-T</div>
+        </div>
+        <div class="layer-content">
+          <div class="layer-head">
+            <div class="layer-cat">Pure-PQ threshold</div>
+            <div class="layer-name">Post-quantum threshold recovery</div>
+            <div class="layer-desc">Migrate L11 (FROST recovery, currently Schnorr/Ed25519) to a fully post-quantum threshold signature scheme once one matures. Active research area: lattice-based threshold signatures, MPC-in-the-head schemes, and post-quantum FROST variants are in academic prototyping. Closes the last classical-crypto dependency in the recovery path.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <span class="shipped-tag research">Active research · no standard</span>
+              <span class="risk-bar"><span class="risk-bar-label">Research risk</span><span class="risk-bar-meter"><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span><span class="risk-bar-cell on t4"></span></span></span>
+            </div>
+          </div>
+          <div class="layer-spec">
+            <div class="spec-row"><div class="spec-key">Candidates</div><div class="spec-val t4">PQ-FROST · MPC-in-head</div></div>
+            <div class="spec-row"><div class="spec-key">Base</div><div class="spec-val">Lattice / SIS / MLWE</div></div>
+            <div class="spec-row"><div class="spec-key">Tracking</div><div class="spec-val">NIST threshold call</div></div>
+            <div class="spec-row"><div class="spec-key">Replaces</div><div class="spec-val">L11 Schnorr/Ed25519</div></div>
+            <div class="spec-row"><div class="spec-key">Trigger</div><div class="spec-val">When NIST or IRTF spec lands</div></div>
+            <div class="spec-row"><div class="spec-key">Status</div><div class="spec-val">academic prototyping</div></div>
+          </div>
+          <div class="layer-meta">
+            <div class="threat">
+              <div class="threat-head">Mitigates</div>
+              <div class="threat-prevented">Quantum break of recovery signing key</div>
+              <div class="threat-prevented">Last classical dependency in stack</div>
+              <div class="threat-residual">No mature standard yet (planning only)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+
+<!-- ============================================================
+     SECTION 03 — ROADMAP TIMELINE
+     ============================================================ -->
+<section class="sect">
+  <div class="sect-num">§ 03 — Shipping milestones</div>
+  <h2 class="sect-title">Each tier is a deliverable.</h2>
+  <p class="sect-sub">
+    Every milestone is shippable on its own. v1.0 already exceeds every incumbent on the four hardest claims. v2.0 makes VuVault the only credential manager with verifiable transparency. v3.0 closes the agentic-AI gap. v4.0 is a research bet — but framed as a research bet, not a roadmap commitment.
+  </p>
+
+  <div class="timeline">
+    <div class="tline-card t1">
+      <div class="tline-tier">Tier 1 · v1.0</div>
+      <div class="tline-when">Q3 2026</div>
+      <ul class="tline-deliver">
+        <li>L01 OPAQUE auth (RFC 9807)</li>
+        <li>L02 PRF + Secret Key</li>
+        <li>L03 PQ vault envelope (FIPS 203)</li>
+        <li>L04 XMSS release signatures</li>
+        <li>L05 Reproducible builds + Sigstore</li>
+      </ul>
+      <div class="tline-claim">"Mathematically untouchable. Quantum-resistant. Verifiable."</div>
+    </div>
+    <div class="tline-card t2">
+      <div class="tline-tier">Tier 2 · v2.0</div>
+      <div class="tline-when">2027</div>
+      <ul class="tline-deliver">
+        <li>L06 MLS family/team sharing</li>
+        <li>L07 Encrypted CRDT sync</li>
+        <li>L08 WebRTC + ECDH pairing</li>
+        <li>L09 Key transparency log</li>
+        <li>L10 PIR/PSI breach checks</li>
+      </ul>
+      <div class="tline-claim">"The only credential manager with a verifiable transparency log."</div>
+    </div>
+    <div class="tline-card t3">
+      <div class="tline-tier">Tier 3 · v3.0</div>
+      <div class="tline-when">2028</div>
+      <ul class="tline-deliver">
+        <li>L11 FROST threshold recovery</li>
+        <li>L12 TEE-attested compute</li>
+        <li>L13 Agentic autofill via Noise</li>
+        <li>L14 FN-DSA log compaction</li>
+      </ul>
+      <div class="tline-claim">"Built for the agent era. Recovery without a custodian."</div>
+    </div>
+    <div class="tline-card t4">
+      <div class="tline-tier">Tier 4 · v4.0</div>
+      <div class="tline-when">2029-2030</div>
+      <ul class="tline-deliver">
+        <li>L15 zkSNARK selective disclosure</li>
+        <li>L16 Timelock encryption</li>
+        <li>L17 Threshold release signing</li>
+        <li>L18 Pure-PQ threshold recovery</li>
+      </ul>
+      <div class="tline-claim">"Encrypt to the future. Prove without revealing."</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SECTION 04 — REFERENCES
+     ============================================================ -->
+<section class="sect">
+  <div class="sect-num">§ 04 — References &amp; standards</div>
+  <h2 class="sect-title">Every layer cites a paper.</h2>
+
+  <div class="refs">
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9807 — Tier 1</div>
+      <div class="ref-desc">OPAQUE Augmented PAKE · Bourdrez, Krawczyk, Lewi, Wood · IRTF · July 2025</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">FIPS 203 — Tier 1</div>
+      <div class="ref-desc">ML-KEM Module-Lattice-Based KEM · NIST · Aug 2024</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">SP 800-208 — Tier 1</div>
+      <div class="ref-desc">Stateful Hash-Based Signatures · XMSS, LMS · NIST · Oct 2020</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">WebAuthn L3 — Tier 1</div>
+      <div class="ref-desc">PRF extension · prf-on-create · W3C Working Draft</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">Sigstore — Tier 1</div>
+      <div class="ref-desc">cosign · Rekor transparency log · in-toto attestation v1</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9420 — Tier 2</div>
+      <div class="ref-desc">Messaging Layer Security · IETF · July 2023</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9750 — Tier 2</div>
+      <div class="ref-desc">MLS Architecture · IETF · April 2025</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9381 — Tier 2</div>
+      <div class="ref-desc">Verifiable Random Functions · IRTF · Aug 2023</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">CONIKS — Tier 2</div>
+      <div class="ref-desc">Auditable Key Directory · Meta AKD library · Production WhatsApp</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9497 — Tier 2</div>
+      <div class="ref-desc">VOPRF using Prime-Order Groups · IRTF · Dec 2023</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9180 — Tier 2</div>
+      <div class="ref-desc">HPKE Hybrid Public Key Encryption · IRTF · Feb 2022</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">SimplePIR — Tier 2</div>
+      <div class="ref-desc">Henzinger et al. · Sub-ms PIR · USENIX Security 2023</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">RFC 9591 — Tier 3</div>
+      <div class="ref-desc">FROST · Two-Round Threshold Schnorr · IRTF · 2024</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">FIPS 206 — Tier 3</div>
+      <div class="ref-desc">FN-DSA Falcon · NIST · Draft Aug 2025 · final ~late 2026</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">Noise Protocol — Tier 3</div>
+      <div class="ref-desc">Trevor Perrin · XK pattern for client-server with mutual auth</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">Confidential Containers — Tier 3</div>
+      <div class="ref-desc">Linux Foundation CCC · SEV-SNP · TDX · Production Microsoft 2026</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">zkLogin — Tier 4</div>
+      <div class="ref-desc">Sui Foundation · arXiv 2401.11735 · Privacy-preserving auth from OIDC</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">tlock — Tier 4</div>
+      <div class="ref-desc">Gailly, Melissaris, Romailler · Threshold BLS timelock · IACR 2023/189</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">Haystack — Tier 4</div>
+      <div class="ref-desc">Threshold &amp; Distributed Stateful HBS · IACR CIC 2025/24</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">PQ Threshold — Tier 4</div>
+      <div class="ref-desc">NIST Threshold Cryptography call · pre-standardization · 2025–</div>
+    </div>
+    <div class="ref-cell">
+      <div class="ref-id">PSI — Tier 2</div>
+      <div class="ref-desc">PICS Goel · IACR 2025/1071 · Unbalanced PSI with reusable hint</div>
+    </div>
+  </div>
+</section>
+
+<!-- STAMP -->
+<footer class="stamp">
+  <div class="stamp-left">
+    <div class="stamp-tag">Your data. Your device. Your control.</div>
+    <div>VV-ARCH-002 · VuVault Cryptographic Architecture v0.5.0 · 2026-05-07</div>
+    <div>Supersedes VV-ARCH-001 v0.4.2 · CC BY-SA 4.0 · audit welcome</div>
+  </div>
+  <div class="stamp-right">
+    <div class="stamp-classification">Public · Audit-ready</div>
+    <div>SHA-256 · 7e91c8a3 4f7d2e8b 16a4f122 e0d5c83a 7e91b4c5 d8e2a96f</div>
+  </div>
+</footer>
+
+</div>
+</div>
+
+</body>
+</html>

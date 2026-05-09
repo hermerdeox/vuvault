@@ -1,0 +1,10 @@
+/* Self-hosted fonts first — must precede any rule that references the
+   font families, and must never reach for fonts.googleapis.com. */
+@import './lib/styles/fonts.css';
+
+/* Token modules (theme-conditional) */
+@import './lib/styles/tokens-modern.css';
+@import './lib/styles/tokens-brutalist.css';
+
+/* Global reset + invariants (uses tokens) */
+@import './lib/styles/globals.css';

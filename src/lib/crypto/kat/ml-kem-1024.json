@@ -1,0 +1,55 @@
+{
+	"source": "derived from @noble/post-quantum ml_kem1024 against deterministic seeds",
+	"algorithm": "ML-KEM-1024",
+	"fips": "FIPS 203",
+	"nobleVersion": "0.4.1",
+	"generatedAt": "2026-05-09T00:56:32.699Z",
+	"notes": "Deterministic regression vectors. seed = d||z (64B), msg = encaps randomness (32B). Verifies @noble/post-quantum integration is byte-stable; complements the round-trip tests already in envelope.test.ts.",
+	"cases": [
+		{
+			"label": "vuvault-deterministic-0",
+			"seed": "f217d8776d664e851be8a18e912c79d84db7e05620d2ff178035d30c48980535512eecbb64851e57373113575ec395e6490803822ef01eb9aa7c48c1c1c10c7a",
+			"msg": "e14ca28833c146eb39b89349f22c74fb6bdd26be4acc7911461357e24bcafb8b",
+			"publicKeySha384": "872c27f9dc17e2f7d92d934160f31c09549781190ac812424ce28325ca1aa106e41a07b0720edb3911920a930f9e635f",
+			"secretKeySha384": "9ec0d28909aa7520f7084a7554c41f66b8a232701bc1a755ae21f54e2bc1f9d5d062522d09b5ca0cbde571944cec23ab",
+			"cipherTextSha384": "471f05026a59468ec8456a7c18b4d4847a7701a76e2f97f5d1064cb8712da443215a5b02af1bbd203f459fe96f145530",
+			"sharedSecret": "f1e3f3cd7647962f185ce75b8a3b029c8ebd1253d44288cd02317b8c158f9f73"
+		},
+		{
+			"label": "vuvault-deterministic-1",
+			"seed": "1e27906d8173231a5884271bd114f2526a987772da1a21d4027821408b54ff182d985970835c3f5d34bb66068337d952b7000cde1e715d07e58a7f3813131185",
+			"msg": "60a38faf467bf2500a5d4a63a06fc709ebc613d7f10bf4b66b8c3990839d0ed0",
+			"publicKeySha384": "10aeae76d5eddc84366cc42ad89c5216e091c8938f6ddb6009bf7ad1c079b610d5c888912df6a814763078b6dbb41241",
+			"secretKeySha384": "9a40e4fa2d92f6f9bffaad4dc355d9d6366245c3f0a0c001199c3202426c80d252ae58ef31e6384cbe73c3fcd5f86a4a",
+			"cipherTextSha384": "104e4dd6e090b8f0fd7a0b854192779300d6b234fb432c0b22ba9375a72e9cf84e6b0a40436f28185f2ea8a30ad9b2b2",
+			"sharedSecret": "f1aa6eaa0554a8ea6243500c674a334b622ccd53778f965e4d119fb30ff4a2fe"
+		},
+		{
+			"label": "vuvault-deterministic-2",
+			"seed": "d224cb6b0b3d34367e883daf2ae4e0491cff7c8cf7373dab17be701187746068dd580ec99aef76aaeb1a66cb65f4a4cfd176ad40a528eec3bec76d5578d829f7",
+			"msg": "62000348cfee0c53ae2acb6c90c39843267d3d0cb03934ea1fe70b2581260061",
+			"publicKeySha384": "c482085658b567dae078775721c5b3f9e81f0add61a04069aebad6a0a9168e1b73ebfd55ad8f1dacf24ea5f9ef1c4e90",
+			"secretKeySha384": "fe886405acbb0bfd766296aa526378c59aa8bd9020c136867da4b0bd58d7782525b6b885891112363dc718e18fc3f872",
+			"cipherTextSha384": "10bc0b7205c34dd20e44540cb8e62ae08b3856a1f8ca3a42c3fb18e2e0883a6da86c035d00d2baabe8dc5bc3244d8d95",
+			"sharedSecret": "d9d032b169f040acf66cb7eddb64170472aba3df3fca4959695db5c9adbfa334"
+		},
+		{
+			"label": "vuvault-deterministic-3",
+			"seed": "5cc499e5178244bddaf060449faefe6952a7b05ae6479968218c2f40c337396d0fc414581019e6e6eeb99a51cba104a6e75912b6e99722a86e0af3286be0e8ec",
+			"msg": "b0f4afaf826a01e986645e8cda092ec2c0a0665890422e4aeea017c3b82c25ee",
+			"publicKeySha384": "6d01c1ff1309c4dcbf754f14079f9cd17554400019f6991a86d8953e671f84104a45df102271d8c56058be72816e41e6",
+			"secretKeySha384": "477bdc4bb74222cee2eddea3523fa4902653a461a55742105a8b337044a880b25ad7cfd01253b6e86eca3fa9fde01a50",
+			"cipherTextSha384": "54060e4e7beddc12651b76c8aa32c5d9c0e2357a7042e2cc4e56f0af83299c3cf6f1750549628211672fe3d6076e5427",
+			"sharedSecret": "405391de7afbd83d366f86e1f232dda2b748367ec60a0c9b2abfc67ea2fb214b"
+		},
+		{
+			"label": "vuvault-deterministic-4",
+			"seed": "c4b40aacf4e5d8148ef858eff6373081f8598c2c7e94a7a86255dfcd77981e4f70e8903e60b2ed55f0e5316510fb8638d1fd8ec279d90d72f5be2a8cb2d8e3bf",
+			"msg": "6004e40b7afe2ecc1805fa1ed12e732e3d1b9d5a90d85bace73c232fbb0843f4",
+			"publicKeySha384": "d6a799b171d5170247706fe8514e9c2981a4fca0aa40a492aee0d435d38fbf976218ae8690b80f980ec8b0a3cdd30370",
+			"secretKeySha384": "87fbb54d6bc661190ef1ff308b74a4e10bdd85580e7e43fe38b54d320270a8c5295349099781bcb80d3becd7db06c38b",
+			"cipherTextSha384": "d5acd5e427678e683e8062f579fa22b0823c0061d0aa86d51f09c078c4d6b7f6716d04aa256de15e942841e77ac3a164",
+			"sharedSecret": "6dca3b2f27dedcaeff9a52d5ab228d9b91c8da608f13ee5c3dffc4758aa772ce"
+		}
+	]
+}

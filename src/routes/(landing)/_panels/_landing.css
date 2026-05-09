@@ -1,0 +1,127 @@
+/* ============================================================
+   LANDING — shared panel styles, imported by every _panels/*.svelte
+   ============================================================ */
+
+:global(html.landing-active) {
+	--top-bar-h: 56px;
+}
+
+.panel {
+	position: relative;
+	height: 100dvh;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	padding: calc(var(--top-bar-h, 56px) + 24px) 80px 48px;
+	overflow: hidden;
+	z-index: 1;
+}
+.panel-inner {
+	width: 100%;
+	max-width: 1200px;
+	margin: 0 auto;
+}
+
+.eyebrow {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 12px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-2);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	margin-bottom: 24px;
+}
+.eyebrow .dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--success);
+	box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+}
+.eyebrow.accent .dot {
+	background: var(--accent);
+	box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.section-title {
+	font-size: clamp(28px, 4vw, 48px);
+	font-weight: 700;
+	letter-spacing: -0.025em;
+	line-height: 1.05;
+	margin-bottom: 20px;
+}
+.section-sub {
+	font-size: 17px;
+	color: var(--text-2);
+	max-width: 680px;
+	line-height: 1.55;
+	letter-spacing: -0.005em;
+	margin-bottom: 40px;
+}
+
+.italic-serif {
+	font-family: var(--font-serif);
+	font-style: italic;
+	font-weight: 400;
+}
+
+/* in-panel anchor-style buttons matching prototype .btn */
+.lbtn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 14px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	color: var(--text);
+	font-size: 13px;
+	font-weight: 600;
+	transition: var(--transition);
+	white-space: nowrap;
+	cursor: pointer;
+}
+.lbtn:hover {
+	background: var(--surface-hover);
+	border-color: var(--border-mid);
+}
+.lbtn.primary {
+	background: var(--brand);
+	color: var(--bg);
+	border-color: var(--brand);
+	font-weight: 700;
+}
+.lbtn.primary:hover {
+	transform: translateY(-1px);
+}
+.lbtn.lg {
+	padding: 14px 24px;
+	font-size: 14px;
+	border-radius: var(--radius);
+}
+
+@media (max-width: 1100px) {
+	.panel {
+		padding-left: 40px;
+		padding-right: 40px;
+	}
+}
+@media (max-width: 880px) {
+	.panel {
+		padding: calc(var(--top-bar-h, 56px) + 16px) 24px 32px;
+	}
+}
+@media (max-height: 720px) {
+	.panel {
+		padding-top: calc(var(--top-bar-h, 56px) + 32px);
+		padding-bottom: 16px;
+		justify-content: flex-start;
+	}
+}
