@@ -27,7 +27,15 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter({
-			routes: { include: ['/*'], exclude: ['<all>'] }
+			// `<all>` excludes static assets + prerendered pages so they
+			// bypass the SvelteKit Worker. We additionally exclude
+			// `/api/*` so Cloudflare Pages routes those requests to the
+			// Pages Functions in `functions/api/...` rather than to
+			// SvelteKit (which has no /api/* routes — it would 404).
+			// `scripts/wire-pages-functions.mjs` copies `functions/` into
+			// the adapter output so the deploy artifact actually carries
+			// the Pages Functions.
+			routes: { include: ['/*'], exclude: ['<all>', '/api/*'] }
 		}),
 		alias: {
 			$lib: 'src/lib',
