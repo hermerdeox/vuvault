@@ -54,3 +54,8 @@ test-results/
 
 # generated bundle hash (re-derived in CI)
 .bundle-manifest
+
+# wrangler types output (regenerated on every `wrangler types` call;
+# keeping it out of the tree avoids spurious diffs on contributors who
+# run a different wrangler version)
+worker-configuration.d.ts

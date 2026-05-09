@@ -47,34 +47,28 @@ migrations_dir = "functions/api/_shared/migrations"
 binding = "VAULT_BLOBS"
 bucket_name = "vuvault-blobs-preview"
 
-# Rate-limiting bindings (Cloudflare Workers Rate Limiting API).
-# All three are zero-knowledge-preserving: the binding only stores
-# a counter against an opaque key. We deliberately use IP-based keys
-# for register/login (no account exists yet on register; login rate
-# limit by IP defends against credential stuffing) and account-based
-# for blob ops. None of these accumulate per-user behavior trails.
+# Rate-limiting bindings — REMOVED FROM WRANGLER.TOML for Pages compat.
 #
-# `unsafe.bindings` is documented as a temporary location while the
-# rate-limit API stabilizes. The dashboard-controlled rate-limit
-# rules are the safety net if this binding format changes.
-
-[[unsafe.bindings]]
-name = "OPAQUE_REGISTER_LIMITER"
-type = "ratelimit"
-namespace_id = "1001"
-simple = { limit = 10, period = 60 }
-
-[[unsafe.bindings]]
-name = "OPAQUE_LOGIN_LIMITER"
-type = "ratelimit"
-namespace_id = "1002"
-simple = { limit = 30, period = 60 }
-
-[[unsafe.bindings]]
-name = "BLOB_LIMITER"
-type = "ratelimit"
-namespace_id = "1003"
-simple = { limit = 30, period = 60 }
+# Wrangler 4.90 (April 2026) introduced strict validation on
+# `wrangler.toml` for Pages projects and rejects both `[build]` and
+# `[[unsafe.bindings]]` blocks. The Pages config schema does not
+# currently expose a TOML surface for ratelimit bindings — they must
+# be configured via the Cloudflare dashboard:
+#
+#   Cloudflare Pages > vuvault > Settings > Functions > Rate Limiting
+#
+# Configure three rate-limiters with these binding names and limits:
+#   - OPAQUE_REGISTER_LIMITER : 10 req / 60 s, key = client IP
+#   - OPAQUE_LOGIN_LIMITER    : 30 req / 60 s, key = client IP
+#   - BLOB_LIMITER            : 30 req / 60 s, key = accountId
+#
+# The Pages Functions code in `functions/api/` and the `Env` interface
+# in `functions/api/_shared/env.ts` already declare these as OPTIONAL
+# bindings; if they are not configured, `checkRateLimit()` fail-opens
+# (`return true`) per the comment at env.ts:78. This means a brand-new
+# deploy without the dashboard rate-limits configured will accept
+# unlimited requests until the dashboard rule is added — DO that
+# right after the first successful deploy.
 
 # ============================================================
 # PRODUCTION ENV
@@ -103,26 +97,14 @@ migrations_dir = "functions/api/_shared/migrations"
 binding = "VAULT_BLOBS"
 bucket_name = "vuvault-blobs-production"
 
-[[env.production.unsafe.bindings]]
-name = "OPAQUE_REGISTER_LIMITER"
-type = "ratelimit"
-namespace_id = "2001"
-simple = { limit = 10, period = 60 }
+# Rate-limiters — see the explanatory comment in the [vars] section
+# above. Configure on the Cloudflare dashboard for the production
+# project; runtime fail-opens until they're wired.
 
-[[env.production.unsafe.bindings]]
-name = "OPAQUE_LOGIN_LIMITER"
-type = "ratelimit"
-namespace_id = "2002"
-simple = { limit = 30, period = 60 }
-
-[[env.production.unsafe.bindings]]
-name = "BLOB_LIMITER"
-type = "ratelimit"
-namespace_id = "2003"
-simple = { limit = 30, period = 60 }
-
-[build]
-command = "npm run build"
-# NODE_VERSION is honored by Cloudflare Pages via the dashboard's
-# environment variable, not the legacy [node] block which Wrangler 4
-# rejects with an "Unexpected fields" warning.
+# `[build]` block — REMOVED. Wrangler 4.90 Pages-config validation
+# rejects it. The build command for Pages comes from the dashboard
+# project settings (Settings > Build & deployments > Build command =
+# `npm run build`). The release workflow runs `npm run build` itself
+# before invoking `wrangler pages deploy`, so the dashboard build
+# command is only used by Cloudflare Pages' own webhook-driven
+# rebuilds (which we don't currently rely on).

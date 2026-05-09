@@ -160,10 +160,13 @@ const envBindings = new Map(
 	[...env.entries()].filter(([name]) => !VAR_FIELD_NAMES.has(name))
 );
 
-// Rule 1: every Env field exists in wrangler.toml — required ones in
-// BOTH defaults and production; optional ones in at least one of the
-// two (we still want CI to flag a binding declared in code but never
-// wired anywhere).
+// Rule 1: every REQUIRED Env field MUST exist in wrangler.toml in
+// both the default and production blocks. OPTIONAL Env fields are
+// allowed to be entirely absent from wrangler.toml — that's the
+// runtime-fail-open contract honored by `checkRateLimit()` at
+// functions/api/_shared/env.ts:78. Optional bindings that ARE wired
+// in only one of the two envs still trigger Rule 3 (parity), so
+// preview/production drift is caught regardless.
 for (const [name, info] of envBindings) {
 	if (info.required) {
 		if (!wrangler.defaults.has(name)) {
@@ -172,11 +175,9 @@ for (const [name, info] of envBindings) {
 		if (!wrangler.production.has(name)) {
 			fail(`Env binding '${name}' is required but missing from [env.production] in wrangler.toml`);
 		}
-	} else if (!wrangler.defaults.has(name) && !wrangler.production.has(name)) {
-		fail(
-			`Env binding '${name}' is declared on the Env interface but does not appear in wrangler.toml (preview or production)`
-		);
 	}
+	// Optional bindings: silently allowed to be absent. If they appear
+	// in only one of the two envs, Rule 3 (parity) below catches it.
 }
 
 // Rule 2: every wrangler-declared binding exists on Env.
