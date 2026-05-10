@@ -8,23 +8,37 @@
 	let { steps, current }: Props = $props();
 
 	const currentIndex = $derived(steps.findIndex((s) => s.id === current));
+	const currentStep = $derived(steps[currentIndex]);
 </script>
 
 <nav class="stepper" aria-label="Progress">
-	{#each steps as step, i (step.id)}
-		<div
-			class="step"
-			class:done={i < currentIndex}
-			class:active={i === currentIndex}
-			data-step={step.id}
+	<!-- xs viewport: 7 numbered circles + dividers eat ≈280px of header
+	     width, which collides with the BrandMark + Exit button on a
+	     360px phone. Show a compact "N of 7 · Name" pill instead. -->
+	<div class="stepper-compact" aria-hidden="true">
+		<span class="stepper-compact-count"
+			>{currentIndex + 1}<span class="muted">/{steps.length}</span></span
 		>
-			<span class="num">{i + 1}</span>
-			<span class="name">{step.name}</span>
-		</div>
-		{#if i < steps.length - 1}
-			<span class="divider" aria-hidden="true"></span>
+		{#if currentStep}
+			<span class="stepper-compact-name">{currentStep.name}</span>
 		{/if}
-	{/each}
+	</div>
+	<div class="stepper-full" aria-hidden="true">
+		{#each steps as step, i (step.id)}
+			<div
+				class="step"
+				class:done={i < currentIndex}
+				class:active={i === currentIndex}
+				data-step={step.id}
+			>
+				<span class="num">{i + 1}</span>
+				<span class="name">{step.name}</span>
+			</div>
+			{#if i < steps.length - 1}
+				<span class="divider"></span>
+			{/if}
+		{/each}
+	</div>
 </nav>
 
 <style>
@@ -32,6 +46,45 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		min-width: 0;
+	}
+	.stepper-full {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.stepper-compact {
+		display: none;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+		border-radius: 999px;
+		background: var(--accent-dim);
+		color: var(--accent);
+		font-size: 12px;
+		font-weight: 600;
+	}
+	.stepper-compact-count {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 700;
+	}
+	.stepper-compact-count .muted {
+		color: var(--text-3);
+	}
+	.stepper-compact-name {
+		color: var(--text);
+		font-weight: 600;
+		font-size: 12px;
+		letter-spacing: -0.005em;
+	}
+	@media (max-width: 30em) {
+		.stepper-full {
+			display: none;
+		}
+		.stepper-compact {
+			display: inline-flex;
+		}
 	}
 	.step {
 		display: flex;
@@ -59,7 +112,7 @@
 	.name {
 		display: none;
 	}
-	@media (min-width: 1100px) {
+	@media (min-width: 64em) {
 		.name {
 			display: block;
 		}
@@ -88,7 +141,7 @@
 		height: 1px;
 		background: var(--border);
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.divider {
 			width: 8px;
 		}

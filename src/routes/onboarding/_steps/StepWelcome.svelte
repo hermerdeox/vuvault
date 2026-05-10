@@ -63,7 +63,7 @@
 		gap: 14px;
 		margin-bottom: 36px;
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.cards {
 			grid-template-columns: 1fr;
 		}

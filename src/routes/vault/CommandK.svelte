@@ -392,6 +392,16 @@
 		box-shadow: var(--shadow-modal);
 		overflow: hidden;
 	}
+	@media (max-width: 30em) {
+		.backdrop {
+			padding: max(8px, env(safe-area-inset-top)) 8px 8px;
+		}
+		.palette {
+			width: 100%;
+			max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px));
+			border-radius: var(--radius-lg);
+		}
+	}
 	.search {
 		display: flex;
 		align-items: center;

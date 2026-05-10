@@ -35,6 +35,21 @@
 	let quickGenOpen = $state(false);
 	let locking = $state(false);
 
+	// Mobile overflow popover holds the rare top-bar actions
+	// (Generate / Sync / MP-Settings / Theme) so the right group
+	// fits on a 360px-wide phone. CSS `[data-vp~='mobile']` rules
+	// hide the inline icons and reveal the kebab button on mobile.
+	let overflowOpen = $state(false);
+	function closeOverflow() {
+		overflowOpen = false;
+	}
+	function withOverflow<T extends () => void>(fn: T) {
+		return () => {
+			fn();
+			overflowOpen = false;
+		};
+	}
+
 	async function lockVault() {
 		if (locking) return;
 		locking = true;
@@ -115,7 +130,7 @@
 
 		<div class="right">
 			<button
-				class="ico-btn"
+				class="ico-btn overflow-target"
 				class:active={quickGenOpen}
 				onclick={toggleQuickGenerator}
 				aria-label="Generate password"
@@ -126,7 +141,7 @@
 				<IconKey size={14} stroke={1.6} />
 			</button>
 			<button
-				class="ico-btn"
+				class="ico-btn overflow-target"
 				onclick={notifySyncDisabled}
 				aria-label="Sync"
 				title="Local-only mode · sync coming in Phase 5"
@@ -134,7 +149,7 @@
 				<IconRefresh size={14} stroke={1.6} />
 			</button>
 			<button
-				class="ico-btn"
+				class="ico-btn overflow-target"
 				onclick={() => (settingsOpen = true)}
 				aria-label="Master password settings"
 				title="Master password (advanced)"
@@ -146,7 +161,7 @@
 				<IconPlus size={14} stroke={2.2} />
 				<span>Add</span>
 			</button>
-			<ThemeToggle />
+			<span class="overflow-target"><ThemeToggle /></span>
 			<button
 				class="lock-btn"
 				onclick={lockVault}
@@ -156,6 +171,70 @@
 				<IconLock size={14} stroke={1.8} />
 				<span>{locking ? 'Locking…' : 'Lock'}</span>
 			</button>
+
+			<!-- Mobile overflow: collapses Generate/Sync/MP-Settings/Theme into
+			     a dropdown so the right group fits on a 360px phone. -->
+			<div class="overflow-wrap">
+				<button
+					class="ico-btn overflow-trigger"
+					class:active={overflowOpen}
+					onclick={() => (overflowOpen = !overflowOpen)}
+					aria-label="More actions"
+					aria-haspopup="menu"
+					aria-expanded={overflowOpen}
+				>
+					<svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.2"
+						stroke-linecap="round"
+					>
+						<circle cx="12" cy="5" r="1" />
+						<circle cx="12" cy="12" r="1" />
+						<circle cx="12" cy="19" r="1" />
+					</svg>
+				</button>
+				{#if overflowOpen}
+					<div
+						class="overflow-backdrop"
+						aria-hidden="true"
+						onclick={closeOverflow}
+					></div>
+					<div class="overflow-menu" role="menu" aria-label="More actions">
+						<button
+							class="overflow-item"
+							role="menuitem"
+							onclick={withOverflow(toggleQuickGenerator)}
+						>
+							<IconKey size={14} stroke={1.6} />
+							<span>Generate password</span>
+						</button>
+						<button
+							class="overflow-item"
+							role="menuitem"
+							onclick={withOverflow(notifySyncDisabled)}
+						>
+							<IconRefresh size={14} stroke={1.6} />
+							<span>Sync</span>
+						</button>
+						<button
+							class="overflow-item"
+							role="menuitem"
+							onclick={withOverflow(() => (settingsOpen = true))}
+							data-testid="open-mp-settings-mobile"
+						>
+							<IconShield size={14} stroke={1.6} />
+							<span>Master password</span>
+						</button>
+						<div class="overflow-theme">
+							<ThemeToggle />
+						</div>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</header>
 
@@ -372,6 +451,66 @@
 		background: var(--accent-dim);
 		color: var(--accent);
 	}
+
+	/* Overflow popover — desktop hides the trigger, mobile hides the
+	   inline targets. Belt-and-braces: also media-query gated for any
+	   user that has no JS / first-paint before viewport store hydrates. */
+	.overflow-wrap {
+		position: relative;
+	}
+	.overflow-trigger {
+		display: none;
+	}
+	.overflow-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 38;
+	}
+	.overflow-menu {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		z-index: 39;
+		min-width: 220px;
+		padding: 6px;
+		background: var(--bg-elev);
+		border: 1px solid var(--border-mid);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-modal);
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.overflow-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 12px;
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text);
+		border-radius: var(--radius-sm);
+		text-align: left;
+		transition: var(--transition);
+		min-height: 40px;
+	}
+	.overflow-item:hover {
+		background: var(--surface-hover);
+	}
+	.overflow-theme {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 8px 12px;
+		margin-top: 4px;
+		border-top: 1px solid var(--border);
+	}
+	.overflow-theme::before {
+		content: 'Theme';
+		font-size: 13px;
+		color: var(--text-2);
+	}
+
 	.add-btn,
 	.lock-btn {
 		display: inline-flex;
@@ -422,7 +561,7 @@
 		display: none;
 	}
 
-	@media (max-width: 1100px) {
+	@media (max-width: 64em) {
 		.topbar {
 			grid-template-columns: auto 1fr auto;
 		}
@@ -433,10 +572,17 @@
 			grid-template-columns: 200px 280px 1fr;
 		}
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.app {
 			grid-template-rows: var(--header-h) 1fr auto;
-			padding-bottom: calc(var(--footer-h) + 56px);
+			padding-bottom: calc(var(--footer-h) + 56px + var(--safe-bottom));
+		}
+		.topbar {
+			padding: 0 12px;
+			gap: 8px;
+		}
+		.right {
+			gap: 4px;
 		}
 		.panes {
 			grid-template-columns: 1fr;
@@ -457,9 +603,17 @@
 			display: block;
 		}
 
+		/* Collapse rare actions into the kebab popover. */
+		.right .overflow-target {
+			display: none;
+		}
+		.overflow-trigger {
+			display: grid;
+		}
+
 		.mobile-tabs {
 			position: fixed;
-			bottom: var(--footer-h);
+			bottom: calc(var(--footer-h) + var(--safe-bottom));
 			left: 0;
 			right: 0;
 			height: 56px;
@@ -490,6 +644,29 @@
 		.tab.active {
 			color: var(--accent);
 			background: var(--accent-dim);
+		}
+	}
+	@media (max-width: 30em) {
+		/* Below 480px the Add/Lock labels join the icon-only group. */
+		.add-btn span,
+		.lock-btn span {
+			display: none;
+		}
+		.add-btn,
+		.lock-btn {
+			padding: 0;
+			width: 36px;
+			height: 36px;
+			justify-content: center;
+		}
+		/* Tab-activity banner stacks instead of horizontal-overflows. */
+		.tab-banner {
+			flex-wrap: wrap;
+			padding: 8px 12px;
+			gap: 8px;
+		}
+		.tab-banner > div {
+			flex: 1 1 100%;
 		}
 	}
 </style>

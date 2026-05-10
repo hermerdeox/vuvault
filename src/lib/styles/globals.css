@@ -124,6 +124,24 @@ html[data-audience='tech'] [data-show='user'] {
 	opacity: 0;
 }
 
+/* VIEWPORT-DEPENDENT CONTENT — same shape as [data-show], but driven by
+   <html data-vp> set in app.html before first paint. Used to *trim* dense
+   copy and decorative elements on small screens so layouts breathe.
+
+   Markup pattern:
+     <span data-vp-show="desktop">long marketing paragraph…</span>
+     <span data-vp-show="mobile">short 12-word version.</span>
+
+   - tablet falls in with desktop for the "show long copy" decision.
+     If a project ever wants distinct tablet copy, swap the rule below.
+   - the `~=` token match makes this composable with the `data-show`
+     audience selector — both filters apply on the same element. */
+html[data-vp~='mobile'] [data-vp-show='desktop'],
+html[data-vp~='tablet'] [data-vp-show='mobile'],
+html[data-vp~='desktop'] [data-vp-show='mobile'] {
+	display: none;
+}
+
 /* respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
 	*,
@@ -133,4 +151,17 @@ html[data-audience='tech'] [data-show='user'] {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 	}
+}
+
+/* Mobile perf: backdrop-filter at 18-30px blur is one of the most
+   expensive composited operations on mobile GPUs. Cap it at 8px on
+   any element that opts in via the .vu-bar utility. We don't blanket
+   override `backdrop-filter: blur(...)` because some panel internals
+   rely on tightly-tuned values. */
+html[data-vp~='mobile'] .vu-bar,
+html[data-vp~='mobile'] .topbar,
+html[data-vp~='mobile'] .footer,
+html[data-vp~='mobile'] .mobile-tabs {
+	backdrop-filter: blur(8px) !important;
+	-webkit-backdrop-filter: blur(8px) !important;
 }

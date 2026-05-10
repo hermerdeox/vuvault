@@ -39,8 +39,14 @@
 				<div class="trust-card-num">METHOD 01</div>
 				<div class="trust-card-title">Reproducible builds</div>
 				<div class="trust-card-body">
-					Every release builds byte-for-byte identically from public source. The bundle
-					hash appears in your unlock screen. Compare it to the GitHub release hash.
+					<span data-vp-show="desktop"
+						>Every release builds byte-for-byte identically from public source. The
+						bundle hash appears in your unlock screen. Compare it to the GitHub
+						release hash.</span
+					>
+					<span data-vp-show="mobile"
+						>Bundle hash on every unlock screen. Compare to the GitHub release hash.</span
+					>
 				</div>
 				<div class="trust-snippet">
 					<span class="key">SHA-384</span><br />
@@ -56,9 +62,15 @@
 				<div class="trust-card-num">METHOD 02</div>
 				<div class="trust-card-title">Sigstore transparency log</div>
 				<div class="trust-card-body">
-					Every release is signed and the signature is recorded in Rekor, a public
-					append-only log. We cannot ship a backdoored release without it being publicly
-					recorded — forever.
+					<span data-vp-show="desktop"
+						>Every release is signed and the signature is recorded in Rekor, a
+						public append-only log. We cannot ship a backdoored release without it
+						being publicly recorded — forever.</span
+					>
+					<span data-vp-show="mobile"
+						>Every release signed in a public append-only Rekor log. Backdoors are
+						permanently visible.</span
+					>
 				</div>
 				<div class="trust-snippet">
 					<span class="key">rekor</span> entry <span class="key">a3f8</span>...<span
@@ -72,8 +84,14 @@
 				<div class="trust-card-num">METHOD 03</div>
 				<div class="trust-card-title">Self-host the entire stack</div>
 				<div class="trust-card-body">
-					The sync server is ~300 lines of TypeScript on Cloudflare Workers + R2. Deploy it
-					yourself in 5 minutes. Bring your own bucket. Trust nobody, including us.
+					<span data-vp-show="desktop"
+						>The sync server is ~300 lines of TypeScript on Cloudflare Workers + R2.
+						Deploy it yourself in 5 minutes. Bring your own bucket. Trust nobody,
+						including us.</span
+					>
+					<span data-vp-show="mobile"
+						>~300 lines of TypeScript on Workers + R2. Deploy yourself in 5 minutes.</span
+					>
 				</div>
 				<div class="trust-snippet">
 					<span class="key">$</span> wrangler deploy<br />
@@ -146,9 +164,25 @@
 		color: var(--accent);
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.trust-grid {
 			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 30em) {
+		.trust-card {
+			padding: 18px 16px;
+			gap: 10px;
+		}
+		.trust-card-title {
+			font-size: 16px;
+		}
+		.trust-card-body {
+			font-size: 12px;
+		}
+		.trust-snippet {
+			font-size: 10px;
+			padding: 10px 12px;
 		}
 	}
 </style>

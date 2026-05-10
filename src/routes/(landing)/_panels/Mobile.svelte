@@ -133,13 +133,19 @@
 							<span data-show="tech">WebAuthn PRF on platform authenticator</span>
 						</div>
 						<div class="mobile-feature-body">
-							<span data-show="user"
-								>Your fingerprint or Face ID opens the vault. No master password to type.
-								No password to forget.</span
+							<span data-show="user" data-vp-show="desktop"
+								>Your fingerprint or Face ID opens the vault. No master password
+								to type. No password to forget.</span
 							>
-							<span data-show="tech"
-								>PRF returns 32 bytes deterministically bound to your passkey. HKDF-SHA512
-								derives the vault key without round-trip to a server.</span
+							<span data-show="user" data-vp-show="mobile"
+								>Fingerprint or Face ID. No master password to type or forget.</span
+							>
+							<span data-show="tech" data-vp-show="desktop"
+								>PRF returns 32 bytes deterministically bound to your passkey.
+								HKDF-SHA512 derives the vault key without round-trip to a server.</span
+							>
+							<span data-show="tech" data-vp-show="mobile"
+								>PRF · 32 bytes · HKDF-SHA512 vault-key. No server round-trip.</span
 							>
 						</div>
 					</div>
@@ -159,21 +165,29 @@
 							<span data-show="tech">CRDT sync across paired devices</span>
 						</div>
 						<div class="mobile-feature-body">
-							<span data-show="user"
-								>Tier 2 design: edit on your laptop, see it on your phone. Offline
-								edits will merge automatically when you reconnect — no conflicts,
-								no lost changes. Today the vault is local-only.</span
+							<span data-show="user" data-vp-show="desktop"
+								>Tier 2 design: edit on your laptop, see it on your phone.
+								Offline edits will merge automatically when you reconnect — no
+								conflicts, no lost changes. Today the vault is local-only.</span
 							>
-							<span data-show="tech"
+							<span data-show="user" data-vp-show="mobile"
+								>Tier 2: edits merge automatically across devices. Today
+								local-only.</span
+							>
+							<span data-show="tech" data-vp-show="desktop"
 								>Tier 2 design: encrypted CRDT operations under hybrid X25519 +
-								ML-KEM-1024 envelopes. Server holds opaque blobs only. Padding to
-								hide which item changed is in the Tier 2 spec, not yet implemented
-								in <code>vault-codec.ts</code>.</span
+								ML-KEM-1024 envelopes. Server holds opaque blobs only. Padding
+								to hide which item changed is in the Tier 2 spec, not yet
+								implemented in <code>vault-codec.ts</code>.</span
+							>
+							<span data-show="tech" data-vp-show="mobile"
+								>Encrypted CRDT ops · hybrid envelope. Server holds opaque
+								blobs.</span
 							>
 						</div>
 					</div>
 				</div>
-				<div class="mobile-feature">
+				<div class="mobile-feature" data-vp-show="desktop">
 					<div class="mobile-feature-icon">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -197,7 +211,7 @@
 						</div>
 					</div>
 				</div>
-				<div class="mobile-feature">
+				<div class="mobile-feature" data-vp-show="desktop">
 					<div class="mobile-feature-icon">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
 							<line x1="22" y1="12" x2="2" y2="12"/>
@@ -364,7 +378,7 @@
 		border-radius: 999px;
 	}
 
-	@media (max-width: 1100px) {
+	@media (max-width: 64em) {
 		.mobile-wrap {
 			grid-template-columns: 1fr;
 			gap: 24px;
@@ -376,6 +390,21 @@
 		.mobile-stage {
 			min-height: auto;
 			padding: 24px 0;
+		}
+	}
+	@media (max-width: 30em) {
+		.phone {
+			width: 220px;
+		}
+		.mobile-feature {
+			padding: 12px 14px;
+			gap: 10px;
+		}
+		.mobile-feature-title {
+			font-size: 13px;
+		}
+		.mobile-feature-body {
+			font-size: 12px;
 		}
 	}
 </style>

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="modern" data-audience="user">
+<html lang="en" data-theme="modern" data-audience="user" data-vp="lg desktop">
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
@@ -8,7 +8,7 @@
 		<meta name="description" content="VuVault — zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction." />
 		<meta name="referrer" content="no-referrer" />
 
-		<!-- FOUC prevention: read theme + audience before first paint. -->
+		<!-- FOUC prevention: read theme + audience + viewport class before first paint. -->
 		<!-- SvelteKit hashes this inline script for prerendered pages -->
 		<!-- and assigns a nonce for SSR pages automatically. -->
 		<script>
@@ -25,6 +25,46 @@
 					root.setAttribute('data-audience', a === 'tech' ? 'tech' : 'user');
 				} catch (e) {
 					root.setAttribute('data-audience', 'user');
+				}
+
+				// Viewport class — mirrors src/lib/styles/breakpoints.css.
+				// Whitespace-separated tokens consumed by `[data-vp~='xs']`,
+				// `[data-vp~='mobile']` etc. Set before first paint so the
+				// CSS-only content-reduction (`[data-vp-show='desktop']`)
+				// does not flash long copy on small phones.
+				function computeVp() {
+					var w = window.innerWidth || document.documentElement.clientWidth || 0;
+					var h = window.innerHeight || document.documentElement.clientHeight || 0;
+					var size = w < 480 ? 'xs mobile'
+						: w < 720 ? 'sm mobile'
+						: w < 1024 ? 'md tablet'
+						: w < 1200 ? 'lg desktop'
+						: 'xl lg desktop';
+					if (h < 700) size += ' short';
+					return size;
+				}
+				root.setAttribute('data-vp', computeVp());
+
+				// Debounced (rAF-coalesced) resize handler so rotation +
+				// iOS Safari address-bar collapse keep the attribute fresh
+				// without thrashing layout. visualViewport is preferred on
+				// mobile because window.innerHeight lies during keyboard
+				// open / address-bar transitions.
+				var raf = 0;
+				function onResize() {
+					if (raf) return;
+					raf = requestAnimationFrame(function () {
+						raf = 0;
+						var next = computeVp();
+						if (root.getAttribute('data-vp') !== next) {
+							root.setAttribute('data-vp', next);
+						}
+					});
+				}
+				window.addEventListener('resize', onResize, { passive: true });
+				window.addEventListener('orientationchange', onResize, { passive: true });
+				if (window.visualViewport) {
+					window.visualViewport.addEventListener('resize', onResize, { passive: true });
 				}
 			})();
 		</script>

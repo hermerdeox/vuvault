@@ -20,12 +20,18 @@
 			>
 		</h2>
 		<p class="final-sub">
-			<span data-show="user"
+			<span data-show="user" data-vp-show="desktop"
 				>Get the password manager that 2030 actually needs. Today, for {PRICE}.</span
 			>
-			<span data-show="tech"
+			<span data-show="user" data-vp-show="mobile">
+				The password manager 2030 needs. {PRICE}.
+			</span>
+			<span data-show="tech" data-vp-show="desktop"
 				>Read the whitepaper, audit the source, deploy the server. Or just use it — {PRICE}.</span
 			>
+			<span data-show="tech" data-vp-show="mobile">
+				Read it, audit it, deploy it. Or use it — {PRICE}.
+			</span>
 		</p>
 		<div class="final-ctas">
 			<button class="lbtn primary lg" onclick={startFree}>
@@ -97,7 +103,7 @@
 		width: 100%;
 	}
 	.final-headline {
-		font-size: clamp(40px, 6.5vw, 72px);
+		font-size: clamp(28px, 8vw, 72px);
 		font-weight: 700;
 		letter-spacing: -0.035em;
 		line-height: 1;
@@ -173,10 +179,29 @@
 		color: var(--text-2);
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.final-foot {
 			grid-template-columns: 1fr;
 			text-align: center;
+			gap: 14px;
+		}
+	}
+	@media (max-width: 30em) {
+		.final-sub {
+			font-size: 14px;
+			margin-bottom: 24px;
+		}
+		.final-ctas {
+			margin-bottom: 32px;
+			width: 100%;
+		}
+		.final-ctas :global(.lbtn) {
+			flex: 1 1 auto;
+			justify-content: center;
+		}
+		.final-foot-links {
+			gap: 14px;
+			font-size: 12px;
 		}
 	}
 </style>

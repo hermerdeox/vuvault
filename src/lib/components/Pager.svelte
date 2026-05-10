@@ -39,7 +39,7 @@
 		flex-direction: column;
 		gap: 12px;
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.pager {
 			right: 12px;
 			gap: 8px;

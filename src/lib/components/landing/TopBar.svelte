@@ -111,7 +111,7 @@
 		transform: translateY(-1px);
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.whitepaper {
 			display: none;
 		}

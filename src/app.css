@@ -6,5 +6,8 @@
 @import './lib/styles/tokens-modern.css';
 @import './lib/styles/tokens-brutalist.css';
 
+/* Breakpoint scale — must precede globals.css so tokens are available */
+@import './lib/styles/breakpoints.css';
+
 /* Global reset + invariants (uses tokens) */
 @import './lib/styles/globals.css';

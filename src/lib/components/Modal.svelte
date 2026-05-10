@@ -189,4 +189,32 @@
 		flex-shrink: 0;
 		background: var(--surface);
 	}
+
+	/* On phones, the modal becomes full-bleed (8px gutter) so the
+	   ItemEditor + CommandK no longer float in a narrow window. The
+	   safe-area inset on top/bottom keeps the close button reachable
+	   under the iOS notch and home-indicator. */
+	@media (max-width: 30em) {
+		.backdrop {
+			padding: max(8px, env(safe-area-inset-top)) 8px
+				max(8px, env(safe-area-inset-bottom)) 8px;
+		}
+		.modal,
+		.modal.sm,
+		.modal.md,
+		.modal.lg {
+			max-width: 100%;
+			max-height: calc(100dvh - 16px);
+			border-radius: var(--radius-lg);
+		}
+		.head {
+			padding: 12px 14px;
+		}
+		.body {
+			padding: 14px;
+		}
+		.foot {
+			padding: 12px 14px;
+		}
+	}
 </style>

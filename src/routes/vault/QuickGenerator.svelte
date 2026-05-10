@@ -284,7 +284,7 @@
 		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
 	}
 
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.popover {
 			top: 8px;
 			right: 8px;

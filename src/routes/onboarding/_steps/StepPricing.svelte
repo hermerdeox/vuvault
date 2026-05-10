@@ -86,7 +86,7 @@
 		gap: 16px;
 		margin-bottom: 20px;
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.grid {
 			grid-template-columns: 1fr;
 		}

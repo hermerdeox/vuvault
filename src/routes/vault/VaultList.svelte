@@ -262,4 +262,13 @@
 		color: var(--accent);
 		font-family: var(--font-mono);
 	}
+	@media (max-width: 30em) {
+		.item {
+			padding: 8px 10px;
+			gap: 8px;
+		}
+		.sub {
+			display: none;
+		}
+	}
 </style>

@@ -14,7 +14,10 @@
 	<div class="panel-inner">
 		<div class="eyebrow accent">
 			<span class="dot"></span>
-			VuVault · Zero-knowledge password manager · 2030 stack
+			<span data-vp-show="desktop"
+				>VuVault · Zero-knowledge password manager · 2030 stack</span
+			>
+			<span data-vp-show="mobile">Zero-knowledge password manager</span>
 		</div>
 
 		<h1 class="hero-headline">
@@ -27,13 +30,19 @@
 		</h1>
 
 		<p class="hero-sub">
-			<span data-show="user"
+			<span data-show="user" data-vp-show="desktop"
 				>Touch ID unlocks your vault. Nothing else needed. Your stuff stays on your
 				device. We never see it. Not even with a court order. Not even in 2032.</span
 			>
-			<span data-show="tech"
+			<span data-show="user" data-vp-show="mobile"
+				>Touch ID unlocks your vault. Local-only. We never see it.</span
+			>
+			<span data-show="tech" data-vp-show="desktop"
 				>OPAQUE authentication. ML-KEM-1024 hybrid envelopes. WebAuthn PRF unlock.
 				Verifiable transparency log. The cryptography your incumbents have not shipped.</span
+			>
+			<span data-show="tech" data-vp-show="mobile"
+				>OPAQUE · ML-KEM-1024 · WebAuthn PRF. Cryptography incumbents skipped.</span
 			>
 		</p>
 
@@ -60,16 +69,20 @@
 		</div>
 
 		<div class="hero-status">
-			<span class="status-pill"
+			<span class="status-pill" data-vp-show="desktop"
 				><span class="dot"></span>Same-origin only · no third-party hosts</span
 			>
-			<span class="status-pill"><span class="dot"></span>No analytics tags shipped</span>
-			<span class="status-pill accent"
-				><span class="dot"></span>Crypto runs in your browser, not ours</span
+			<span class="status-pill" data-vp-show="desktop"
+				><span class="dot"></span>No analytics tags shipped</span
 			>
+			<span class="status-pill accent"
+				><span class="dot"></span>
+				<span data-vp-show="desktop">Crypto runs in your browser, not ours</span>
+				<span data-vp-show="mobile">Local-only · zero analytics</span>
+			</span>
 		</div>
 
-		<div class="hero-disclaimer">
+		<div class="hero-disclaimer" data-vp-show="desktop">
 			<span data-show="tech">
 				Production builds require WebAuthn PRF · demo mode is dev-only and
 				gated behind an explicit env flag.
@@ -77,7 +90,7 @@
 		</div>
 	</div>
 
-	<div class="hero-down">
+	<div class="hero-down" data-vp-show="desktop">
 		<span>Scroll</span>
 		<svg
 			width="14"
@@ -101,7 +114,7 @@
 		align-items: center;
 	}
 	.hero-headline {
-		font-size: clamp(48px, 8vw, 96px);
+		font-size: clamp(36px, 9vw, 96px);
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 0.96;
@@ -126,6 +139,31 @@
 		justify-content: center;
 		margin-bottom: 56px;
 		flex-wrap: wrap;
+	}
+	@media (max-width: 30em) {
+		.hero-headline {
+			margin-bottom: 18px;
+		}
+		.hero-sub {
+			margin-bottom: 24px;
+		}
+		.hero-ctas {
+			margin-bottom: 24px;
+			gap: 8px;
+			width: 100%;
+		}
+		.hero-ctas :global(.lbtn) {
+			flex: 1 1 auto;
+			min-width: 0;
+			justify-content: center;
+		}
+		.hero-status {
+			gap: 6px;
+		}
+		.status-pill {
+			padding: 6px 10px;
+			font-size: 11px;
+		}
 	}
 	.hero-status {
 		display: flex;

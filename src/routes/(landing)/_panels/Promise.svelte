@@ -37,8 +37,14 @@
 					Touch ID is <span class="italic-serif">enough.</span>
 				</div>
 				<div class="promise-body">
-					No master password to memorize. Your fingerprint or Face ID unlocks the vault
-					directly. The same passkey that proves who you are also unlocks what you have.
+					<span data-vp-show="desktop"
+						>No master password to memorize. Your fingerprint or Face ID unlocks the
+						vault directly. The same passkey that proves who you are also unlocks what
+						you have.</span
+					>
+					<span data-vp-show="mobile"
+						>No master password. Your fingerprint unlocks the vault directly.</span
+					>
 				</div>
 				<div class="promise-spec">webauthn-prf · zero passwords typed</div>
 			</div>
@@ -64,9 +70,15 @@
 					Architecturally <span class="italic-serif">untouchable.</span>
 				</div>
 				<div class="promise-body">
-					Your vault is encrypted on your device. The server only ever sees an opaque blob.
-					Nobody can read it — not us, not a court order, not a future quantum computer in
-					2032. Mathematical, not promised.
+					<span data-vp-show="desktop"
+						>Your vault is encrypted on your device. The server only ever sees an
+						opaque blob. Nobody can read it — not us, not a court order, not a future
+						quantum computer in 2032. Mathematical, not promised.</span
+					>
+					<span data-vp-show="mobile"
+						>Encrypted on your device. The server sees only an opaque blob — even in
+						2032.</span
+					>
 				</div>
 				<div class="promise-spec">level 0 · zero-knowledge by construction</div>
 			</div>
@@ -92,9 +104,14 @@
 					$25.60 a year. <span class="italic-serif">All in.</span>
 				</div>
 				<div class="promise-body">
-					One flat price. Every device. Every feature. No per-user multipliers. No tiers.
-					Compare 1Password $35.88, Dashlane $59.88, Proton Pass $47.88 — and most charge
-					per seat. We don't.
+					<span data-vp-show="desktop"
+						>One flat price. Every device. Every feature. No per-user multipliers. No
+						tiers. Compare 1Password $35.88, Dashlane $59.88, Proton Pass $47.88 — and
+						most charge per seat. We don't.</span
+					>
+					<span data-vp-show="mobile"
+						>One price. Every device. Every feature. No tiers. No per-seat.</span
+					>
 				</div>
 				<div class="promise-spec">256 bits × $0.10 = honest math</div>
 			</div>
@@ -119,9 +136,15 @@
 					Server <span class="italic-serif">never</span> sees your password.
 				</div>
 				<div class="promise-body">
-					Authentication via OPAQUE (RFC 9807, July 2025). The server learns no information
-					about the password — not plaintext, not a hash, not even during registration.
-					Mathematically proven against pre-computation attacks upon server compromise.
+					<span data-vp-show="desktop"
+						>Authentication via OPAQUE (RFC 9807, July 2025). The server learns no
+						information about the password — not plaintext, not a hash, not even
+						during registration. Mathematically proven against pre-computation attacks
+						upon server compromise.</span
+					>
+					<span data-vp-show="mobile"
+						>OPAQUE (RFC 9807). Server learns nothing — no plaintext, no hash, ever.</span
+					>
 				</div>
 				<div class="promise-spec">RFC 9807 · OPAQUE-3DH · Argon2id KDF</div>
 			</div>
@@ -147,10 +170,16 @@
 					Hybrid <span class="italic-serif">post-quantum</span> envelope.
 				</div>
 				<div class="promise-body">
-					Vault encrypted under <code>ML-KEM-1024 + X25519</code> hybrid KEM with
-					<code>AES-256-GCM</code>. Resistant to harvest-now-decrypt-later by construction.
-					Sub-millisecond cryptographic overhead — matches X25519 performance, no
-					perceptible cost.
+					<span data-vp-show="desktop"
+						>Vault encrypted under <code>ML-KEM-1024 + X25519</code> hybrid KEM with
+						<code>AES-256-GCM</code>. Resistant to harvest-now-decrypt-later by
+						construction. Sub-millisecond cryptographic overhead — matches X25519
+						performance, no perceptible cost.</span
+					>
+					<span data-vp-show="mobile"
+						><code>ML-KEM-1024 + X25519</code> hybrid + <code>AES-256-GCM</code>.
+						Sub-ms overhead.</span
+					>
 				</div>
 				<div class="promise-spec">FIPS 203 · ML-KEM-1024 · 256-bit security</div>
 			</div>
@@ -176,10 +205,16 @@
 					PRF unlock + <span class="italic-serif">256-bit</span> Secret Key.
 				</div>
 				<div class="promise-body">
-					Vault key = <code>HKDF(WebAuthn-PRF(passkey, salt) ‖ SecretKey)</code>. The Secret
-					Key is 256 bits of true random, generated client-side, never transmitted. Even
-					with a complete server compromise + Argon2id break, attackers face 256
-					unbreakable bits.
+					<span data-vp-show="desktop"
+						>Vault key = <code>HKDF(WebAuthn-PRF(passkey, salt) ‖ SecretKey)</code>.
+						The Secret Key is 256 bits of true random, generated client-side, never
+						transmitted. Even with a complete server compromise + Argon2id break,
+						attackers face 256 unbreakable bits.</span
+					>
+					<span data-vp-show="mobile"
+						>Vault key = <code>HKDF(PRF ‖ SecretKey)</code>. 256 bits, never
+						transmitted.</span
+					>
 				</div>
 				<div class="promise-spec">webauthn-prf · hkdf-sha512 · ed25519 auth</div>
 			</div>
@@ -272,9 +307,26 @@
 		letter-spacing: 0;
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.promise-grid {
 			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 30em) {
+		.promise-card {
+			padding: 20px 18px;
+			gap: 10px;
+			min-height: 0;
+		}
+		.promise-title {
+			font-size: 18px;
+		}
+		.promise-body {
+			font-size: 13px;
+		}
+		.promise-spec {
+			padding-top: 10px;
+			font-size: 10px;
 		}
 	}
 </style>

@@ -80,11 +80,11 @@
 		left: 0;
 		right: 0;
 		z-index: 30;
-		height: var(--footer-h);
+		height: calc(var(--footer-h) + var(--safe-bottom));
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
-		padding: 0 24px;
+		padding: 0 24px var(--safe-bottom);
 		gap: 16px;
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px);
@@ -138,7 +138,7 @@
 		gap: 16px;
 		justify-content: center;
 	}
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.stats {
 			display: none;
 		}
@@ -170,7 +170,7 @@
 		justify-content: flex-end;
 		align-items: center;
 	}
-	@media (max-width: 720px) {
+	@media (max-width: 45em) {
 		.suite {
 			display: none;
 		}

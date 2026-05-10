@@ -8,32 +8,53 @@
 			<span class="muted">The architecture didn't.</span>
 		</h2>
 		<p class="section-sub">
-			Every mainstream password manager you know was designed in the 2017 threat model.
-			None of them ship the cryptography that 2026 actually requires. The numbers are not
-			subtle.
+			<span data-vp-show="desktop"
+				>Every mainstream password manager you know was designed in the 2017 threat model.
+				None of them ship the cryptography that 2026 actually requires. The numbers are not
+				subtle.</span
+			>
+			<span data-vp-show="mobile"
+				>The 2017 threat model. None ship the cryptography 2026 requires.</span
+			>
 		</p>
 
 		<div class="problem-grid">
 			<div class="stat-card">
 				<div class="stat-num">16<small>billion</small></div>
 				<div class="stat-label">
-					passwords leaked in a single 2025 breach affecting Google, Apple, and Facebook
-					accounts.
+					<span data-vp-show="desktop"
+						>passwords leaked in a single 2025 breach affecting Google, Apple, and
+						Facebook accounts.</span
+					>
+					<span data-vp-show="mobile"
+						>passwords leaked in a single 2025 breach.</span
+					>
 				</div>
 				<div class="stat-source">Fox News · June 2025</div>
 			</div>
 			<div class="stat-card">
 				<div class="stat-num">11/11</div>
 				<div class="stat-label">
-					major password managers vulnerable to clickjacking autofill theft at DEF CON 33.
+					<span data-vp-show="desktop"
+						>major password managers vulnerable to clickjacking autofill theft at DEF
+						CON 33.</span
+					>
+					<span data-vp-show="mobile"
+						>password managers vulnerable to clickjacking at DEF CON 33.</span
+					>
 				</div>
 				<div class="stat-source">Tóth · DEF CON 33 · Aug 2025</div>
 			</div>
 			<div class="stat-card">
 				<div class="stat-num">0</div>
 				<div class="stat-label">
-					mainstream password managers ship post-quantum encryption. Your vault stolen today
-					is decryptable in 2032.
+					<span data-vp-show="desktop"
+						>mainstream password managers ship post-quantum encryption. Your vault
+						stolen today is decryptable in 2032.</span
+					>
+					<span data-vp-show="mobile"
+						>mainstream managers ship post-quantum. Stolen today, decrypted 2032.</span
+					>
 				</div>
 				<div class="stat-source">FIPS 203 · NIST · Aug 2024</div>
 			</div>
@@ -41,8 +62,10 @@
 
 		<p class="problem-bottom">
 			<strong>VuVault is the architecture they have not shipped.</strong>
-			Built from primitives standardized in the last 18 months — OPAQUE, ML-KEM, WebAuthn
-			PRF, FROST, AKD.
+			<span data-vp-show="desktop"
+				>Built from primitives standardized in the last 18 months — OPAQUE, ML-KEM,
+				WebAuthn PRF, FROST, AKD.</span
+			>
 		</p>
 	</div>
 </section>
@@ -124,9 +147,25 @@
 		font-weight: 600;
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.problem-grid {
 			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 30em) {
+		.stat-card {
+			padding: 18px 16px;
+			gap: 8px;
+		}
+		.stat-num {
+			font-size: clamp(28px, 9vw, 56px);
+		}
+		.stat-label {
+			font-size: 13px;
+		}
+		.problem-bottom {
+			font-size: 14px;
+			margin-top: 16px;
 		}
 	}
 </style>

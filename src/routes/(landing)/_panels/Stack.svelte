@@ -219,7 +219,7 @@
 		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.stack-user {
 			grid-template-columns: 1fr;
 		}
@@ -233,6 +233,41 @@
 		.layer-prim,
 		.layer-tag {
 			display: none;
+		}
+	}
+	@media (max-width: 30em) {
+		.stack-step {
+			padding: 18px 16px;
+			gap: 10px;
+		}
+		.stack-step-num {
+			width: 32px;
+			height: 32px;
+			font-size: 12px;
+		}
+		.stack-step-title {
+			font-size: 15px;
+		}
+		.stack-step-body {
+			font-size: 12px;
+		}
+		.stack-tech {
+			max-height: none;
+			padding-right: 0;
+		}
+		.layer {
+			grid-template-columns: 36px 1fr;
+			padding: 10px 12px;
+			gap: 10px;
+		}
+		.layer-num {
+			font-size: 16px;
+		}
+		.layer-name {
+			font-size: 13px;
+		}
+		.layer-name small {
+			font-size: 10px;
 		}
 	}
 </style>

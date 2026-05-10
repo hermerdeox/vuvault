@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { landing, PANEL_IDS } from '$lib/stores/landing.svelte';
+	import { viewport } from '$lib/stores/viewport.svelte';
 
 	const labels: Record<(typeof PANEL_IDS)[number], string> = {
 		hero: 'Hero',
@@ -14,20 +15,32 @@
 		trust: "Verify, don't trust",
 		final: 'Get VuVault'
 	};
+
+	// Hide entirely on mobile/tablet — native scroll-snap is the
+	// affordance on those viewports, and dots are too small to be
+	// useful tap targets even with a 32px hit area wrapper.
+	const showPager = $derived(!viewport.isMobile && !viewport.isTablet);
 </script>
 
-<nav class="pager" aria-label="Sections">
-	{#each PANEL_IDS as id, i (id)}
-		<button
-			class="pager-dot"
-			class:active={landing.currentPanel === i}
-			data-label={labels[id]}
-			aria-label={labels[id]}
-			aria-current={landing.currentPanel === i ? 'page' : undefined}
-			onclick={() => landing.goTo(i)}
-		></button>
-	{/each}
-</nav>
+{#if showPager}
+	<nav class="pager" aria-label="Sections">
+		{#each PANEL_IDS as id, i (id)}
+			<!-- Each visual 8px dot lives inside a 32px hit target so
+			     keyboard/pointer/touch users meet WCAG 2.5.5 even on
+			     a track that visually looks like 8x8 dots. -->
+			<button
+				class="pager-hit"
+				class:active={landing.currentPanel === i}
+				data-label={labels[id]}
+				aria-label={labels[id]}
+				aria-current={landing.currentPanel === i ? 'page' : undefined}
+				onclick={() => landing.goTo(i)}
+			>
+				<span class="pager-dot" aria-hidden="true"></span>
+			</button>
+		{/each}
+	</nav>
+{/if}
 
 <style>
 	.pager {
@@ -38,23 +51,31 @@
 		z-index: 40;
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: 0;
+	}
+	.pager-hit {
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		position: relative;
 	}
 	.pager-dot {
+		display: block;
 		width: 8px;
 		height: 8px;
-		padding: 0;
 		border-radius: 50%;
 		background: var(--border-mid);
 		transition: var(--transition);
-		position: relative;
-		cursor: pointer;
-		border: none;
 	}
-	.pager-dot::after {
+	.pager-hit::after {
 		content: attr(data-label);
 		position: absolute;
-		right: 16px;
+		right: 36px;
 		top: 50%;
 		transform: translateY(-50%);
 		white-space: nowrap;
@@ -71,21 +92,22 @@
 		transition: var(--transition);
 		letter-spacing: 0;
 	}
-	.pager-dot:hover::after {
+	.pager-hit:hover::after,
+	.pager-hit:focus-visible::after {
 		opacity: 1;
 	}
-	.pager-dot:hover {
+	.pager-hit:hover .pager-dot {
 		background: var(--text-2);
 	}
-	.pager-dot.active {
+	.pager-hit.active .pager-dot {
 		background: var(--accent);
 	}
 
-	@media (max-width: 1100px) {
+	@media (max-width: 64em) {
 		.pager {
-			right: 14px;
+			right: 6px;
 		}
-		.pager-dot::after {
+		.pager-hit::after {
 			display: none;
 		}
 	}

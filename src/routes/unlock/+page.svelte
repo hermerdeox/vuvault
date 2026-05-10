@@ -322,9 +322,15 @@
 				<span class="italic-serif">Use the recovery flow.</span>
 			</h1>
 			<p class="lede">
-				The vault has rate-limited unlock on this device. Use the recovery flow to
-				re-bind a passkey with your Secret Key, restore from a sync peer (Phase 5+),
-				or wipe local data and start fresh.
+				<span data-vp-show="desktop"
+					>The vault has rate-limited unlock on this device. Use the recovery flow to
+					re-bind a passkey with your Secret Key, restore from a sync peer (Phase 5+),
+					or wipe local data and start fresh.</span
+				>
+				<span data-vp-show="mobile"
+					>Unlock rate-limited on this device. Open the recovery flow to re-bind, restore,
+					or wipe.</span
+				>
 			</p>
 			<div class="cta-row">
 				<Button variant="primary" size="lg" href="/recover">Open recovery</Button>
@@ -344,11 +350,23 @@
 			</h1>
 			<p class="lede">
 				{#if authMode === 'demo'}
-					This vault was provisioned in demo mode. Security falls to your Secret Key
-					alone plus the original device. Provide the 256-bit Secret Key to continue.
+					<span data-vp-show="desktop"
+						>This vault was provisioned in demo mode. Security falls to your Secret Key
+						alone plus the original device. Provide the 256-bit Secret Key to continue.</span
+					>
+					<span data-vp-show="mobile"
+						>Demo-mode vault — security rests on your Secret Key + this device.</span
+					>
 				{:else}
-					Provide your 256-bit Secret Key, then authenticate with the same passkey
-					that registered this device. Decryption happens locally — nothing transmitted.
+					<span data-vp-show="desktop"
+						>Provide your 256-bit Secret Key, then authenticate with the same passkey
+						that registered this device. Decryption happens locally — nothing
+						transmitted.</span
+					>
+					<span data-vp-show="mobile"
+						>Provide your Secret Key, then Touch ID. Decrypts locally — nothing
+						transmitted.</span
+					>
 				{/if}
 			</p>
 
@@ -469,14 +487,16 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 32px;
+		padding: 0 clamp(14px, 4vw, 32px);
 		border-bottom: 1px solid var(--border);
 	}
 	.screen-inner {
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
-		padding: 48px 64px;
+		padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 64px);
+		padding-top: max(clamp(20px, 5vw, 48px), env(safe-area-inset-top));
+		padding-bottom: max(clamp(20px, 5vw, 48px), env(safe-area-inset-bottom));
 		max-width: 720px;
 		gap: 18px;
 		overflow-y: auto;
@@ -487,10 +507,18 @@
 		color: var(--text-3);
 	}
 	.h1 {
-		font-size: clamp(36px, 5vw, 56px);
+		font-size: clamp(28px, 7vw, 56px);
 		font-weight: 700;
 		letter-spacing: -0.03em;
 		line-height: 1;
+	}
+	@media (max-width: 30em) {
+		.topbar {
+			padding: 0 14px;
+		}
+		.lede {
+			font-size: 14px;
+		}
 	}
 	.italic-serif {
 		font-family: var(--font-serif);

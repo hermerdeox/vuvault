@@ -700,6 +700,11 @@
 		grid-template-columns: 1fr 1fr;
 		gap: 12px;
 	}
+	@media (max-width: 45em) {
+		.grid-2 {
+			grid-template-columns: 1fr;
+		}
+	}
 	.field {
 		display: flex;
 		flex-direction: column;

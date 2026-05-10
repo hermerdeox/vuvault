@@ -8,7 +8,9 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	padding: 32px 48px;
+	padding: clamp(16px, 4vw, 48px);
+	padding-top: max(clamp(16px, 4vw, 48px), env(safe-area-inset-top));
+	padding-bottom: max(clamp(16px, 4vw, 48px), env(safe-area-inset-bottom));
 	overflow-y: auto;
 	scrollbar-width: thin;
 	scrollbar-color: var(--border-mid) transparent;
@@ -35,7 +37,7 @@
 }
 
 .h1 {
-	font-size: clamp(36px, 5vw, 56px);
+	font-size: clamp(28px, 7.5vw, 56px);
 	font-weight: 700;
 	letter-spacing: -0.035em;
 	line-height: 1;
@@ -49,11 +51,11 @@
 }
 
 .lede {
-	font-size: 17px;
+	font-size: clamp(14px, 2.5vw, 17px);
 	color: var(--text-2);
 	line-height: 1.55;
 	letter-spacing: -0.005em;
-	margin-bottom: 36px;
+	margin-bottom: clamp(20px, 4vw, 36px);
 	max-width: 580px;
 }
 .lede strong {

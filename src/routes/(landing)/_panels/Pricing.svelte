@@ -30,11 +30,16 @@
 		</div>
 
 		<div class="price-vs">
-			<span>1Password</span> $35.88/yr &nbsp;·&nbsp;
-			<span>Dashlane</span> $59.88/yr &nbsp;·&nbsp;
-			<span>Proton Pass</span> $47.88/yr &nbsp;·&nbsp;
-			<span>NordPass</span> $26.85/yr &nbsp;·&nbsp;
-			<span class="us-name">VuVault</span> $25.60/yr
+			<span data-vp-show="desktop">
+				<span>1Password</span> $35.88/yr &nbsp;·&nbsp;
+				<span>Dashlane</span> $59.88/yr &nbsp;·&nbsp;
+				<span>Proton Pass</span> $47.88/yr &nbsp;·&nbsp;
+				<span>NordPass</span> $26.85/yr &nbsp;·&nbsp;
+				<span class="us-name">VuVault</span> $25.60/yr
+			</span>
+			<span data-vp-show="mobile">
+				Cheapest among 1Password, Dashlane, Proton — see the table.
+			</span>
 		</div>
 	</div>
 </section>
@@ -143,9 +148,32 @@
 		color: var(--accent);
 	}
 
-	@media (max-width: 880px) {
+	@media (max-width: 45em) {
 		.price-bullets {
 			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 30em) {
+		.price-card {
+			padding: 28px 22px;
+			margin-top: 18px;
+		}
+		.price-tag {
+			font-size: 14px;
+			margin-top: 16px;
+		}
+		.price-bullets {
+			margin-top: 18px;
+			gap: 8px;
+		}
+		.price-bullet {
+			padding: 10px 8px;
+			font-size: 11px;
+		}
+		.price-vs {
+			margin-top: 18px;
+			font-size: 11px;
+			line-height: 1.5;
 		}
 	}
 </style>

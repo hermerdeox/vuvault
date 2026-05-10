@@ -78,7 +78,7 @@
 	<Stepper steps={stepDefs} current={onboarding.current} />
 	<button class="exit" onclick={exit} aria-label="Exit setup">
 		<IconClose size={14} stroke={2} />
-		<span>Exit</span>
+		<span class="exit-label">Exit</span>
 	</button>
 </header>
 
@@ -168,6 +168,18 @@
 		backdrop-filter: blur(18px) saturate(140%);
 		-webkit-backdrop-filter: blur(18px) saturate(140%);
 		border-bottom: 1px solid var(--border);
+	}
+	@media (max-width: 30em) {
+		.header {
+			padding: 0 14px;
+			gap: 12px;
+		}
+		.exit-label {
+			display: none;
+		}
+		.exit {
+			padding: 8px;
+		}
 	}
 
 	.exit {

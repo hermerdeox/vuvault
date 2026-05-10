@@ -29,7 +29,11 @@
 						<tr>
 							<th>{row.label}<small>{row.sub}</small></th>
 							{#each row.cells as cell, i (i)}
-								<td class:us={i === 0} class={!isText(cell) ? `cell-${cell}` : ''}>
+								<td
+									class:us={i === 0}
+									class={!isText(cell) ? `cell-${cell}` : ''}
+									data-col={COMPARE_HEADERS[i]}
+								>
 									{#if cell === 'yes'}
 										<svg
 											width="16"
@@ -227,13 +231,89 @@
 		font-weight: 600;
 	}
 
-	@media (max-width: 880px) {
-		.compare-table {
-			font-size: 11px;
+	/* Below sm the 6-column data table is unreadable, so reflow every
+	   row into a card. The row's <th> stays as the card title; each
+	   cell becomes a key-value line where the key comes from the
+	   `data-col` attribute we emit from COMPARE_HEADERS. Pure CSS, no
+	   JS branching, no separate markup path. */
+	@media (max-width: 45em) {
+		.compare-wrap {
+			background: transparent;
+			border: none;
+			border-radius: 0;
+			backdrop-filter: none;
 		}
-		.compare-table th,
-		.compare-table td {
-			padding: 8px 10px;
+		.compare-table {
+			font-size: 12px;
+			display: block;
+		}
+		.compare-table thead {
+			display: none;
+		}
+		.compare-table tbody,
+		.compare-table tr {
+			display: block;
+		}
+		.compare-table tr {
+			background: var(--surface);
+			border: 1px solid var(--border);
+			border-radius: var(--radius);
+			padding: 4px 0;
+			margin-bottom: 10px;
+		}
+		.compare-table tr:hover {
+			background: var(--surface);
+		}
+		.compare-table tbody th,
+		.compare-table tbody td {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 8px 14px;
+			border-bottom: 1px solid var(--border);
+			text-align: left;
+		}
+		.compare-table tbody tr th {
+			font-size: 13px;
+			font-weight: 600;
+			color: var(--text);
+			background: var(--surface-strong);
+			border-bottom: 1px solid var(--border-mid);
+			border-radius: var(--radius) var(--radius) 0 0;
+		}
+		.compare-table tbody th small {
+			margin-top: 0;
+			margin-left: auto;
+			color: var(--text-3);
+		}
+		.compare-table tbody td {
+			gap: 12px;
+		}
+		.compare-table tbody td::before {
+			content: attr(data-col);
+			font-family: var(--font-mono);
+			font-size: 10px;
+			font-weight: 600;
+			color: var(--text-3);
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+		}
+		.compare-table tbody td.us::before {
+			color: var(--accent);
+		}
+		.compare-table tr:last-child th,
+		.compare-table tr:last-child td {
+			border-bottom: 1px solid var(--border);
+		}
+		.compare-table tr td:last-child {
+			border-bottom: none;
+			border-radius: 0 0 var(--radius) var(--radius);
+		}
+	}
+	@media (max-width: 30em) {
+		.compare-table tbody th,
+		.compare-table tbody td {
+			padding: 7px 12px;
 		}
 	}
 </style>

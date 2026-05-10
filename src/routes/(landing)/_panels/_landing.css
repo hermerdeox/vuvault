@@ -17,6 +17,17 @@
 	overflow: hidden;
 	z-index: 1;
 }
+
+/* In native-snap mode (mobile/tablet) the .stage is the scroller and
+   each panel must be free to grow past 100dvh so dense content can
+   breathe instead of clipping. The desktop .track translateY is gone
+   in this mode — see (landing)/+page.svelte. */
+:global(html[data-vp~='mobile']) .panel,
+:global(html[data-vp~='tablet']) .panel {
+	height: auto;
+	min-height: 100dvh;
+	overflow: visible;
+}
 .panel-inner {
 	width: 100%;
 	max-width: 1200px;
@@ -107,18 +118,44 @@
 	border-radius: var(--radius);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 64em) {
 	.panel {
 		padding-left: 40px;
 		padding-right: 40px;
 	}
 }
-@media (max-width: 880px) {
+@media (max-width: 45em) {
 	.panel {
 		padding: calc(var(--top-bar-h, 56px) + 16px) 24px 32px;
 	}
 }
-@media (max-height: 720px) {
+@media (max-width: 30em) {
+	.panel {
+		padding: calc(var(--top-bar-h, 56px) + 12px) 18px 24px;
+	}
+	.section-title {
+		font-size: clamp(24px, 7vw, 32px);
+		margin-bottom: 14px;
+	}
+	.section-sub {
+		font-size: 14px;
+		margin-bottom: 24px;
+	}
+	.eyebrow {
+		font-size: 10px;
+		padding: 4px 10px;
+		margin-bottom: 14px;
+	}
+	.lbtn {
+		padding: 8px 12px;
+		font-size: 12px;
+	}
+	.lbtn.lg {
+		padding: 12px 18px;
+		font-size: 13px;
+	}
+}
+@media (max-height: 44em) {
 	.panel {
 		padding-top: calc(var(--top-bar-h, 56px) + 32px);
 		padding-bottom: 16px;

@@ -1,0 +1,33 @@
+/* ============================================================
+   BREAKPOINTS — single source of truth.
+
+   Tokens (named by Bootstrap-like t-shirt sizes, em values
+   resolve at 16px regardless of the document `font-size`):
+
+     --bp-xs     30em   480px   iPhone SE / small Android
+     --bp-sm     45em   720px   large phone / small tablet
+     --bp-md     64em  1024px   tablet landscape / small laptop
+     --bp-lg     75em  1200px   desktop
+     --bp-short  44em   704px   short-height pivot for layouts
+                                that need flex-start instead of
+                                center on small heights.
+
+   Convention:
+       @media (max-width: 30em) ...   xs only
+       @media (max-width: 45em) ...   sm and below
+       @media (max-width: 64em) ...   md and below
+       @media (max-width: 75em) ...   lg and below
+
+   Container queries can read the var() values; plain `@media`
+   conditions cannot reference custom properties (Safari 17),
+   so the literal em values are inlined throughout the codebase.
+
+   ============================================================ */
+
+:root {
+	--bp-xs: 30em;
+	--bp-sm: 45em;
+	--bp-md: 64em;
+	--bp-lg: 75em;
+	--bp-short: 44em;
+}

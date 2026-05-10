@@ -1,9 +1,18 @@
 <!-- Ambient background: grid + two drifting spotlights. Pure decoration,
-     pointer-events: none, fixed. Used by the (landing) shell only. -->
+     pointer-events: none, fixed. Used by the (landing) shell only.
+
+     On mobile/tablet the spotlights are skipped entirely — two 80vmax
+     radial gradients animating for 32-44s straight is real GPU pressure
+     on a phone, and the effect is invisible on a 360px screen anyway. -->
+<script lang="ts">
+	import { viewport } from '$lib/stores/viewport.svelte';
+</script>
 
 <div class="bg-grid" aria-hidden="true"></div>
-<div class="bg-spotlight" aria-hidden="true"></div>
-<div class="bg-spotlight2" aria-hidden="true"></div>
+{#if !viewport.isMobile && !viewport.isTablet}
+	<div class="bg-spotlight" aria-hidden="true"></div>
+	<div class="bg-spotlight2" aria-hidden="true"></div>
+{/if}
 
 <style>
 	.bg-grid,
@@ -20,6 +29,12 @@
 		background-size: 48px 48px;
 		mask-image: radial-gradient(ellipse at center, var(--bg) 0%, transparent 75%);
 		-webkit-mask-image: radial-gradient(ellipse at center, var(--bg) 0%, transparent 75%);
+	}
+	/* Lower the grid contrast on mobile so it doesn't compete with copy
+	   on a small viewport. Belt-and-braces with the {#if} guard above. */
+	:global(html[data-vp~='mobile']) .bg-grid {
+		opacity: 0.5;
+		background-size: 32px 32px;
 	}
 	.bg-spotlight,
 	.bg-spotlight2 {
