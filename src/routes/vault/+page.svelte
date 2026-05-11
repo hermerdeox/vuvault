@@ -1,13 +1,23 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	import VaultSidebar from './VaultSidebar.svelte';
 	import VaultList from './VaultList.svelte';
 	import VaultDetail from './VaultDetail.svelte';
-	import ItemEditor from './ItemEditor.svelte';
-	import CommandK from './CommandK.svelte';
-	import MasterPasswordSettings from './MasterPasswordSettings.svelte';
-	import QuickGenerator from './QuickGenerator.svelte';
+
+	// PERFORMANCE: the four modal overlays below are loaded lazily on
+	// first open. Combined they account for ~25-35 KB of the vault
+	// route's initial chunk; most users land on /vault and read items
+	// long before opening the editor, palette, MP settings, or the
+	// password generator. The `{#await import(...)}` blocks fetch the
+	// component module on demand; subsequent opens reuse the cached
+	// import.
+	const importItemEditor = () => import('./ItemEditor.svelte');
+	const importCommandK = () => import('./CommandK.svelte');
+	const importMasterPasswordSettings = () =>
+		import('./MasterPasswordSettings.svelte');
+	const importQuickGenerator = () => import('./QuickGenerator.svelte');
 
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
@@ -23,7 +33,6 @@
 	} from '$lib/icons';
 
 	import { vault, type ItemKind, type VaultItem } from '$lib/stores/vault.svelte';
-	import { audit } from '$lib/stores/audit.svelte';
 
 	let editorOpen = $state(false);
 	let editorMode = $state<'create' | 'edit'>('create');
@@ -34,6 +43,7 @@
 	let settingsOpen = $state(false);
 	let quickGenOpen = $state(false);
 	let locking = $state(false);
+let editorNonce = $state(0);
 
 	// Mobile overflow popover holds the rare top-bar actions
 	// (Generate / Sync / MP-Settings / Theme) so the right group
@@ -43,9 +53,9 @@
 	function closeOverflow() {
 		overflowOpen = false;
 	}
-	function withOverflow<T extends () => void>(fn: T) {
+	function withOverflow<T extends () => void | Promise<void>>(fn: T) {
 		return () => {
-			fn();
+			void fn();
 			overflowOpen = false;
 		};
 	}
@@ -58,13 +68,14 @@
 		} finally {
 			locking = false;
 		}
-		goto('/unlock');
+		goto(resolve('/unlock'));
 	}
 
 	function openCreateEditor() {
 		editorMode = 'create';
 		editorInitial = null;
 		editorKind = null;
+	editorNonce += 1;
 		editorOpen = true;
 	}
 
@@ -72,6 +83,7 @@
 		editorMode = 'edit';
 		editorInitial = item;
 		editorKind = item.kind;
+	editorNonce += 1;
 		editorOpen = true;
 	}
 
@@ -83,8 +95,11 @@
 		quickGenOpen = !quickGenOpen;
 	}
 
-	function notifySyncDisabled() {
-		audit.push('info', 'Sync · local-only mode (server sync arrives in Phase 5)');
+	const syncLabel = $derived(vault.syncing ? 'Syncing' : 'Sync');
+	const syncTitle = $derived(`${syncLabel} · ${vault.syncMessage}`);
+
+	async function syncVaultNow() {
+		await vault.syncNow();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -129,6 +144,9 @@
 		</div>
 
 		<div class="right">
+			<span class="sync-probe" data-testid="sync-status" title={vault.syncMessage}>
+				{vault.syncStatus}
+			</span>
 			<button
 				class="ico-btn overflow-target"
 				class:active={quickGenOpen}
@@ -142,9 +160,11 @@
 			</button>
 			<button
 				class="ico-btn overflow-target"
-				onclick={notifySyncDisabled}
-				aria-label="Sync"
-				title="Local-only mode · sync coming in Phase 5"
+				class:active={vault.syncing}
+				onclick={syncVaultNow}
+				disabled={vault.syncing}
+				aria-label={syncTitle}
+				title={syncTitle}
 			>
 				<IconRefresh size={14} stroke={1.6} />
 			</button>
@@ -214,16 +234,22 @@
 						</button>
 						<button
 							class="overflow-item"
+							class:active={vault.syncing}
 							role="menuitem"
-							onclick={withOverflow(notifySyncDisabled)}
+							onclick={withOverflow(syncVaultNow)}
+							disabled={vault.syncing}
+							aria-label={syncTitle}
+							title={syncTitle}
 						>
 							<IconRefresh size={14} stroke={1.6} />
-							<span>Sync</span>
+							<span>{syncLabel}</span>
 						</button>
 						<button
 							class="overflow-item"
 							role="menuitem"
-							onclick={withOverflow(() => (settingsOpen = true))}
+							onclick={withOverflow(() => {
+								settingsOpen = true;
+							})}
 							data-testid="open-mp-settings-mobile"
 						>
 							<IconShield size={14} stroke={1.6} />
@@ -304,29 +330,51 @@
 
 <AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
 
-<ItemEditor
-	open={editorOpen}
-	mode={editorMode}
-	initial={editorInitial}
-	kind={editorKind}
-	onClose={() => (editorOpen = false)}
-/>
+{#if editorOpen}
+	{#await importItemEditor() then mod}
+		{#key editorNonce}
+			{@const ItemEditor = mod.default}
+			<ItemEditor
+				open={editorOpen}
+				mode={editorMode}
+				initial={editorInitial}
+				kind={editorKind}
+				onClose={() => (editorOpen = false)}
+			/>
+		{/key}
+	{/await}
+{/if}
 
-<CommandK
-	open={paletteOpen}
-	onClose={() => (paletteOpen = false)}
-	onLock={lockVault}
-/>
+{#if paletteOpen}
+	{#await importCommandK() then mod}
+		{@const CommandK = mod.default}
+		<CommandK
+			open={paletteOpen}
+			onClose={() => (paletteOpen = false)}
+			onLock={lockVault}
+		/>
+	{/await}
+{/if}
 
-<MasterPasswordSettings
-	open={settingsOpen}
-	onClose={() => (settingsOpen = false)}
-/>
+{#if settingsOpen}
+	{#await importMasterPasswordSettings() then mod}
+		{@const MasterPasswordSettings = mod.default}
+		<MasterPasswordSettings
+			open={settingsOpen}
+			onClose={() => (settingsOpen = false)}
+		/>
+	{/await}
+{/if}
 
-<QuickGenerator
-	open={quickGenOpen}
-	onClose={() => (quickGenOpen = false)}
-/>
+{#if quickGenOpen}
+	{#await importQuickGenerator() then mod}
+		{@const QuickGenerator = mod.default}
+		<QuickGenerator
+			open={quickGenOpen}
+			onClose={() => (quickGenOpen = false)}
+		/>
+	{/await}
+{/if}
 
 <style>
 	.app {
@@ -434,6 +482,17 @@
 		align-items: center;
 		gap: 8px;
 	}
+	.sync-probe {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
 	.ico-btn {
 		display: grid;
 		place-items: center;
@@ -442,6 +501,11 @@
 		border-radius: var(--radius-sm);
 		color: var(--text-3);
 		transition: var(--transition);
+	}
+	:global(html[data-vp~='mobile']) .ico-btn,
+	:global(html[data-vp~='tablet']) .ico-btn {
+		width: 44px;
+		height: 44px;
 	}
 	.ico-btn:hover {
 		background: var(--surface);
@@ -485,14 +549,14 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 10px 12px;
+		padding: 12px 14px;
 		font-size: 13px;
 		font-weight: 500;
 		color: var(--text);
 		border-radius: var(--radius-sm);
 		text-align: left;
 		transition: var(--transition);
-		min-height: 40px;
+		min-height: 44px;
 	}
 	.overflow-item:hover {
 		background: var(--surface-hover);
@@ -655,9 +719,14 @@
 		.add-btn,
 		.lock-btn {
 			padding: 0;
-			width: 36px;
-			height: 36px;
+			width: 44px;
+			height: 44px;
 			justify-content: center;
+		}
+		/* Kebab trigger lifts to the WCAG floor on touch. */
+		.overflow-trigger {
+			width: 44px;
+			height: 44px;
 		}
 		/* Tab-activity banner stacks instead of horizontal-overflows. */
 		.tab-banner {

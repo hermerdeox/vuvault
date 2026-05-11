@@ -6,6 +6,8 @@
 	import AuditFooter from '$lib/components/AuditFooter.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
+	import BackgroundFx from '$lib/components/BackgroundFx.svelte';
+
 	import StepWelcome from './_steps/StepWelcome.svelte';
 	import StepIdentity from './_steps/StepIdentity.svelte';
 	import StepSecret from './_steps/StepSecret.svelte';
@@ -70,8 +72,7 @@
 	<title>Set up your vault — VuVault</title>
 </svelte:head>
 
-<div class="bg-grid" aria-hidden="true"></div>
-<div class="bg-spotlight" aria-hidden="true"></div>
+<BackgroundFx />
 
 <header class="header">
 	<BrandMark showPill="Setup" />
@@ -118,39 +119,10 @@
 		--footer-h: 56px;
 	}
 
-	.bg-grid,
-	.bg-spotlight {
-		position: fixed;
-		pointer-events: none;
-		z-index: 0;
-	}
-	.bg-grid {
-		inset: 0;
-		background-image:
-			linear-gradient(var(--grid-color) 1px, transparent 1px),
-			linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-		background-size: 48px 48px;
-		mask-image: radial-gradient(ellipse at center, #000 0%, transparent 75%);
-		-webkit-mask-image: radial-gradient(ellipse at center, #000 0%, transparent 75%);
-	}
-	.bg-spotlight {
-		width: 80vmax;
-		height: 80vmax;
-		border-radius: 50%;
-		top: -30vmax;
-		right: -30vmax;
-		background: radial-gradient(circle, var(--accent-faint) 0%, transparent 60%);
-		animation: drift 32s ease-in-out infinite;
-	}
-	@keyframes drift {
-		0%,
-		100% {
-			transform: translate(0, 0);
-		}
-		50% {
-			transform: translate(-6vw, 4vh);
-		}
-	}
+	/* Background grid + spotlight live in the shared `BackgroundFx`
+	   component now — the previous local copy ran the 32 s spotlight
+	   animation unconditionally even on mobile, which the shared
+	   component already gates by `viewport.isMobile`. */
 
 	.header {
 		position: fixed;
@@ -158,11 +130,13 @@
 		left: 0;
 		right: 0;
 		z-index: 30;
-		height: var(--header-h);
+		height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
+		padding-top: env(safe-area-inset-top, 0px);
 		display: grid;
 		grid-template-columns: auto 1fr auto;
 		align-items: center;
-		padding: 0 28px;
+		padding-left: max(28px, env(safe-area-inset-left, 0px));
+		padding-right: max(28px, env(safe-area-inset-right, 0px));
 		gap: 32px;
 		background: color-mix(in srgb, var(--bg) 55%, transparent);
 		backdrop-filter: blur(18px) saturate(140%);
@@ -171,14 +145,18 @@
 	}
 	@media (max-width: 30em) {
 		.header {
-			padding: 0 14px;
+			padding-left: max(14px, env(safe-area-inset-left, 0px));
+			padding-right: max(14px, env(safe-area-inset-right, 0px));
 			gap: 12px;
 		}
 		.exit-label {
 			display: none;
 		}
 		.exit {
-			padding: 8px;
+			width: 44px;
+			height: 44px;
+			padding: 0;
+			justify-content: center;
 		}
 	}
 

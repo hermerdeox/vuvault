@@ -24,9 +24,8 @@ type Body = { clientId?: string; request?: string };
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	if (!(await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`))) {
-		return jsonError(429, 'rate limit exceeded');
-	}
+	const rateLimit = await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`, env);
+	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
 	if (!body || typeof body.clientId !== 'string' || typeof body.request !== 'string') {
@@ -52,7 +51,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			requestId,
 			response: b64encode(response)
 		});
-	} catch {
+	} catch (err) {
+		console.error('opaque registration request failed', err);
 		return jsonError(500, 'opaque registration request failed');
 	}
 };

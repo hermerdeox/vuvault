@@ -15,6 +15,7 @@
  * targets in CI; it runs in the standard `npm run test` matrix as well.
  */
 
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem';
 import { sha384 } from '@noble/hashes/sha2';
@@ -28,6 +29,11 @@ type KatCase = {
 	secretKeySha384: string;
 	cipherTextSha384: string;
 	sharedSecret: string;
+};
+
+type KatBundle = {
+	cases: KatCase[];
+	nobleVersion: string;
 };
 
 function fromHex(s: string): Uint8Array {
@@ -44,12 +50,27 @@ function toHex(u8: Uint8Array): string {
 		.join('');
 }
 
-const cases = (katVectors as { cases: KatCase[] }).cases;
+const bundle = katVectors as KatBundle;
+const cases = bundle.cases;
 
 describe('ML-KEM-1024 · FIPS 203 deterministic vectors', () => {
 	it('the KAT JSON references @noble/post-quantum and is non-empty', () => {
 		// Sanity: a corrupt or missing vector file is itself a CI signal.
 		expect(cases.length).toBeGreaterThanOrEqual(5);
+	});
+
+	it('the installed @noble/post-quantum version matches the KAT-recorded version', async () => {
+		// Lock the running noble version to the one the regression
+		// vectors were derived against. The runtime test cross-checks
+		// `node_modules/@noble/post-quantum/package.json` so a lockfile
+		// drift (e.g. caret-range promotion to 0.4.2) doesn't silently
+		// keep the suite green while the bytes have changed.
+		const installedRaw = await readFile(
+			new URL('../../../node_modules/@noble/post-quantum/package.json', import.meta.url),
+			'utf8'
+		);
+		const installed = JSON.parse(installedRaw) as { version: string };
+		expect(installed.version).toBe(bundle.nobleVersion);
 	});
 
 	for (const kat of cases) {

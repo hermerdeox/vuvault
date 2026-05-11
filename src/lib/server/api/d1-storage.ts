@@ -21,6 +21,7 @@ import type {
 	PendingLogin,
 	ServerIdentity
 } from './server-opaque';
+import { OpaqueServerEngine } from './server-opaque';
 
 // Inline D1 type so this module doesn't drag @cloudflare/workers-types
 // into the SvelteKit client bundle. Pages Functions runtime supplies
@@ -37,7 +38,29 @@ type D1PreparedStatement = {
 function bytes(input: unknown): Uint8Array {
 	if (input instanceof Uint8Array) return input;
 	if (input instanceof ArrayBuffer) return new Uint8Array(input);
+	if (Array.isArray(input) && input.every((b) => Number.isInteger(b))) {
+		return new Uint8Array(input as number[]);
+	}
+	if (input && typeof input === 'object') {
+		const maybeBuffer = input as { type?: unknown; data?: unknown };
+		if (maybeBuffer.type === 'Buffer' && Array.isArray(maybeBuffer.data)) {
+			return new Uint8Array(maybeBuffer.data as number[]);
+		}
+		const numericEntries = Object.entries(input)
+			.filter(([key]) => /^\d+$/.test(key))
+			.sort(([a], [b]) => Number(a) - Number(b));
+		if (numericEntries.length > 0) {
+			return new Uint8Array(numericEntries.map(([, value]) => Number(value)));
+		}
+	}
 	throw new Error('d1-storage: expected Uint8Array or ArrayBuffer, got ' + typeof input);
+}
+
+function isAllZero(input: Uint8Array): boolean {
+	for (const b of input) {
+		if (b !== 0) return false;
+	}
+	return true;
 }
 
 /**
@@ -246,12 +269,20 @@ export async function loadServerIdentity(
 	if (serverSecretKey.length !== 32) {
 		throw new Error('d1-storage: server_identity.oprf_seed must be exactly 32 bytes');
 	}
+	// All-zero guard runs BEFORE the `serverPublicKey` early return so
+	// a future caller that supplies a public key cannot smuggle in a
+	// degenerate secret. Today the production handlers never pass that
+	// argument, but the guard is the security-critical line — keep it
+	// unconditional.
+	if (isAllZero(serverSecretKey)) {
+		throw new Error('d1-storage: server_identity.oprf_seed must not be all zero');
+	}
 	if (serverPublicKey) {
 		return { serverId, serverSecretKey, serverPublicKey };
 	}
-	// Caller usually passes the precomputed public key; this branch
-	// is a safety fallback for tooling that needs to derive at load.
-	const { OpaqueServerEngine } = await import('./server-opaque');
-	const kp = OpaqueServerEngine.generateServerKeypair();
-	return { serverId, serverSecretKey: kp.serverSecretKey, serverPublicKey: kp.serverPublicKey };
+	return {
+		serverId,
+		serverSecretKey,
+		serverPublicKey: OpaqueServerEngine.publicKeyFromServerSecretKey(serverSecretKey)
+	};
 }

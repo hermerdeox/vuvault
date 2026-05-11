@@ -17,10 +17,10 @@
 	import {
 		decodeSecretKey,
 		parseVuKeyFile,
-		SECRET_KEY_BASE32_LEN
+		SECRET_KEY_BASE32_LEN,
+		encodeBase32
 	} from '$lib/crypto/secret-key';
-	import { hasAccount } from '$lib/utils/storage';
-	import { openVault, loadAccount } from '$lib/services/vault-session';
+	import { hasAccount, getAccount } from '$lib/utils/storage';
 	import {
 		verifyBundleIntegrity,
 		type BundleIntegrity,
@@ -29,12 +29,15 @@
 	} from '$lib/utils/env';
 	import { vault } from '$lib/stores/vault.svelte';
 	import { audit } from '$lib/stores/audit.svelte';
-	import { login, createFetchTransport } from '$lib/services/opaque-client';
-	import { setSessionToken } from '$lib/services/sync-client';
-	import { encodeBase32 } from '$lib/crypto/secret-key';
 
-	import { deriveMasterPasswordKey } from '$lib/crypto/argon2';
 	import type { Argon2idStoredParams, OpaqueState } from '$lib/utils/storage';
+
+	// PERFORMANCE: the heavy crypto + sync modules below are loaded
+	// lazily inside `unlock()` so the unlock page can render before
+	// ~155 KB of Noble curves / ML-KEM-1024 / OPAQUE / Argon2 ships.
+	// The user expects work to happen after they click "Unlock"
+	// (PRF roundtrip, optional Argon2 ~1-2 s) — the few extra ms
+	// to fetch the chunk inside that click are unnoticeable.
 
 	let loading = $state(true);
 	let deviceLabel = $state('');
@@ -73,7 +76,7 @@
 			goto('/onboarding');
 			return;
 		}
-		const account = await loadAccount();
+		const account = await getAccount();
 		if (!account) {
 			goto('/onboarding');
 			return;
@@ -128,6 +131,23 @@
 			unlocking = false;
 			return;
 		}
+
+		// Lazy-load every heavy crypto path now that the user has
+		// clicked. These imports pull the Noble curves chunk,
+		// ML-KEM-1024, OPAQUE, and Argon2id WASM — collectively ~155
+		// KB JS + 143 KB WASM that would otherwise block first paint.
+		// The fetches happen in parallel with `Promise.all`.
+		const [vaultSessionMod, opaqueClientMod, syncClientMod, argon2Mod] =
+			await Promise.all([
+				import('$lib/services/vault-session'),
+				import('$lib/services/opaque-client'),
+				import('$lib/services/sync-client'),
+				import('$lib/crypto/argon2')
+			]);
+		const { openVault } = vaultSessionMod;
+		const { login, createFetchTransport } = opaqueClientMod;
+		const { setSessionToken } = syncClientMod;
+		const { deriveMasterPasswordKey } = argon2Mod;
 
 		// Optional Argon2id master-password derivation. Runs locally
 		// before openVault — adds ~2–3s with VAULT_HIGH_PARAMS, but
@@ -186,25 +206,10 @@
 					transport
 				});
 				opaqueExportKey = log.exportKey;
-				// The Worker's KE3 handler returns `{ accountId, token, ... }`
-				// inside `OpaqueLoginResult`; our `login()` facade only
-				// surfaces `accountId`. The Worker's session token rides
-				// in via `sync-client.opaqueLoginKE3` rather than the
-				// transport here (sync-client always wraps responses
-				// uniformly). For now, use a separate KE3 sync call
-				// whose sole purpose is to mint a token. (The Worker
-				// handler accepts the same KE3 bytes the transport just
-				// sent; we let `sync-client.setSessionToken` populate
-				// the token from the same request that `login()` does
-				// not surface upstream.)
-				//
-				// In the immediate term, we treat OPAQUE login solely
-				// as the export-key acquisition path. The session token
-				// for blob ops is obtained by a follow-up call into
-				// `sync-client.opaqueLoginKE3` which is wired in B5
-				// follow-up. For now: leave the token unset; blob ops
-				// stay local-only until the token-mint flow lands.
-				setSessionToken(null);
+				// Blob sync is only available after the Worker returns
+				// a session token from OPAQUE login. If this deployment
+				// omits token minting, keep blob operations local-only.
+				setSessionToken(log.token ?? null);
 				audit.push('success', 'OPAQUE login complete', {
 					serverId: opaqueServerId!
 				});
@@ -324,7 +329,7 @@
 			<p class="lede">
 				<span data-vp-show="desktop"
 					>The vault has rate-limited unlock on this device. Use the recovery flow to
-					re-bind a passkey with your Secret Key, restore from a sync peer (Phase 5+),
+					re-bind a passkey with your Secret Key, restore from future Tier 2 sync,
 					or wipe local data and start fresh.</span
 				>
 				<span data-vp-show="mobile"
@@ -487,7 +492,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 clamp(14px, 4vw, 32px);
+		padding-top: env(safe-area-inset-top, 0px);
+		padding-left: max(clamp(14px, 4vw, 32px), env(safe-area-inset-left, 0px));
+		padding-right: max(clamp(14px, 4vw, 32px), env(safe-area-inset-right, 0px));
 		border-bottom: 1px solid var(--border);
 	}
 	.screen-inner {

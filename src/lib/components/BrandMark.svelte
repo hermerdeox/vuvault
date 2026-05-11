@@ -50,4 +50,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
+
+	/* At xs viewports the wordmark eats ~80 px next to the V-mark +
+	   pill + stepper + theme + audience controls on every chrome
+	   route. The V-mark alone is the recognisable brand anchor; the
+	   pill (Vault / Setup / etc.) tells the user which route they're
+	   on, so we keep the V + pill and drop the wordmark. */
+	:global(html[data-vp~='xs']) .wordmark {
+		display: none;
+	}
 </style>

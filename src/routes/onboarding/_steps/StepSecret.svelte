@@ -336,6 +336,12 @@ ${bundleGroupedString}
 		text-transform: uppercase;
 		transition: var(--transition);
 	}
+	:global(html[data-vp~='mobile']) .action,
+	:global(html[data-vp~='tablet']) .action {
+		min-height: 44px;
+		padding: 10px 14px;
+		font-size: 11px;
+	}
 	.action:hover:not(:disabled) {
 		background: var(--accent-dim);
 		border-color: var(--accent);

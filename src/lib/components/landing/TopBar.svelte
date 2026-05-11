@@ -32,11 +32,15 @@
 		left: 0;
 		right: 0;
 		z-index: 50;
-		height: var(--top-bar-h, 56px);
+		height: calc(var(--top-bar-h, 56px) + env(safe-area-inset-top, 0px));
+		padding-top: env(safe-area-inset-top, 0px);
 		display: grid;
 		grid-template-columns: auto 1fr auto;
 		align-items: center;
-		padding: 0 24px;
+		/* Padding honors landscape-notch insets so the brand and CTAs
+		   stay clear of the iPhone notch / Dynamic Island. */
+		padding-left: max(24px, env(safe-area-inset-left, 0px));
+		padding-right: max(24px, env(safe-area-inset-right, 0px));
 		gap: 24px;
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px) saturate(140%);
@@ -113,6 +117,33 @@
 
 	@media (max-width: 45em) {
 		.whitepaper {
+			display: none;
+		}
+		/* The "v0 · 2030 stack" pill duplicates the brand spatial footprint
+		   on a 360px header. Drop it on mobile; the V-mark + wordmark is
+		   enough identity. */
+		.brand-pill {
+			display: none;
+		}
+		.nav-actions {
+			gap: 6px;
+		}
+		.lbtn,
+		.lbtn.primary {
+			min-height: 44px;
+			padding: 10px 14px;
+		}
+	}
+	@media (max-width: 30em) {
+		.topbar {
+			padding-left: max(14px, env(safe-area-inset-left, 0px));
+			padding-right: max(14px, env(safe-area-inset-right, 0px));
+			gap: 12px;
+		}
+		/* On a true mobile (<=480px), the wordmark also crowds the
+		   AudienceToggle + Start-free + ThemeToggle row. Keep only the
+		   V-mark; the page title is still in the document <title>. */
+		.brand-name {
 			display: none;
 		}
 	}

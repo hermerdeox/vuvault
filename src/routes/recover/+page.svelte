@@ -73,13 +73,13 @@
 	}
 
 	async function rewirePasskey() {
-		// Phase 5 placeholder: re-registering a new passkey + re-sealing
+		// Tier 2+ placeholder: re-registering a new passkey + re-sealing
 		// the vault under a new PRF derivation requires re-entering the
 		// onboarding flow so the new credentialId is bound to a fresh
 		// device salt and the existing items are re-encrypted. The full
-		// implementation lands when sync is wired in Phase 6+.
+		// in-place flow is not shipped yet.
 		errorMessage =
-			'Passkey re-registration is wired through fresh start for now. To migrate items, unlock with your Secret Key first, export, then start fresh and re-import. The full in-place re-wiring lands in Phase 6.';
+			'In-place passkey rebind is not shipped yet. For now, unlock with your Secret Key first, export, then start fresh and re-import.';
 	}
 
 	async function startFresh() {
@@ -158,19 +158,19 @@
 					<div class="option-title">Restore from sync</div>
 					<div class="option-body">
 						Pull encrypted blob from a paired device or self-hosted server. <strong>
-							Wires up in Phase 5+
-						</strong> — depends on the OPAQUE/blob-sync server.
+							Not shipped yet.
+						</strong> Planned for Tier 2 sync.
 					</div>
-					<div class="option-tag">Coming in Phase 5+</div>
+					<div class="option-tag">Tier 2 roadmap</div>
 				</div>
 
 				<div class="option disabled">
 					<div class="option-title">Threshold recovery (FROST)</div>
 					<div class="option-body">
-						t-of-n signing across paired devices recovers vault access without a
-						server. <strong>Phase 6+.</strong>
+						t-of-n signing across paired devices would recover vault access without a
+						server. <strong>Not shipped yet.</strong> Planned for Tier 3.
 					</div>
-					<div class="option-tag">Coming in Phase 6+</div>
+					<div class="option-tag">Tier 3 roadmap</div>
 				</div>
 			</div>
 
@@ -248,8 +248,9 @@
 			</h1>
 			<p class="lede">
 				This wipes the encrypted vault, account record, and audit log on this device. If
-				you have synced copies elsewhere, this device will re-pull on next sign-in (Phase
-				5+). If this is your only copy, the data is gone — by design.
+				future Tier 2 sync restore is available on your account, this device may be able
+				to re-pull later. Restore is not shipped yet; if this is your only copy, the data
+				is gone — by design.
 			</p>
 
 			<label class="confirm">
@@ -297,17 +298,48 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 32px;
+		padding-top: env(safe-area-inset-top, 0px);
+		padding-left: max(32px, env(safe-area-inset-left, 0px));
+		padding-right: max(32px, env(safe-area-inset-right, 0px));
 		border-bottom: 1px solid var(--border);
 	}
 	.screen-inner {
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
-		padding: 48px 64px;
+		padding-top: max(48px, env(safe-area-inset-top, 0px));
+		padding-right: max(64px, env(safe-area-inset-right, 0px));
+		padding-bottom: max(48px, env(safe-area-inset-bottom, 0px));
+		padding-left: max(64px, env(safe-area-inset-left, 0px));
 		max-width: 760px;
 		gap: 18px;
 		overflow-y: auto;
+	}
+	/* Mobile-first: the prior `.screen-inner` hard-coded 48px/64px
+	   gutters that ate 53% of a 360px viewport. Tighten at tablet
+	   then phone so content actually fits. */
+	@media (max-width: 45em) {
+		.screen-inner {
+			padding-top: 24px;
+			padding-right: max(18px, env(safe-area-inset-right, 0px));
+			padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+			padding-left: max(18px, env(safe-area-inset-left, 0px));
+		}
+	}
+	@media (max-width: 30em) {
+		.screen-inner {
+			padding-top: 18px;
+			padding-right: max(14px, env(safe-area-inset-right, 0px));
+			padding-bottom: max(18px, env(safe-area-inset-bottom, 0px));
+			padding-left: max(14px, env(safe-area-inset-left, 0px));
+			gap: 14px;
+		}
+		.h1 {
+			font-size: clamp(28px, 8vw, 40px);
+		}
+		.lede {
+			font-size: 14px;
+		}
 	}
 	.loading {
 		font-family: var(--font-mono);
@@ -335,7 +367,10 @@
 
 	.options {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		/* `min(100%, 260px)` lets each column shrink to 100% of the
+		   container on narrow viewports instead of forcing a 260px
+		   minimum that would horizontally overflow at 360 px. */
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 		gap: 12px;
 		margin-top: 12px;
 	}

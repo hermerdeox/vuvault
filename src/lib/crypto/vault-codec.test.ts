@@ -4,7 +4,11 @@ import {
 	deserializeItems,
 	VAULT_FORMAT_V1
 } from './vault-codec';
-import type { VaultItem, LoginItem } from '$lib/types/vault-item';
+import type {
+	VaultItem,
+	LoginItem,
+	DocumentItem
+} from '$lib/types/vault-item';
 
 function makeLogin(): LoginItem {
 	return {
@@ -67,5 +71,60 @@ describe('vault-codec', () => {
 		payload[0] = VAULT_FORMAT_V1;
 		payload.set(json, 1);
 		expect(() => deserializeItems(payload)).toThrow(/title must be a string/);
+	});
+
+	it('round-trips a document item with attachment metadata', () => {
+		const doc: DocumentItem = {
+			id: 'doc-1',
+			kind: 'document',
+			title: 'Lease',
+			createdAt: 1_000,
+			updatedAt: 2_000,
+			docDescription: 'Greenville office',
+			docExternalRef: '',
+			docBlobId: '11111111-2222-3333-4444-555555555555',
+			docFileName: 'lease.pdf',
+			docMimeType: 'application/pdf',
+			docSize: 4096,
+			docSha256:
+				'0000000000000000000000000000000000000000000000000000000000000000',
+			docRemote: true
+		};
+		const back = deserializeItems(serializeItems([doc]));
+		expect(back).toHaveLength(1);
+		const restored = back[0]!;
+		expect(restored.kind).toBe('document');
+		if (restored.kind === 'document') {
+			expect(restored.docBlobId).toBe(doc.docBlobId);
+			expect(restored.docFileName).toBe('lease.pdf');
+			expect(restored.docMimeType).toBe('application/pdf');
+			expect(restored.docSize).toBe(4096);
+			expect(restored.docSha256).toHaveLength(64);
+			expect(restored.docRemote).toBe(true);
+		}
+	});
+
+	it('drops unsupported document fields on round-trip', () => {
+		const json = new TextEncoder().encode(
+			JSON.stringify([
+				{
+					id: 'd',
+					kind: 'document',
+					title: 'x',
+					createdAt: 1,
+					updatedAt: 2,
+					docBlobId: 'abc',
+					backdoor: 'unknown-field'
+				}
+			])
+		);
+		const payload = new Uint8Array(1 + json.length);
+		payload[0] = VAULT_FORMAT_V1;
+		payload.set(json, 1);
+		const back = deserializeItems(payload);
+		expect(back).toHaveLength(1);
+		expect(back[0] as unknown as { backdoor?: string }).not.toHaveProperty(
+			'backdoor'
+		);
 	});
 });

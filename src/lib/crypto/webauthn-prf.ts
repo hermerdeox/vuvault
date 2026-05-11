@@ -17,9 +17,10 @@
  * fail closed — there is no silent fallback.
  */
 
-import { getRpId } from '$lib/utils/env';
+import { getRpId, isM3E2eAuthEnabled } from '$lib/utils/env';
 
 const RP_NAME = 'VuVault';
+const M3_E2E_SECRET = new TextEncoder().encode('vuvault-m3-e2e-prf-shim-v1');
 
 export type PasskeyResult = {
 	credentialId: ArrayBuffer;
@@ -76,6 +77,22 @@ export async function registerPasskey(opts: {
 	userId?: Uint8Array;
 	prfSalt?: Uint8Array;
 }): Promise<RegisterOutcome> {
+	if (isM3E2eAuthEnabled() && opts.prfSalt) {
+		const credentialId = crypto.getRandomValues(new Uint8Array(32));
+		const prfOutput = await deriveM3E2ePrf(credentialId, opts.prfSalt);
+		return {
+			ok: true,
+			result: {
+				credentialId: credentialId.buffer.slice(
+					credentialId.byteOffset,
+					credentialId.byteOffset + credentialId.byteLength
+				),
+				publicKey: new ArrayBuffer(0),
+				prfSupported: true,
+				prfOutput
+			}
+		};
+	}
 	if (!isWebAuthnSupported()) {
 		return { ok: false, reason: { kind: 'unsupported' } };
 	}
@@ -155,6 +172,9 @@ export async function evaluatePRF(opts: {
 	credentialId: ArrayBuffer;
 	salt: Uint8Array;
 }): Promise<Uint8Array | null> {
+	if (isM3E2eAuthEnabled()) {
+		return deriveM3E2ePrf(new Uint8Array(opts.credentialId), opts.salt);
+	}
 	if (!isWebAuthnSupported()) return null;
 
 	const challenge = crypto.getRandomValues(new Uint8Array(32));
@@ -183,4 +203,19 @@ export async function evaluatePRF(opts: {
 		console.warn('PRF evaluation failed:', err);
 		return null;
 	}
+}
+
+async function deriveM3E2ePrf(credentialId: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
+	const key = await crypto.subtle.importKey(
+		'raw',
+		M3_E2E_SECRET,
+		{ name: 'HMAC', hash: 'SHA-256' },
+		false,
+		['sign']
+	);
+	const input = new Uint8Array(credentialId.length + salt.length);
+	input.set(credentialId, 0);
+	input.set(salt, credentialId.length);
+	const mac = await crypto.subtle.sign('HMAC', key, input);
+	return new Uint8Array(mac).slice(0, 32);
 }

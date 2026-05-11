@@ -25,95 +25,14 @@
 				<div class="phone">
 					<div class="phone-notch"></div>
 					<div class="phone-screen">
-						<svg viewBox="0 0 360 780" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-							<rect width="360" height="780" fill="#000"/>
-							<text x="28" y="28" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600" fill="#fff">9:41</text>
-							<g transform="translate(280, 18)">
-								<rect x="0" y="2" width="3" height="8" rx="0.5" fill="#fff"/>
-								<rect x="5" y="0" width="3" height="10" rx="0.5" fill="#fff"/>
-								<rect x="10" y="-2" width="3" height="12" rx="0.5" fill="#fff"/>
-								<path d="M22 6 L26 2 L30 6" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-								<path d="M24 6 L26 4 L28 6" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-								<rect x="42" y="0" width="22" height="10" rx="2" fill="none" stroke="#fff" stroke-width="1"/>
-								<rect x="44" y="2" width="14" height="6" rx="0.5" fill="#fff"/>
-								<rect x="64" y="3" width="2" height="4" rx="0.5" fill="#fff"/>
-							</g>
-							<rect x="0" y="44" width="360" height="56" fill="#0a0a0a"/>
-							<line x1="0" y1="100" x2="360" y2="100" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<rect x="20" y="58" width="28" height="28" rx="6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.1)"/>
-							<text x="34" y="78" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="800" fill="#f5f5f0">V</text>
-							<text x="56" y="78" font-family="Instrument Sans, sans-serif" font-size="15" font-weight="700" fill="#fff">VuVault</text>
-							<rect x="262" y="62" width="80" height="22" rx="11" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.3)"/>
-							<circle cx="276" cy="73" r="3" fill="#22c55e"/>
-							<text x="284" y="77" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#22c55e">UNLOCKED</text>
-							<rect x="20" y="116" width="320" height="44" rx="10" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-							<circle cx="38" cy="138" r="6" fill="none" stroke="#666" stroke-width="1.5"/>
-							<line x1="42" y1="142" x2="46" y2="146" stroke="#666" stroke-width="1.5"/>
-							<text x="56" y="142" font-family="Instrument Sans, sans-serif" font-size="13" fill="#666">Search 23 items</text>
-							<text x="20" y="194" font-family="JetBrains Mono, monospace" font-size="10" font-weight="700" fill="#666" letter-spacing="1.5">RECENT</text>
-							<rect x="20" y="208" width="320" height="76" rx="14" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.2)"/>
-							<rect x="36" y="224" width="56" height="44" rx="6" fill="#172a5e"/>
-							<rect x="42" y="234" width="10" height="8" rx="1" fill="#d4af37"/>
-							<text x="64" y="262" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="800" font-style="italic" fill="#f5b234">VISA</text>
-							<text x="108" y="234" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600" fill="#fff">Bank of America</text>
-							<text x="108" y="252" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b8b8">•••• 4821</text>
-							<text x="108" y="270" font-family="Instrument Sans, sans-serif" font-size="11" fill="#666">Visa Signature</text>
-							<path d="M320 246 L326 252 L320 258" stroke="#888" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-							<rect x="20" y="296" width="320" height="68" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="36" y="312" width="36" height="36" rx="8" fill="#2c2c2e"/>
-							<circle cx="54" cy="324" r="6" fill="#888"/>
-							<path d="M44 340 Q54 332 64 340" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round"/>
-							<text x="88" y="324" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600" fill="#fff">github.com</text>
-							<text x="88" y="344" font-family="Instrument Sans, sans-serif" font-size="11" fill="#888">rlopez@vu.app</text>
-							<circle cx="318" cy="330" r="11" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="2"/>
-							<circle cx="318" cy="330" r="11" fill="none" stroke="#00d4ff" stroke-width="2" stroke-dasharray="42 70" transform="rotate(-90 318 330)"/>
-							<text x="318" y="334" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" font-weight="700" fill="#00d4ff">22</text>
-							<text x="20" y="404" font-family="JetBrains Mono, monospace" font-size="10" font-weight="700" fill="#666" letter-spacing="1.5">ALL ITEMS</text>
-							<rect x="20" y="418" width="320" height="56" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="36" y="430" width="32" height="32" rx="7" fill="#2c2c2e"/>
-							<text x="52" y="450" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="700" fill="#888">N</text>
-							<text x="80" y="442" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600" fill="#fff">Netflix</text>
-							<text x="80" y="460" font-family="Instrument Sans, sans-serif" font-size="11" fill="#666">Personal account</text>
-							<rect x="20" y="486" width="320" height="56" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="36" y="498" width="32" height="32" rx="7" fill="#2c2c2e"/>
-							<path d="M44 514 L52 506 L60 514" stroke="#666" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-							<line x1="52" y1="506" x2="52" y2="522" stroke="#666" stroke-width="2" stroke-linecap="round"/>
-							<text x="80" y="510" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600" fill="#fff">Vercel</text>
-							<text x="80" y="528" font-family="Instrument Sans, sans-serif" font-size="11" fill="#666">work.dev</text>
-							<rect x="20" y="554" width="320" height="56" rx="14" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="36" y="566" width="32" height="32" rx="7" fill="#2c2c2e"/>
-							<text x="52" y="586" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700" fill="#888">$_</text>
-							<text x="80" y="578" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600" fill="#fff">prod-server-01</text>
-							<text x="80" y="596" font-family="Instrument Sans, sans-serif" font-size="11" fill="#666">SSH key · ed25519</text>
-							<line x1="20" y1="650" x2="340" y2="650" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="2 4"/>
-							<circle cx="32" cy="668" r="3" fill="#22c55e"/>
-							<text x="44" y="672" font-family="Instrument Sans, sans-serif" font-size="11" fill="#b8b8b8">Local-only · sync arrives Tier 2</text>
-							<text x="32" y="690" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">vault.vu · 12.4 KB · ML-KEM-1024 active</text>
-							<rect x="0" y="708" width="360" height="72" fill="#0a0a0a"/>
-							<line x1="0" y1="708" x2="360" y2="708" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-							<g transform="translate(60, 728)">
-								<rect x="-4" y="-2" width="20" height="16" rx="2" fill="none" stroke="#00d4ff" stroke-width="1.6"/>
-								<path d="M-1 -2 v-3 a3 3 0 0 1 3 -3 h6 a3 3 0 0 1 3 3 v3" fill="none" stroke="#00d4ff" stroke-width="1.6"/>
-								<text x="6" y="32" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="700" fill="#00d4ff">Vault</text>
-							</g>
-							<g transform="translate(155, 728)">
-								<circle cx="6" cy="6" r="10" fill="none" stroke="#888" stroke-width="1.6"/>
-								<line x1="6" y1="2" x2="6" y2="10" stroke="#888" stroke-width="1.6" stroke-linecap="round"/>
-								<line x1="2" y1="6" x2="10" y2="6" stroke="#888" stroke-width="1.6" stroke-linecap="round"/>
-								<text x="6" y="32" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="600" fill="#888">Add</text>
-							</g>
-							<g transform="translate(245, 728)">
-								<path d="M-2 0 L6 -8 L14 0 L6 8 Z" fill="none" stroke="#888" stroke-width="1.6" stroke-linejoin="round"/>
-								<circle cx="6" cy="0" r="2" fill="#888"/>
-								<text x="6" y="32" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="600" fill="#888">Generate</text>
-							</g>
-							<g transform="translate(330, 728)">
-								<circle cx="0" cy="2" r="8" fill="none" stroke="#888" stroke-width="1.6"/>
-								<path d="M-4 2 L0 6 L5 -2" stroke="#888" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-								<text x="0" y="32" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="600" fill="#888">Audit</text>
-							</g>
-							<rect x="120" y="762" width="120" height="5" rx="2.5" fill="#fff" opacity="0.3"/>
-						</svg>
+						<img
+							src="/landing/mobile-mock.svg"
+							alt=""
+							loading="lazy"
+							decoding="async"
+							width="360"
+							height="780"
+						/>
 					</div>
 				</div>
 			</div>
@@ -305,7 +224,8 @@
 		border-radius: 18px;
 		z-index: 5;
 	}
-	.phone-screen svg {
+	.phone-screen svg,
+	.phone-screen img {
 		display: block;
 		width: 100%;
 		height: 100%;

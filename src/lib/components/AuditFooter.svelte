@@ -16,13 +16,24 @@
 	const bundleShort = PUBLIC_BUNDLE_HASH.slice(0, 8);
 	const bytes = $derived(audit.bytesSent);
 	const vaultKB = $derived(Math.max(audit.vaultSizeBytes / 1024, 0).toFixed(1));
-
-	// Until sync ships (M3) the byte counter has nothing to count, so
-	// rendering it as `0 B sent` is a defensible-but-worthless claim that
-	// the user could easily misread as real-time confirmation. Show
-	// "Local-only" instead until isSyncWired() flips, then expose the
-	// counter once there is an actual cross-origin transfer to measure.
 	const syncWired = isSyncWired();
+	const netLabel = $derived.by(() => {
+		switch (vault.syncStatus) {
+			case 'ready':
+				return syncWired ? `Sync ready · ${bytes} B sent` : 'Sync ready';
+			case 'syncing':
+				return 'Syncing';
+			case 'synced':
+				return syncWired ? `Synced · ${bytes} B sent` : 'Synced';
+			case 'failed':
+				return 'Sync failed';
+			case 'no-session':
+				return 'No session';
+			case 'local-only':
+				return 'Local-only';
+		}
+	});
+	const netTitle = $derived(vault.syncMessage);
 
 	// ZK status comes from the vault store: while a vault is unlocked we
 	// hold cleartext in memory, so the precise label is "ZK active";
@@ -51,11 +62,7 @@
 		</div>
 		<div class="stat">
 			<span class="key">Net</span>
-			{#if syncWired}
-				<span class="val accent">{bytes} B sent</span>
-			{:else}
-				<span class="val accent">Local-only</span>
-			{/if}
+			<span class="val accent" title={netTitle}>{netLabel}</span>
 		</div>
 		<div class="stat">
 			<span class="key">ZK</span>

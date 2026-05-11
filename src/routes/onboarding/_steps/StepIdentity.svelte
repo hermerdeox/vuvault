@@ -119,6 +119,15 @@
 		font-family: var(--font-mono);
 		transition: var(--transition);
 	}
+	:global(html[data-vp~='mobile']) .chip,
+	:global(html[data-vp~='tablet']) .chip {
+		/* Bump the suggestion chips to a comfortable touch target on
+		   mobile. Desktop stays compact so the 5-chip row sits next to
+		   the input. */
+		min-height: 44px;
+		padding: 10px 16px;
+		font-size: 13px;
+	}
 	.chip:hover {
 		background: var(--accent-dim);
 		border-color: var(--accent);

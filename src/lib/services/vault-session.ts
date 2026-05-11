@@ -10,11 +10,16 @@
  *
  *   formatVersion 2 (Milestone 2):
  *     vaultKey = HKDF-SHA512(prfOutput ‖ secretKey [‖ mpk?] [‖ opaqueExp?],
- *                            deviceSalt, "vuvault-vault-key-v2")
+ *                            deviceSalt, "vuvault-vault-key-v1")
  *     aesKey   = crypto.getRandomValues(32)
  *     wrapped  = wrapAesKey(vaultKey, deviceSalt, aesKey)  -> hybrid envelope
  *     blob     = AES-256-GCM(aesKey, nonce, plaintext, aad)
  *     header   = serializeWrappedKey(wrapped)              -> 1660 bytes
+ *
+ * The HKDF info string is intentionally `vuvault-vault-key-v1` for both
+ * versions — see `src/lib/crypto/derive.ts`. The `formatVersion` byte is
+ * bound in AAD instead, which keeps the v1→v2 in-place upgrade path
+ * decryptable while still authenticating the format choice.
  *
  * The v2 AAD layout adds the SHA-384 of `header` so the wrapped key
  * cannot be swapped between accounts without breaking decrypt.
@@ -45,6 +50,7 @@
 
 import { gcm } from '@noble/ciphers/aes';
 import { hmac } from '@noble/hashes/hmac';
+import { sha256 } from '@noble/hashes/sha2';
 import { sha384, sha512 } from '@noble/hashes/sha2';
 import { deriveVaultKey, generateDeviceSalt } from '$lib/crypto/derive';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
@@ -59,8 +65,8 @@ import {
 	getAccount,
 	getVault,
 	saveAccountAndVault,
-	saveAccount,
 	saveVault,
+	saveExistingAccountAndVault,
 	type AccountRecord,
 	type AuthMode
 } from '$lib/utils/storage';
@@ -143,6 +149,14 @@ export type SyncObserver = {
 	onPullSkipped?(info: { reason: string }): void;
 };
 
+export type SyncNowResult =
+	| { status: 'not-wired'; message: string }
+	| { status: 'no-session'; message: string }
+	| { status: 'locked'; message: string }
+	| { status: 'local-newer'; message: string }
+	| { status: 'promoted'; message: string; sequenceClock: number; items: VaultItem[] }
+	| { status: 'failed'; message: string };
+
 let syncObserver: SyncObserver = {};
 
 export function setSyncObserver(observer: SyncObserver): void {
@@ -220,6 +234,75 @@ async function pullBlobFromServer(): Promise<BlobBytes | null> {
 	};
 }
 
+export async function syncNow(): Promise<SyncNowResult> {
+	if (!isSyncWired()) {
+		return { status: 'not-wired', message: 'Sync server not configured.' };
+	}
+	if (!hasSession()) {
+		return { status: 'no-session', message: 'No active sync session. Unlock with OPAQUE to sync.' };
+	}
+	if (!vaultKey || !aesKey) {
+		return { status: 'locked', message: 'Vault must be unlocked before syncing.' };
+	}
+	const account = await getAccount();
+	if (!account) return { status: 'failed', message: 'Account row missing.' };
+	if (account.formatVersion !== PROVISION_FORMAT_VERSION) {
+		return {
+			status: 'failed',
+			message: 'Sync requires a formatVersion 2 vault. Save once to upgrade.'
+		};
+	}
+	try {
+		const localVault = await getVault();
+		if (localVault) {
+			await pushBlobToServer({
+				header: localVault.header,
+				nonce: localVault.nonce,
+				ciphertext: localVault.ciphertext
+			});
+		}
+		const remote = await pullBlobFromServer();
+		if (!remote) {
+			return { status: 'local-newer', message: 'No newer remote vault found.' };
+		}
+		const remoteAad = makeAad(
+			account.formatVersion,
+			account.authMode,
+			account.deviceSalt,
+			account.credentialId,
+			remote.header
+		);
+		const remoteWrapped = deserializeWrappedKey(remote.header);
+		const remoteAesKey = unwrapAesKey(vaultKey, account.deviceSalt, remoteWrapped);
+		try {
+			const remotePlaintext = openBlob(remoteAesKey, remote.nonce, remote.ciphertext, remoteAad);
+			const remoteItems = deserializeItems(remotePlaintext);
+			await saveVault({
+				header: remote.header,
+				nonce: remote.nonce,
+				ciphertext: remote.ciphertext,
+				updatedAt: Date.now()
+			});
+			const previousAesKey = aesKey;
+			aesKey = remoteAesKey;
+			if (previousAesKey && previousAesKey !== remoteAesKey) zeroize(previousAesKey);
+			return {
+				status: 'promoted',
+				message: 'Pulled newer vault from sync server.',
+				sequenceClock,
+				items: remoteItems
+			};
+		} catch (err) {
+			zeroize(remoteAesKey);
+			throw err;
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : 'Sync failed.';
+		syncObserver.onPullSkipped?.({ reason: 'sync-now-failed' });
+		return { status: 'failed', message };
+	}
+}
+
 function zeroize(buf: Uint8Array | null): void {
 	if (buf) buf.fill(0);
 }
@@ -289,6 +372,126 @@ function openBlob(
 	aad: Uint8Array
 ): Uint8Array {
 	return gcm(key, nonce, aad).decrypt(ciphertext);
+}
+
+// -----------------------------------------------------------------------------
+// Document blob crypto
+// -----------------------------------------------------------------------------
+//
+// Documents live in their own Dexie table (`documentBlobs`) so a single
+// multi-megabyte file doesn't force re-encryption of every other vault
+// item on each persist. The seal uses the SAME session AES key as the
+// rest of the vault — losing the document blob to a server-side breach
+// doesn't help the attacker because they still need PRF + Secret Key
+// (+ optional MPK + OPAQUE) to derive that key.
+//
+// The AAD domain is distinct (`vuvault-doc-aad-v1`) so a document blob
+// cannot be silently replayed as a whole-vault blob, and is bound to:
+//   domain ‖ blobId(utf8) ‖ deviceSaltDigest(32) ‖ credDigest(32)
+//
+// `blobId` is the random UUID assigned to the document at upload time,
+// which is also the Dexie primary key and the R2 object key suffix.
+
+const DOC_AAD_DOMAIN = new TextEncoder().encode('vuvault-doc-aad-v1');
+
+function makeDocAad(
+	blobId: string,
+	deviceSalt: Uint8Array,
+	credentialId: ArrayBuffer
+): Uint8Array {
+	const idBytes = new TextEncoder().encode(blobId);
+	const credBytes = new Uint8Array(credentialId);
+	const credDigest = sha384(credBytes).slice(0, 32);
+	const saltDigest = sha384(deviceSalt).slice(0, 32);
+	const len =
+		DOC_AAD_DOMAIN.length +
+		2 +
+		idBytes.length +
+		saltDigest.length +
+		credDigest.length;
+	const out = new Uint8Array(len);
+	let off = 0;
+	out.set(DOC_AAD_DOMAIN, off);
+	off += DOC_AAD_DOMAIN.length;
+	// Length-prefix the blob id so the AAD remains unambiguous if a
+	// future migration changes the id format.
+	out[off++] = (idBytes.length >>> 8) & 0xff;
+	out[off++] = idBytes.length & 0xff;
+	out.set(idBytes, off);
+	off += idBytes.length;
+	out.set(saltDigest, off);
+	off += saltDigest.length;
+	out.set(credDigest, off);
+	return out;
+}
+
+export type SealedDocument = {
+	blobId: string;
+	nonce: Uint8Array;
+	ciphertext: Uint8Array;
+	size: number;
+	sha256Hex: string;
+};
+
+/**
+ * Encrypt a document's plaintext bytes under the active session AES
+ * key with a document-scoped AAD. Returns the seal envelope plus a
+ * SHA-256 of the plaintext for integrity display. Requires the vault
+ * to be unlocked — fails closed otherwise.
+ */
+export async function sealDocument(
+	plaintext: Uint8Array,
+	opts: { blobId?: string } = {}
+): Promise<SealedDocument> {
+	if (!aesKey) {
+		throw new Error('sealDocument: vault must be unlocked first');
+	}
+	const account = await getAccount();
+	if (!account) {
+		throw new Error('sealDocument: account row missing');
+	}
+	const blobId = opts.blobId ?? crypto.randomUUID();
+	const aad = makeDocAad(blobId, account.deviceSalt, account.credentialId);
+	const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
+	const ciphertext = gcm(aesKey, nonce, aad).encrypt(plaintext);
+	const digest = sha256(plaintext);
+	let hex = '';
+	for (const b of digest) hex += b.toString(16).padStart(2, '0');
+	return {
+		blobId,
+		nonce,
+		ciphertext,
+		size: plaintext.length,
+		sha256Hex: hex
+	};
+}
+
+/**
+ * Decrypt a previously sealed document. Throws on AES-GCM auth
+ * failure (wrong vault, tampered blob, mismatched blobId AAD, etc.).
+ */
+export async function openDocument(input: {
+	blobId: string;
+	nonce: Uint8Array;
+	ciphertext: Uint8Array;
+}): Promise<Uint8Array> {
+	if (!aesKey) {
+		throw new Error('openDocument: vault must be unlocked first');
+	}
+	const account = await getAccount();
+	if (!account) {
+		throw new Error('openDocument: account row missing');
+	}
+	const aad = makeDocAad(input.blobId, account.deviceSalt, account.credentialId);
+	return gcm(aesKey, input.nonce, aad).decrypt(input.ciphertext);
+}
+
+/** Public hex SHA-256 helper for parity tests / UI integrity hashes. */
+export function sha256Hex(bytes: Uint8Array): string {
+	const digest = sha256(bytes);
+	let hex = '';
+	for (const b of digest) hex += b.toString(16).padStart(2, '0');
+	return hex;
 }
 
 /**
@@ -654,12 +857,27 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 		nonce: sealed.nonce,
 		ciphertext: sealed.ciphertext
 	};
-	await saveVault({
-		header,
-		nonce: sealed.nonce,
-		ciphertext: sealed.ciphertext,
-		updatedAt: Date.now()
-	});
+	const updatedAt = Date.now();
+	if (upgrading) {
+		const nextAccount: AccountRecord = {
+			...account,
+			formatVersion: targetVersion
+		};
+		await saveExistingAccountAndVault(nextAccount, {
+			header,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext,
+			updatedAt
+		});
+		activeFormatVersion = targetVersion;
+	} else {
+		await saveVault({
+			header,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext,
+			updatedAt
+		});
+	}
 	// Fire-and-forget upload to the sync server. The local Dexie
 	// write is the source of truth; if upload fails (network down,
 	// rate-limited, etc.) the observer logs and we move on. The
@@ -670,26 +888,6 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 			message: err instanceof Error ? err.message : 'sync push crashed'
 		});
 	});
-
-	if (upgrading) {
-		// Bump `formatVersion` on the account row so subsequent unlocks
-		// take the v2 path. Same-tx atomicity isn't strictly required
-		// here — both rows are independent under v2 — but the order
-		// matters: the vault row is already persisted as v2 above, so
-		// even if the account update fails, a future open() reads the
-		// stale `formatVersion === 1`, fails AAD, and the user retries.
-		await saveAccount({
-			deviceLabel: account.deviceLabel,
-			deviceSalt: account.deviceSalt,
-			credentialId: account.credentialId,
-			credentialPublicKey: account.credentialPublicKey,
-			authMode: account.authMode,
-			formatVersion: targetVersion,
-			createdAt: account.createdAt,
-			plan: account.plan
-		});
-		activeFormatVersion = targetVersion;
-	}
 	aesKey = activeAesKey;
 }
 

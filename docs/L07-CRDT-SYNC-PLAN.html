@@ -1,0 +1,1036 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>L07 Encrypted CRDT Sync — Implementation Plan</title>
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<meta name="referrer" content="no-referrer" />
+		<style>
+			:root {
+				--bg: #0a0a0b;
+				--bg-elev: #111114;
+				--surface: rgba(255, 255, 255, 0.04);
+				--surface-hover: rgba(255, 255, 255, 0.07);
+				--border: rgba(255, 255, 255, 0.08);
+				--border-mid: rgba(255, 255, 255, 0.15);
+				--text: #f5f5f0;
+				--text-2: #c4c4be;
+				--text-3: #8a8a82;
+				--text-4: #4f4f4a;
+				--accent: #00d4ff;
+				--accent-dim: rgba(0, 212, 255, 0.12);
+				--accent-faint: rgba(0, 212, 255, 0.06);
+				--success: #22c55e;
+				--warn: #ffa500;
+				--danger: #ef4444;
+				--radius: 10px;
+				--radius-sm: 6px;
+				--radius-xs: 4px;
+				--font-sans:
+					'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+					system-ui, sans-serif;
+				--font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+				--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+			}
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			html,
+			body {
+				background: var(--bg);
+				color: var(--text);
+				font-family: var(--font-sans);
+				font-size: 15px;
+				line-height: 1.55;
+				letter-spacing: -0.005em;
+			}
+			body {
+				max-width: 1080px;
+				margin: 0 auto;
+				padding: 48px 32px 96px;
+			}
+			header.hero {
+				margin-bottom: 32px;
+				padding-bottom: 24px;
+				border-bottom: 1px solid var(--border);
+			}
+			.eyebrow {
+				display: inline-flex;
+				align-items: center;
+				gap: 8px;
+				font-family: var(--font-mono);
+				font-size: 11px;
+				font-weight: 700;
+				color: var(--accent);
+				letter-spacing: 0.12em;
+				text-transform: uppercase;
+				margin-bottom: 12px;
+			}
+			.eyebrow::before {
+				content: '';
+				width: 6px;
+				height: 6px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 8px var(--accent-dim);
+			}
+			h1 {
+				font-size: clamp(28px, 4vw, 44px);
+				font-weight: 700;
+				letter-spacing: -0.025em;
+				line-height: 1.1;
+			}
+			.serif {
+				font-family: var(--font-serif);
+				font-style: italic;
+				font-weight: 400;
+			}
+			.subtitle {
+				margin-top: 14px;
+				font-size: 16px;
+				color: var(--text-2);
+				max-width: 760px;
+			}
+			.meta {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 8px;
+				margin-top: 18px;
+			}
+			.tag {
+				padding: 4px 10px;
+				font-family: var(--font-mono);
+				font-size: 10px;
+				font-weight: 600;
+				color: var(--text-2);
+				background: var(--surface);
+				border: 1px solid var(--border);
+				border-radius: 999px;
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+			}
+			.tag.scope { color: var(--accent); border-color: rgba(0, 212, 255, 0.3); background: var(--accent-faint); }
+			.tag.risk-low { color: var(--success); border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.08); }
+			.tag.risk-med { color: var(--warn); border-color: rgba(255, 165, 0, 0.3); background: rgba(255, 165, 0, 0.08); }
+			.tag.risk-high { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.08); }
+			h2 {
+				font-size: 22px;
+				font-weight: 700;
+				margin: 48px 0 14px;
+				letter-spacing: -0.015em;
+				display: flex;
+				align-items: baseline;
+				gap: 10px;
+			}
+			h2::before {
+				content: counter(section) ".";
+				counter-increment: section;
+				font-family: var(--font-mono);
+				font-size: 13px;
+				font-weight: 700;
+				color: var(--accent);
+				letter-spacing: 0;
+			}
+			body {
+				counter-reset: section;
+			}
+			h3 {
+				font-size: 16px;
+				font-weight: 700;
+				margin: 28px 0 10px;
+				color: var(--text);
+				letter-spacing: -0.005em;
+			}
+			h4 {
+				font-size: 13px;
+				font-weight: 700;
+				margin: 20px 0 8px;
+				color: var(--text-2);
+				font-family: var(--font-mono);
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+			}
+			p {
+				margin-bottom: 12px;
+				color: var(--text-2);
+			}
+			ul,
+			ol {
+				margin: 0 0 16px 24px;
+				color: var(--text-2);
+			}
+			li {
+				margin-bottom: 6px;
+			}
+			strong {
+				color: var(--text);
+				font-weight: 600;
+			}
+			em {
+				color: var(--text-2);
+				font-style: italic;
+			}
+			code {
+				font-family: var(--font-mono);
+				font-size: 12px;
+				padding: 1px 6px;
+				background: var(--surface);
+				border: 1px solid var(--border);
+				border-radius: var(--radius-xs);
+				color: var(--accent);
+			}
+			pre {
+				margin: 14px 0 18px;
+				padding: 16px 18px;
+				background: var(--bg-elev);
+				border: 1px solid var(--border);
+				border-left: 2px solid var(--accent);
+				border-radius: var(--radius);
+				font-family: var(--font-mono);
+				font-size: 12px;
+				line-height: 1.55;
+				color: var(--text-2);
+				overflow-x: auto;
+				white-space: pre;
+			}
+			pre code {
+				background: transparent;
+				border: none;
+				padding: 0;
+				color: inherit;
+			}
+			.callout {
+				margin: 18px 0;
+				padding: 14px 18px;
+				background: var(--accent-faint);
+				border: 1px solid rgba(0, 212, 255, 0.2);
+				border-left: 3px solid var(--accent);
+				border-radius: var(--radius);
+				font-size: 13px;
+				color: var(--text-2);
+			}
+			.callout.warn {
+				background: rgba(255, 165, 0, 0.06);
+				border-color: rgba(255, 165, 0, 0.3);
+				border-left-color: var(--warn);
+			}
+			.callout.danger {
+				background: rgba(239, 68, 68, 0.06);
+				border-color: rgba(239, 68, 68, 0.3);
+				border-left-color: var(--danger);
+			}
+			.callout strong {
+				color: var(--text);
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				margin: 12px 0 24px;
+				font-size: 13px;
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+				overflow: hidden;
+			}
+			th,
+			td {
+				padding: 10px 14px;
+				text-align: left;
+				border-bottom: 1px solid var(--border);
+				vertical-align: top;
+			}
+			th {
+				background: var(--surface);
+				font-weight: 700;
+				font-size: 11px;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				color: var(--text-3);
+				font-family: var(--font-mono);
+			}
+			tr:last-child td {
+				border-bottom: none;
+			}
+			td.mono {
+				font-family: var(--font-mono);
+				font-size: 12px;
+				color: var(--text);
+			}
+			.diagram {
+				margin: 18px 0;
+				padding: 18px 20px;
+				background: var(--bg-elev);
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+				font-family: var(--font-mono);
+				font-size: 11px;
+				line-height: 1.65;
+				color: var(--text-2);
+				overflow-x: auto;
+				white-space: pre;
+			}
+			.diagram .arrow {
+				color: var(--accent);
+			}
+			.diagram .box {
+				color: var(--text);
+				font-weight: 600;
+			}
+			.kbd {
+				font-family: var(--font-mono);
+				font-size: 11px;
+				padding: 1px 6px;
+				background: var(--surface-strong, var(--surface));
+				border: 1px solid var(--border-mid);
+				border-radius: var(--radius-xs);
+				color: var(--text-2);
+			}
+			.toc {
+				margin: 24px 0 32px;
+				padding: 18px 20px;
+				background: var(--bg-elev);
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+			}
+			.toc-title {
+				font-family: var(--font-mono);
+				font-size: 10px;
+				font-weight: 700;
+				color: var(--text-3);
+				letter-spacing: 0.12em;
+				text-transform: uppercase;
+				margin-bottom: 10px;
+			}
+			.toc ol {
+				margin: 0 0 0 24px;
+			}
+			.toc a {
+				color: var(--text-2);
+				text-decoration: none;
+			}
+			.toc a:hover {
+				color: var(--accent);
+			}
+			.summary-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+				gap: 12px;
+				margin: 18px 0 24px;
+			}
+			.summary-card {
+				padding: 14px 16px;
+				background: var(--surface);
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+			}
+			.summary-card .k {
+				font-family: var(--font-mono);
+				font-size: 10px;
+				color: var(--text-3);
+				letter-spacing: 0.1em;
+				text-transform: uppercase;
+			}
+			.summary-card .v {
+				font-size: 22px;
+				font-weight: 700;
+				color: var(--text);
+				margin-top: 4px;
+				letter-spacing: -0.015em;
+			}
+			.summary-card .v.accent {
+				color: var(--accent);
+			}
+			.summary-card .v.warn {
+				color: var(--warn);
+			}
+			.summary-card .d {
+				margin-top: 4px;
+				font-size: 11px;
+				color: var(--text-3);
+			}
+			footer {
+				margin-top: 64px;
+				padding-top: 24px;
+				border-top: 1px solid var(--border);
+				font-family: var(--font-mono);
+				font-size: 11px;
+				color: var(--text-3);
+				letter-spacing: 0.04em;
+			}
+		</style>
+	</head>
+	<body>
+		<header class="hero">
+			<div class="eyebrow">L07 · Tier 2 · 2027 Q2</div>
+			<h1>
+				Encrypted CRDT sync <span class="serif">— what it takes to ship.</span>
+			</h1>
+			<p class="subtitle">
+				Plan-of-record for L07 from the
+				<a href="ROADMAP.md" style="color: var(--accent)">VuVault roadmap</a>.
+				Item-level CRDTs over the existing M3 D1/R2 sync transport, field-wise
+				encrypted with HPKE (RFC 9180) under a per-vault hybrid X25519 +
+				ML-KEM-768 key. Server sees opaque ciphertext deltas; cannot infer
+				item structure, fields, or relations.
+			</p>
+			<div class="meta">
+				<span class="tag scope">Scope · Tier 2</span>
+				<span class="tag">Standards · Yjs · RFC 9180 · FIPS 203</span>
+				<span class="tag risk-med">Crypto risk · medium</span>
+				<span class="tag risk-med">Integration risk · medium</span>
+				<span class="tag">Estimate · 9–12 eng weeks</span>
+				<span class="tag">Audit gate · firm-of-record (Tier 1 audit must close first)</span>
+			</div>
+		</header>
+
+		<div class="toc">
+			<div class="toc-title">Sections</div>
+			<ol>
+				<li><a href="#summary">Executive summary</a></li>
+				<li><a href="#foundations">Foundations the plan builds on</a></li>
+				<li><a href="#datamodel">CRDT data model</a></li>
+				<li><a href="#crypto">Cryptographic envelope (HPKE + hybrid KEM)</a></li>
+				<li><a href="#protocol">Wire protocol &amp; server schema</a></li>
+				<li><a href="#client">Client-side architecture</a></li>
+				<li><a href="#migration">Migration: v2 single-blob → v3 CRDT-deltas</a></li>
+				<li><a href="#sharing">Cross-device key distribution</a></li>
+				<li><a href="#zk">Zero-knowledge boundary &amp; metadata leakage analysis</a></li>
+				<li><a href="#phases">Implementation phases &amp; deliverables</a></li>
+				<li><a href="#testing">Testing &amp; verification strategy</a></li>
+				<li><a href="#risk">Risk register</a></li>
+				<li><a href="#estimate">Effort estimate</a></li>
+				<li><a href="#out-of-scope">Out of scope</a></li>
+			</ol>
+		</div>
+
+		<h2 id="summary">Executive summary</h2>
+		<div class="summary-grid">
+			<div class="summary-card">
+				<div class="k">Reuses M3</div>
+				<div class="v accent">100%</div>
+				<div class="d">D1 + R2 + OPAQUE KE3 transport stays; only the blob schema changes.</div>
+			</div>
+			<div class="summary-card">
+				<div class="k">New runtime deps</div>
+				<div class="v">2</div>
+				<div class="d">`yjs` and `@noble/hashes`-driven HPKE (no `hpke-js`; we keep the dep budget tight).</div>
+			</div>
+			<div class="summary-card">
+				<div class="k">Format version</div>
+				<div class="v accent">v3</div>
+				<div class="d">Atomic upgrade-on-write from v2 single-blob, identical to the v1→v2 path.</div>
+			</div>
+			<div class="summary-card">
+				<div class="k">Audit gate</div>
+				<div class="v warn">M4</div>
+				<div class="d">Tier 1 audit (Cure53/NCC/ToB) must close before L07 ships to keep the "audit before ship" cadence honest.</div>
+			</div>
+		</div>
+		<p>
+			L07 turns a vault from a single AES-GCM blob into a stream of <em>field-level</em>
+			deltas encrypted with HPKE under a per-vault hybrid X25519 + ML-KEM-768 key.
+			Two devices sharing a vault each hold the same hybrid private key (distributed
+			via L06 MLS or L08 WebRTC pairing) and apply each other's deltas locally via
+			Yjs CRDT merge semantics. The server sees an append-only log of opaque
+			ciphertext frames, indexed by `(accountId, deviceId, sequenceClock)` — it
+			cannot tell whether a delta is a password change, a TOTP rotation, or a new
+			item; cannot tell two deltas modify the same item; cannot tell how many
+			items exist (within bucketed padding); cannot replay across devices because
+			each device has a distinct HPKE key-share.
+		</p>
+		<p>
+			The crucial architectural insight: L07 does <strong>not</strong> require a
+			new transport. The M3 R2 blob endpoints already accept opaque ciphertext
+			fragments authenticated by an OPAQUE KE3 bearer token. The change is
+			(a) the blob is now a CRDT delta-frame instead of a sealed AES-GCM
+			whole-vault envelope, (b) the server keeps an append-only log per account
+			rather than one row, (c) the client maintains a Yjs in-memory document
+			synced incrementally.
+		</p>
+
+		<h2 id="foundations">Foundations the plan builds on</h2>
+		<p>
+			L07 sits on top of every piece M3 already shipped. Nothing here re-invents
+			the OPAQUE handshake or the bundle integrity verifier.
+		</p>
+		<table>
+			<thead>
+				<tr>
+					<th>From</th>
+					<th>Already ships</th>
+					<th>L07 reuse</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="mono">M1</td>
+					<td>Dexie atomic transactions; AAD-bound AES-GCM; SECRET_FIELDS_BY_KIND zeroize map.</td>
+					<td>Local persistence stays Dexie; AAD pattern reused per delta-frame; field-level zeroize applies per-CRDT-field.</td>
+				</tr>
+				<tr>
+					<td class="mono">M2</td>
+					<td>Hybrid X25519 + ML-KEM-1024 envelope, HKDF-SHA512, OPAQUE export key.</td>
+					<td>Per-vault sync key derived from the existing OPAQUE export key + per-vault salt; reuse the hybrid envelope primitives.</td>
+				</tr>
+				<tr>
+					<td class="mono">M3</td>
+					<td>D1 sessions table; R2 blob upload/fetch; KE3 bearer tokens; monotonic sequence clock; fail-closed rate limits; release artifact gate.</td>
+					<td>Drop in a `vaults/{accountId}/deltas/{seq}.bin` schema alongside the existing `vaults/{accountId}/{seq}.bin`; same auth + rate-limit path.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2 id="datamodel">CRDT data model</h2>
+		<p>
+			Yjs is the chosen CRDT runtime. It is the only mature browser CRDT with a
+			stable wire format (`Y.encodeStateAsUpdate`, `Y.applyUpdate`), a minimal
+			footprint (~80 KB minified), and zero dependencies on a particular network
+			transport. Each vault is one `Y.Doc`.
+		</p>
+
+		<h3>Document layout</h3>
+		<pre><code>vault: Y.Doc
+├─ items: Y.Map&lt;ItemId, Y.Map&lt;FieldName, EncryptedField&gt;&gt;
+├─ deletions: Y.Map&lt;ItemId, Y.Map&lt;'at' | 'by', Y.Text | number&gt;&gt;
+├─ meta: Y.Map&lt;'formatVersion' | 'createdAt' | 'lastEditAt', any&gt;
+└─ devices: Y.Map&lt;DeviceId, Y.Map&lt;'pairedAt' | 'lastSeen' | 'label', any&gt;&gt;</code></pre>
+		<p>
+			Each item is a <em>nested</em> <code>Y.Map</code> so that two devices
+			editing different fields of the same item produce non-conflicting deltas.
+			Per-field <code>EncryptedField</code> values are HPKE ciphertexts — the
+			CRDT layer treats them as opaque <code>Uint8Array</code>s. The cleartext is
+			derived in a <em>shadow map</em> kept only in `vault-session.ts`'s memory
+			footprint; it never enters the Yjs document state.
+		</p>
+
+		<h3>Why field-level rather than item-level</h3>
+		<ul>
+			<li>
+				A password rotation generates one delta of ~120 bytes (HPKE-encrypted
+				new password). Item-level encryption would require re-encrypting every
+				field whether changed or not.
+			</li>
+			<li>
+				Conflict resolution is mechanical: <code>password</code> is
+				last-writer-wins per device clock; <code>tags</code> are a
+				<code>Y.Array</code> (commutative add/remove); <code>notes</code> is a
+				<code>Y.Text</code> with character-level merge. Yjs does all of this by
+				construction — VuVault writes zero merge code.
+			</li>
+			<li>
+				Server cannot tell which field changed because the ciphertext
+				envelope hides the field name (the HPKE AAD binds the field name but
+				the ciphertext is field-name-agnostic from outside).
+			</li>
+		</ul>
+
+		<h3>Field-merge policy by kind</h3>
+		<table>
+			<thead>
+				<tr>
+					<th>Field kind</th>
+					<th>Yjs primitive</th>
+					<th>Conflict semantics</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr><td>scalar (password, username, cardNumber, …)</td><td><code>Y.Map.set(value)</code></td><td>Last-writer-wins by Lamport clock.</td></tr>
+				<tr><td>note body, ssh key body</td><td><code>Y.Text</code></td><td>Char-level OT; concurrent edits interleave deterministically.</td></tr>
+				<tr><td>tags, websites[]</td><td><code>Y.Array</code></td><td>Commutative add/remove; duplicates collapsed by post-merge sweep.</td></tr>
+				<tr><td>kind, createdAt</td><td><code>Y.Map.set</code> with first-write-only assertion</td><td>Refuse re-write at client; assertion failure logs to audit.</td></tr>
+			</tbody>
+		</table>
+
+		<h2 id="crypto">Cryptographic envelope (HPKE + hybrid KEM)</h2>
+		<p>
+			Each field write generates one <strong>HPKE single-shot encryption</strong>
+			(<a href="https://datatracker.ietf.org/doc/html/rfc9180" style="color: var(--accent)">RFC 9180</a>),
+			Mode-Base, with the following suite:
+		</p>
+		<table>
+			<thead>
+				<tr><th>HPKE component</th><th>Choice</th><th>Rationale</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>KEM</td><td><code>DHKEM(X25519, HKDF-SHA-256)</code> + ML-KEM-768 concat</td><td>Hybrid PQ-safe like M2's envelope. Use <code>concatKDF(X25519_ss, ML_KEM_ss)</code> as the KEM shared-secret. ML-KEM-768 (smaller than 1024) because per-field deltas value bandwidth more than headroom.</td></tr>
+				<tr><td>KDF</td><td><code>HKDF-SHA-512</code></td><td>Same KDF as M2; no new primitives to audit.</td></tr>
+				<tr><td>AEAD</td><td><code>AES-256-GCM</code></td><td>Same AEAD as M2; reuse <code>@noble/ciphers/aes</code>.</td></tr>
+			</tbody>
+		</table>
+
+		<h3>Per-vault key derivation</h3>
+		<pre><code>// At provisioning time (one-time)
+exportKey      = OPAQUE.exportKey                  // from M3 KE3
+vaultSyncSeed  = HKDF(exportKey, "vuvault-l07-sync-seed-v1", deviceSalt, 64)
+hybridSeed     = HKDF(vaultSyncSeed, "vuvault-l07-hybrid-v1", null, 32)
+(xPub, xPriv)  = x25519.fromSeed(hybridSeed[0..32])
+(kPub, kPriv)  = ml_kem768.keygen(hybridSeed[32..64])
+vaultPubBundle = xPub || kPub                      // 32 + 1184 = 1216 bytes
+vaultPrivBndl  = xPriv || kPriv                    // 32 + 2400 = 2432 bytes</code></pre>
+
+		<h3>Encrypt-one-field</h3>
+		<pre><code>seal(field: { itemId, name, value }, deviceId, lamportClock):
+  ad   = "vuvault-l07-ad-v1" ||
+         formatVersionByte    ||  // 0x03
+         accountIdBytes       ||  // server-allocated; bound for replay-resist
+         deviceIdBytes        ||  // 16 bytes; per-device clock binding
+         u64be(lamportClock)
+  // RFC 9180 §6.1 single-shot:
+  (enc, ct) = HPKE.SealBase(vaultPubBundle, info="l07-field", ad, plaintext = encode(field))
+  frame     = enc || ct
+  return frame                    // ~ 1216 + len(field) + 16 (AEAD tag) bytes</code></pre>
+		<div class="callout">
+			<strong>Why include the field name in the plaintext, not in the AAD.</strong>
+			Putting the field name in the AAD would force a different ciphertext per
+			field even for identical values, which is fine, but it would also let an
+			attacker who learns one plaintext run a field-name oracle against future
+			ciphertexts. Encoding the field name <em>inside</em> the plaintext keeps
+			the ciphertext semantics-blind to a server inspector.
+		</div>
+
+		<h3>Decrypt</h3>
+		<pre><code>open(frame: Uint8Array, deviceId, lamportClock):
+  enc, ct = split(frame, hpke.encSize)            // 1216 bytes prefix
+  field    = HPKE.OpenBase(vaultPrivBundle, enc, info="l07-field", ad, ct)
+  return decode(field)</code></pre>
+
+		<h3>Sizes</h3>
+		<table>
+			<thead>
+				<tr><th>Concept</th><th>Size</th><th>Notes</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>HPKE enc prefix (X25519 + ML-KEM-768)</td><td>1216 B</td><td>Per-field. Amortized over deltas, this is the dominant cost.</td></tr>
+				<tr><td>HPKE tag</td><td>16 B</td><td>GCM auth tag.</td></tr>
+				<tr><td>Padded field plaintext</td><td>bucketed: 64 / 256 / 1024 / 4096 / 16384 B</td><td>Power-of-two bucketing — same pattern as L06's MLS framing — defeats size-class oracles.</td></tr>
+				<tr><td>Yjs delta header</td><td>~16 B</td><td>Lamport clock + item ID prefix.</td></tr>
+				<tr><td>Typical password-rotation delta</td><td>~1.3 KB</td><td>One HPKE frame, 64-byte bucket.</td></tr>
+				<tr><td>Add-new-item delta</td><td>~6–9 KB</td><td>10 fields × 1.3 KB amortized (some buckets larger).</td></tr>
+			</tbody>
+		</table>
+
+		<h2 id="protocol">Wire protocol &amp; server schema</h2>
+
+		<div class="diagram"><span class="box">Client A</span>                                <span class="box">Server (Cloudflare Worker)</span>                          <span class="box">Client B</span>
+   │                                          │                                              │
+   │ POST /api/sync/deltas                    │                                              │
+   │   { sequenceClock, frame }               │                                              │
+   │   Bearer &lt;KE3 token&gt;                     │                                              │
+   │ ───────────────────────────────────────► │                                              │
+   │                                          │ Append-only insert into R2 + D1:             │
+   │                                          │   key = vaults/{acct}/deltas/{seq}.bin       │
+   │                                          │   row = (acct, seq, deviceId, len, sha384)   │
+   │ ◄─────────────────────── { seq, t }      │                                              │
+   │                                          │                                              │
+   │                                          │ GET /api/sync/deltas?since=N                 │
+   │                                          │ ◄────────────────────────────────────────────│
+   │                                          │ ────────► [{seq, frame}, ...] (up to 4 MiB)  │
+   │                                          │           Y.applyUpdate(frame)               │
+   │                                          │           merges into local Y.Doc            │
+</div>
+
+		<h3>D1 schema additions (migration <code>0002_l07_deltas.sql</code>)</h3>
+		<pre><code>CREATE TABLE IF NOT EXISTS deltas (
+    account_id     TEXT NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+    sequence_clock INTEGER NOT NULL,
+    device_id      TEXT NOT NULL,
+    frame_sha384   BLOB NOT NULL,
+    frame_len      INTEGER NOT NULL,
+    created_at     INTEGER NOT NULL,
+    PRIMARY KEY (account_id, sequence_clock)
+);
+CREATE INDEX IF NOT EXISTS idx_deltas_acct_seq ON deltas(account_id, sequence_clock);
+
+-- The actual frame bytes live in R2 under `vaults/{accountId}/deltas/{seq}.bin`.
+-- D1 holds only the index + integrity hash. R2 GET is keyed by (acct, seq).</code></pre>
+
+		<h3>API surface</h3>
+		<table>
+			<thead>
+				<tr><th>Endpoint</th><th>Method</th><th>Auth</th><th>Behavior</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><code>/api/sync/deltas</code></td>
+					<td>POST</td>
+					<td>Bearer KE3 token</td>
+					<td>Body: <code>{ sequenceClock, frame: base64 }</code>. Strict monotonicity per <em>session</em>; cross-session monotonicity comes from <code>MAX(sequence_clock)</code> at KE3 mint. R2 put + D1 row + sequence_clock advance, atomic per the existing <code>advanceSequenceClock</code> pattern.</td>
+				</tr>
+				<tr>
+					<td><code>/api/sync/deltas?since=N&amp;limit=K</code></td>
+					<td>GET</td>
+					<td>Bearer KE3 token</td>
+					<td>List up to <code>K</code> frames with <code>sequence_clock &gt; N</code>. Frames are concatenated R2 reads, capped at 4 MiB per page.</td>
+				</tr>
+				<tr>
+					<td><code>/api/sync/snapshot</code></td>
+					<td>POST</td>
+					<td>Bearer KE3 token</td>
+					<td>Operator-initiated checkpoint: client uploads <code>Y.encodeStateAsUpdate(doc)</code> then a delta tombstone marks all prior deltas as superseded. Server prunes superseded deltas during nightly cron. Same wire shape as <code>/api/sync/deltas</code>.</td>
+				</tr>
+				<tr>
+					<td><code>/api/sync/capabilities</code></td>
+					<td>GET</td>
+					<td>Public</td>
+					<td>Adds <code>{ crdtSync: true, maxFrameBytes, maxDeltasPerSession }</code>. Existing <code>/api/capabilities</code> route extended.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div class="callout warn">
+			<strong>The existing <code>/api/blobs/upload</code> and
+				<code>/api/blobs/latest</code> routes stay.</strong> A v2 vault and a v3
+			vault can coexist on one account during migration; the
+			<code>capabilities</code> endpoint tells the client which protocol the
+			server prefers.
+		</div>
+
+		<h2 id="client">Client-side architecture</h2>
+		<p>Three new TypeScript modules; one existing module changes substantially.</p>
+
+		<h3>New modules</h3>
+		<table>
+			<thead>
+				<tr><th>Module</th><th>Responsibility</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="mono">src/lib/crypto/hpke.ts</td>
+					<td>RFC 9180 single-shot Mode-Base on the X25519+ML-KEM-768 hybrid suite. Hand-rolled on top of <code>@noble/curves/ed25519</code> + <code>@noble/post-quantum/ml-kem</code>. KAT-locked against a custom vector set (RFC 9180 has no L07-relevant KATs; we ship our own + cross-check the X25519 leg against RFC 9180 §A.1).</td>
+				</tr>
+				<tr>
+					<td class="mono">src/lib/services/crdt-doc.ts</td>
+					<td>Wraps <code>Y.Doc</code> with the field-level encrypt/decrypt boundary. Exposes a <code>VaultDoc</code> object whose public API mirrors the M1 vault store but emits Yjs updates instead of full re-encrypts.</td>
+				</tr>
+				<tr>
+					<td class="mono">src/lib/services/delta-sync.ts</td>
+					<td>Pull/push loop. Calls <code>/api/sync/deltas</code> on a debounced cadence (5 s after a local write; on focus; on visibilitychange). Persists the latest server sequence_clock in Dexie so the next session can resume.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>Modified modules</h3>
+		<table>
+			<thead>
+				<tr><th>Module</th><th>Change</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td class="mono">src/lib/services/vault-session.ts</td>
+					<td>Add <code>PROVISION_FORMAT_VERSION = 3</code> branch. Open path branches on <code>account.formatVersion</code>: v1/v2 use existing whole-vault decrypt; v3 instantiates a <code>VaultDoc</code> and rehydrates from local <code>Y.encodeStateAsUpdate</code> stored in Dexie. Save path emits Yjs deltas instead of a sealed AES-GCM whole-vault blob.</td>
+				</tr>
+				<tr>
+					<td class="mono">src/lib/utils/storage.ts</td>
+					<td>Add a <code>deltas</code> Dexie table (mirror of server log). Add a <code>vault-state</code> singleton row holding the encoded full Y.Doc state for cold-start recovery (so we don't replay 10 000 deltas on every unlock).</td>
+				</tr>
+				<tr>
+					<td class="mono">src/lib/stores/vault.svelte.ts</td>
+					<td>Subscribe to the <code>VaultDoc</code> instead of holding its own <code>items</code> array. Reactivity comes from Yjs's <code>doc.on('update')</code> bridged into a <code>$state</code> rune. The lock/zeroize path drops the Y.Doc and zeroizes any shadow plaintext map.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2 id="migration">Migration: v2 single-blob → v3 CRDT-deltas</h2>
+		<p>
+			Same shape as the v1→v2 transparent upgrade. On first save after a v2
+			unlock, the client:
+		</p>
+		<ol>
+			<li>Reads the decrypted item list (in-memory after <code>openVault</code>).</li>
+			<li>Constructs a fresh <code>Y.Doc</code> and applies every item as one initial delta.</li>
+			<li>Encodes the full state as a snapshot (<code>Y.encodeStateAsUpdate</code>), seals each field with HPKE, and POSTs the bootstrap delta to <code>/api/sync/deltas</code> with <code>sequenceClock = 1</code>.</li>
+			<li>Atomically updates the Dexie <code>account</code> row to <code>formatVersion = 3</code> and writes the encoded Yjs state into <code>vault-state</code>.</li>
+			<li>Calls <code>/api/blobs/upload</code> one last time with a <code>tombstone</code> sentinel so the server-side cron can prune the v2 blob.</li>
+		</ol>
+		<div class="callout">
+			<strong>Downgrade is impossible.</strong> The migration is one-way; v3 vaults
+			cannot revert to v2 without losing the delta history. This is acceptable
+			because v3 is strictly more capable. The upgrade ships with a "you can
+			revert before your next save" 24-hour grace window enforced by a
+			tombstone TTL on the server.
+		</div>
+
+		<h2 id="sharing">Cross-device key distribution</h2>
+		<p>
+			Two devices need the same <code>vaultPrivBundle</code> to decrypt each
+			other's deltas. There are three viable paths; the plan picks one and
+			tracks the others as alternatives.
+		</p>
+
+		<table>
+			<thead>
+				<tr><th>Path</th><th>Trust model</th><th>Dependency</th><th>Verdict</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><strong>(A) Re-derive on every device</strong></td>
+					<td>OPAQUE export key + same device salt</td>
+					<td>None beyond M3</td>
+					<td><strong>Plan-of-record</strong>. The OPAQUE export key is reproducible per device given the user's Secret Key and an OPAQUE login. Use a per-vault salt persisted by the server (or derived deterministically from accountId). Every paired device that completes OPAQUE login derives the same vaultPrivBundle.</td>
+				</tr>
+				<tr>
+					<td>(B) L08 WebRTC pairing</td>
+					<td>Local-network ECDH + QR-code mutual auth</td>
+					<td>L08 (also Tier 2)</td>
+					<td>Plan-of-alternative when devices cannot complete OPAQUE login (e.g. ephemeral browser).</td>
+				</tr>
+				<tr>
+					<td>(C) L06 MLS group</td>
+					<td>Group-ratcheted</td>
+					<td>L06</td>
+					<td>Required for multi-user sharing (family/team). L07 single-user just needs (A); L07 + L06 for multi-user.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>Path (A) — re-derive flow</h3>
+		<pre><code>// Per-vault salt is server-side, but PUBLIC (it's not key material).
+// Server returns it during /api/opaque/login/ke3 alongside the bearer token.
+saltPerVault = HKDF(serverIdentity, "vuvault-l07-vault-salt-v1", accountId, 16)
+
+// Each device, after OPAQUE login:
+exportKey      = client.loginFinish(...).exportKey
+vaultSyncSeed  = HKDF(exportKey, "vuvault-l07-sync-seed-v1", saltPerVault, 64)
+hybridSeed     = HKDF(vaultSyncSeed, "vuvault-l07-hybrid-v1", null, 32)
+(xPriv, kPriv) = (deterministic from hybridSeed)</code></pre>
+		<p>
+			This means a stolen device <em>plus</em> the Secret Key reproduces the
+			vault key — same threat model as M2. It is <em>not</em> a server-trust
+			downgrade; the server never sees the export key.
+		</p>
+
+		<h2 id="zk">Zero-knowledge boundary &amp; metadata leakage analysis</h2>
+		<p>
+			The marketing claim must stay honest. Below is exactly what the L07
+			server can and cannot infer.
+		</p>
+		<table>
+			<thead>
+				<tr><th>Server learns</th><th>Server cannot learn</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Whether the account exists (account-existence oracle, same as today).</td>
+					<td>Vault size in items (deltas don't add a row per item).</td>
+				</tr>
+				<tr>
+					<td>Total bytes uploaded per account, per hour.</td>
+					<td>Which item changed (no per-item identifier on the wire).</td>
+				</tr>
+				<tr>
+					<td>Number of deltas (frame count).</td>
+					<td>Which field changed (field name lives inside the ciphertext).</td>
+				</tr>
+				<tr>
+					<td>Time-of-edit (delta <code>created_at</code>).</td>
+					<td>Plaintext of any field (HPKE-sealed).</td>
+				</tr>
+				<tr>
+					<td>Device ID per delta (so it can enforce per-device sequence clocks).</td>
+					<td>Whether two deltas target the same item (each frame is independent ciphertext).</td>
+				</tr>
+				<tr>
+					<td>Bucketed size class (64 / 256 / 1024 / 4096 / 16384 B).</td>
+					<td>True field length within a bucket.</td>
+				</tr>
+			</tbody>
+		</table>
+		<div class="callout warn">
+			<strong>Known oracle:</strong> The server can correlate device IDs to
+			editing cadence (e.g. "device X always writes between 9am and 5pm"). The
+			mitigation is to randomize delta-flush timing within a ±30 s jitter
+			window and to bound the per-account leak via Cloudflare WAF on
+			cross-IP-pattern analytics. We document this in
+			<a href="SECURITY.md" style="color: var(--accent)">SECURITY.md</a> ZK-scope.
+		</div>
+
+		<h2 id="phases">Implementation phases &amp; deliverables</h2>
+
+		<h3>Phase A — Crypto primitives &amp; KATs (2 weeks)</h3>
+		<ul>
+			<li>Implement <code>src/lib/crypto/hpke.ts</code> with the X25519+ML-KEM-768 hybrid suite.</li>
+			<li>Lock byte-stable KATs in <code>src/lib/crypto/kat/hpke-l07.json</code>. 8–12 vectors covering empty-AD, fixed-AD, multi-byte field names, all five bucket sizes.</li>
+			<li>Add <code>src/lib/crypto/hpke.kat.test.ts</code> so <code>npm run test:fips</code> includes the L07 KAT runner alongside the FIPS 203 + RFC 9106 suites.</li>
+			<li>Append <code>@noble/curves</code> / <code>@noble/post-quantum</code> already pinned; add nothing new at the dep layer here.</li>
+		</ul>
+
+		<h3>Phase B — Yjs integration &amp; <code>VaultDoc</code> wrapper (2 weeks)</h3>
+		<ul>
+			<li>Add <code>yjs</code> as a runtime dep (already noted as "future CRDT" in <code>CURSOR_PROMPT.md</code>).</li>
+			<li>Implement <code>src/lib/services/crdt-doc.ts</code>. Mirrors the M1 vault store surface (<code>add/update/remove/items</code>) but emits Yjs updates.</li>
+			<li>Vitest unit suite: deterministic round-trip, two-device merge, conflict-resolution per field kind, tombstone semantics.</li>
+			<li>Property tests: 1000 random op sequences, verify final state is identical regardless of merge order.</li>
+		</ul>
+
+		<h3>Phase C — Wire protocol &amp; D1/R2 routes (1.5 weeks)</h3>
+		<ul>
+			<li>Migration <code>migrations/0002_l07_deltas.sql</code>.</li>
+			<li>New SvelteKit routes under <code>src/routes/api/sync/</code>: <code>deltas/+server.ts</code> (POST + GET), <code>snapshot/+server.ts</code>. Same fail-closed rate-limit gating as M3.</li>
+			<li>Extend <code>/api/capabilities</code> with the v3 negotiation.</li>
+			<li>Integration tests: append-only-monotonicity, per-device clock isolation, 4 MiB page cap, R2 + D1 atomicity.</li>
+		</ul>
+
+		<h3>Phase D — Client sync loop (1.5 weeks)</h3>
+		<ul>
+			<li>Implement <code>src/lib/services/delta-sync.ts</code> with the debounce + visibility-change + focus cadence.</li>
+			<li>Wire into <code>vault.svelte.ts</code>: the existing <code>syncNow()</code> action calls the new module when <code>formatVersion === 3</code>, the old module when <code>formatVersion &lt;= 2</code>.</li>
+			<li>Add Dexie <code>deltas</code> + <code>vault-state</code> tables and an upgrade hook.</li>
+			<li>Per-tab CRDT awareness: existing <code>tab-sync</code> BroadcastChannel forwards Yjs updates between tabs without going through the server.</li>
+		</ul>
+
+		<h3>Phase E — v2 → v3 migration on save (1 week)</h3>
+		<ul>
+			<li>One-way upgrade inside <code>vault-session.ts::saveItems</code>.</li>
+			<li>Server-side cron worker (or scheduled trigger) that prunes v2 blobs after the 24 h tombstone TTL.</li>
+			<li>End-to-end test: provision v2 → unlock → save → confirm v3 + tombstoned v2.</li>
+		</ul>
+
+		<h3>Phase F — Multi-device E2E (1 week)</h3>
+		<ul>
+			<li>Extend <code>tests/e2e/sync.spec.ts</code> with a two-context Playwright run: device A adds an item, device B unlocks (deriving the same hybrid bundle from its own OPAQUE login), device B pulls A's delta, asserts the item materializes.</li>
+			<li>Concurrent-edit test: A and B both rotate the same password within 1 s; assert deterministic Lamport-clock resolution.</li>
+		</ul>
+
+		<h3>Phase G — Performance baseline &amp; release gates (0.5 week)</h3>
+		<ul>
+			<li>Update <a href="PERFORMANCE-BASELINE.md" style="color: var(--accent)">PERFORMANCE-BASELINE.md</a> with steady-state delta bandwidth, cold-start replay time, Y.Doc memory footprint, and the new <code>vendor-yjs</code> chunk size.</li>
+			<li>Add <code>M4_L07_E2E_PASSED</code> as a same-SHA CI artifact gate, identical to the M3 <code>m3-sync-e2e</code> pattern. The release workflow refuses production deploy without it.</li>
+			<li>Document the new burst-probe smoke (POST 12 deltas / GET 12 times) against the live deploy.</li>
+		</ul>
+
+		<h3>Phase H — Audit prep &amp; ROADMAP refresh (0.5 week)</h3>
+		<ul>
+			<li>Prepare an L07 audit packet for the Tier 1 audit firm (Cure53 / NCC / Trail of Bits): the HPKE wrapper, the migration semantics, the metadata-leakage analysis, the KAT vectors.</li>
+			<li>Update <a href="ROADMAP.md" style="color: var(--accent)">ROADMAP.md</a> from "⏳ Tier 2 / 2027 Q2" to "✅ Tier 2 / 2027 Q2" with concrete file citations, mirroring the M3 refresh pattern.</li>
+			<li>Update <a href="SECURITY.md" style="color: var(--accent)">SECURITY.md</a> ZK-scope to document the timing oracle and the bucketed padding choices.</li>
+		</ul>
+
+		<h2 id="testing">Testing &amp; verification strategy</h2>
+		<h3>Layered test pyramid</h3>
+		<table>
+			<thead>
+				<tr><th>Layer</th><th>What it tests</th><th>Runner</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>KATs</td><td>HPKE byte-stability vs locked vectors; RFC 9180 §A.1 X25519 leg.</td><td><code>npm run test:fips</code></td></tr>
+				<tr><td>Unit</td><td>CRDT primitives, per-field merge semantics, HPKE round-trip, replay rejection, tombstone semantics.</td><td><code>npm run test</code></td></tr>
+				<tr><td>Property</td><td>1000 random op sequences across 2–4 simulated devices; final state determinism.</td><td><code>npm run test</code> with <code>fast-check</code> (~5 KB dep; already on the M4 audit prep list)</td></tr>
+				<tr><td>Integration</td><td>SvelteKit <code>+server.ts</code> handlers vs <code>FakeD1</code> + <code>MemoryR2</code> (existing harness extended).</td><td><code>npm run test</code></td></tr>
+				<tr><td>E2E single device</td><td>Provision → upgrade → edit → reload → re-unlock → CRDT state intact.</td><td><code>npm run test:e2e</code> (extended <code>sync.spec.ts</code>)</td></tr>
+				<tr><td>E2E multi-device</td><td>Two Playwright browser contexts, real Wrangler-backed D1/R2; deltas converge.</td><td>New <code>m4-l07-multi-device-e2e</code> CI job</td></tr>
+				<tr><td>Audit</td><td>Third-party firm reviews <code>hpke.ts</code>, <code>crdt-doc.ts</code>, <code>delta-sync.ts</code>, the migration, and the ZK-boundary doc.</td><td>Out-of-band</td></tr>
+			</tbody>
+		</table>
+
+		<h3>Release gates added</h3>
+		<ul>
+			<li><code>scripts/verify-pins.mjs</code> picks up <code>yjs</code> as an exact pin.</li>
+			<li><code>scripts/verify-production-runtime.mjs</code> requires same-SHA <code>.m4-l07-e2e-passed</code> alongside the existing <code>.m3-e2e-passed</code>.</li>
+			<li>Post-deploy smoke adds a delta-burst probe equivalent to the M3 rate-limit probe.</li>
+		</ul>
+
+		<h2 id="risk">Risk register</h2>
+		<table>
+			<thead>
+				<tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>HPKE on top of ML-KEM-768 has no public, audited JS implementation.</td>
+					<td>Medium</td>
+					<td>High — we're rolling our own crypto, which we explicitly avoid in M1–M3.</td>
+					<td>Mode-Base single-shot is the simplest HPKE mode (RFC 9180 §6.1). Implementation is ~150 lines on top of <code>@noble</code>. Lock against KATs and submit to the M4 third-party audit before production. Reference the existing M2 <code>vault-envelope.ts</code> pattern.</td>
+				</tr>
+				<tr>
+					<td>Yjs runtime adds ~80 KB to the vault bundle.</td>
+					<td>Certain</td>
+					<td>Low — the <code>/vault</code> route already pulls Dexie (~24 KB gz); adding ~22 KB gz for Yjs is acceptable, especially behind <code>manualChunks</code> as <code>vendor-yjs</code>.</td>
+					<td>Add to <code>vite.config.ts</code> <code>manualChunks</code> config; lazy-load via <code>{#await import(...)}</code> in <code>vault-session.ts</code>'s v3 branch so v2 vaults never download it.</td>
+				</tr>
+				<tr>
+					<td>Delta log grows unbounded on the server.</td>
+					<td>Certain</td>
+					<td>Medium — R2 storage cost.</td>
+					<td>Snapshot endpoint + nightly cron prunes superseded deltas. Cap per-account at 10 000 deltas before forcing a client-side snapshot.</td>
+				</tr>
+				<tr>
+					<td>Concurrent edits between devices produce visible jitter.</td>
+					<td>High at family/team scale</td>
+					<td>Low — CRDTs by design.</td>
+					<td>Lamport clock resolution is deterministic; document the UX in <code>VU-MODERN-DESIGN.md</code>.</td>
+				</tr>
+				<tr>
+					<td>v2 → v3 migration corrupts an existing vault.</td>
+					<td>Low</td>
+					<td>Catastrophic.</td>
+					<td>Migration is local-first: the v2 blob remains until the v3 upgrade is server-confirmed and the 24 h tombstone elapses. Add a Playwright test that simulates a network failure mid-migration; assert the v2 vault is still unlockable.</td>
+				</tr>
+				<tr>
+					<td>Server-side metadata oracle ("user X edited at 3:42am").</td>
+					<td>Certain (timing is plain on the wire)</td>
+					<td>Medium — privacy claim erosion.</td>
+					<td>±30 s jitter on delta flush; document in <code>SECURITY.md</code> ZK-scope; not solvable in Tier 2 (Tier 4 PIR / mix-net work covers it properly).</td>
+				</tr>
+				<tr>
+					<td>Browser without WebCrypto's <code>X25519</code> shipped (Safari &lt;= 16).</td>
+					<td>Medium</td>
+					<td>Low</td>
+					<td>Already covered by <code>@noble/curves</code> userland implementation; we never call <code>crypto.subtle.x25519</code>.</td>
+				</tr>
+				<tr>
+					<td>L07 ships before L06 — single-device + paired-device works, multi-user does not.</td>
+					<td>Planned</td>
+					<td>None (intended)</td>
+					<td>Document the L06 dependency for multi-user sharing in the unlock screen UI ("Family vaults — Tier 2 L06").</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h2 id="estimate">Effort estimate</h2>
+		<table>
+			<thead>
+				<tr><th>Phase</th><th>Eng weeks</th><th>Critical path?</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>A — Crypto primitives &amp; KATs</td><td>2</td><td>Yes (blocks everything)</td></tr>
+				<tr><td>B — Yjs integration / <code>VaultDoc</code></td><td>2</td><td>No (parallel with C)</td></tr>
+				<tr><td>C — Wire protocol &amp; routes</td><td>1.5</td><td>No (parallel with B)</td></tr>
+				<tr><td>D — Client sync loop</td><td>1.5</td><td>Yes</td></tr>
+				<tr><td>E — v2 → v3 migration</td><td>1</td><td>Yes</td></tr>
+				<tr><td>F — Multi-device E2E</td><td>1</td><td>Yes</td></tr>
+				<tr><td>G — Perf baseline &amp; release gates</td><td>0.5</td><td>Yes</td></tr>
+				<tr><td>H — Audit prep &amp; doc refresh</td><td>0.5</td><td>Yes</td></tr>
+				<tr><td><strong>Total (sequential / one engineer)</strong></td><td><strong>10</strong></td><td>—</td></tr>
+				<tr><td><strong>Realistic with 2 engineers, parallelism on B+C</strong></td><td><strong>7</strong></td><td>—</td></tr>
+				<tr><td><strong>Plus the M4 third-party audit lead time</strong></td><td>+ 4–8 weeks calendar</td><td>—</td></tr>
+			</tbody>
+		</table>
+		<div class="callout">
+			<strong>Calendar-vs-effort note.</strong> The Tier 2 roadmap targets Q2
+			2027. If M4 audit closes by Jan 2027 and L07 engineering starts Feb 2027,
+			seven engineer-weeks + ~six weeks of audit overlap puts ship-date late
+			Q2 2027 — consistent with the roadmap.
+		</div>
+
+		<h2 id="out-of-scope">Out of scope</h2>
+		<ul>
+			<li>L06 MLS family/team sharing (separate workstream; L07 + L06 = multi-user CRDT).</li>
+			<li>L08 WebRTC pairing (separate workstream; alternative key-distribution path for ephemeral devices).</li>
+			<li>L09 CONIKS-derived AKD log (proves the server didn't equivocate on key directories — Tier 2/3 boundary).</li>
+			<li>L10 PIR breach checks (orthogonal feature).</li>
+			<li>Server-side snapshot consolidation (the client uploads snapshots; the server only prunes the superseded delta range).</li>
+			<li>Cross-account sharing / vault forks (would require ratchet renaming, beyond L07).</li>
+		</ul>
+
+		<footer>
+			Drafted May 2026 · Sits under
+			<a href="ROADMAP.md" style="color: var(--accent)">docs/ROADMAP.md</a> →
+			Tier 2 → L07. Companion docs:
+			<a href="ARCHITECTURE.md" style="color: var(--accent)">ARCHITECTURE.md</a>,
+			<a href="SECURITY.md" style="color: var(--accent)">SECURITY.md</a>,
+			<a href="PERFORMANCE-BASELINE.md" style="color: var(--accent)">PERFORMANCE-BASELINE.md</a>,
+			<a href="M3-DEPLOYMENT.md" style="color: var(--accent)">M3-DEPLOYMENT.md</a>.
+		</footer>
+	</body>
+</html>

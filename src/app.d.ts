@@ -25,12 +25,14 @@ declare global {
 				PUBLIC_VAULT_VERSION?: string;
 				PUBLIC_ENABLE_DEMO_AUTH?: string;
 				PUBLIC_SYNC_ORIGIN?: string;
+				PUBLIC_M3_E2E_AUTH?: string;
+				OPAQUE_RATE_LIMIT_MODE?: string;
 
 				// Cloudflare bindings — see `wrangler.toml`. AUTH_DB
 				// + VAULT_BLOBS are required for /api/* to function;
-				// the three rate-limiters are optional (configure via
-				// the Cloudflare dashboard; runtime fail-opens when
-				// absent per `checkRateLimit()`).
+				// the three rate-limiters are optional because Pages
+				// dashboard configuration owns them; production runtime
+				// fails closed when they are absent.
 				AUTH_DB: D1Database;
 				VAULT_BLOBS: R2Bucket;
 				OPAQUE_REGISTER_LIMITER?: RateLimit;

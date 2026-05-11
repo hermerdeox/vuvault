@@ -20,9 +20,8 @@ type Body = { clientId?: string; requestId?: string; record?: string };
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	if (!(await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`))) {
-		return jsonError(429, 'rate limit exceeded');
-	}
+	const rateLimit = await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`, env);
+	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
 	if (

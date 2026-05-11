@@ -43,6 +43,7 @@ export default ts.config(
 	{
 		ignores: [
 			'.svelte-kit/**',
+			'.wrangler/**',
 			'build/**',
 			'node_modules/**',
 			'static/**',

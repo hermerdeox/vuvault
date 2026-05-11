@@ -264,11 +264,18 @@
 	}
 	@media (max-width: 30em) {
 		.item {
-			padding: 8px 10px;
-			gap: 8px;
+			min-height: 56px;
+			padding: 10px 12px;
+			gap: 10px;
 		}
+		/* Keep `.sub` (username) visible on mobile but truncate so the
+		   row stays at 56 px. Sub is the strongest disambiguator
+		   between same-titled logins; hiding it forced users to open
+		   detail just to identify the item. */
 		.sub {
-			display: none;
+			max-width: 22ch;
+			overflow: hidden;
+			text-overflow: ellipsis;
 		}
 	}
 </style>

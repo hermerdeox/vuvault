@@ -20,6 +20,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.50.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/adapter-cloudflare": "^7.0.0",
     "@sveltejs/kit": "^2.20.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
@@ -43,7 +44,7 @@
     "@noble/ciphers": "^1.2.0",
     "@noble/curves": "^1.8.0",
     "@noble/hashes": "^1.7.0",
-    "@noble/post-quantum": "^0.4.0",
+    "@noble/post-quantum": "0.4.1",
     "@structured-id/opaque": "1.0.4",
     "argon2id": "1.0.1",
     "dexie": "^4.0.10"

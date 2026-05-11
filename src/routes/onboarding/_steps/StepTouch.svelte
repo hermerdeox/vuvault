@@ -246,6 +246,7 @@
 		width: 160px;
 		height: 160px;
 		border-radius: 50%;
+		flex-shrink: 0;
 		background: radial-gradient(circle at 30% 30%, var(--accent-dim), transparent 70%);
 		border: 1.5px solid var(--accent);
 		display: grid;
@@ -362,5 +363,20 @@
 		display: flex;
 		gap: 8px;
 		justify-content: flex-end;
+	}
+
+	/* On short viewports (landscape phones, devtools with the
+	   responsive panel taller than wide) the 160 px circle pushes
+	   the CTA row past the fold. Shrink it so the next button
+	   stays visible without scrolling. */
+	@media (max-height: 44em) {
+		.circle {
+			width: 120px;
+			height: 120px;
+		}
+		.touch-stage {
+			gap: 16px;
+			margin-bottom: 12px;
+		}
 	}
 </style>

@@ -82,6 +82,23 @@ export interface DocumentItem extends ItemBase {
 	kind: 'document';
 	docDescription?: string;
 	docExternalRef?: string;
+	/**
+	 * Stable identifier for the encrypted file blob in the local
+	 * `documentBlobs` Dexie table and (when sync is wired) the
+	 * `vaults/<accountId>/documents/<docBlobId>.bin` R2 object.
+	 * UUID v4. Absent when the document is metadata-only.
+	 */
+	docBlobId?: string;
+	/** Original file name; treated as untrusted display text. */
+	docFileName?: string;
+	/** MIME type as declared by the browser at upload time. */
+	docMimeType?: string;
+	/** Plaintext size in bytes (reported by the local File at upload). */
+	docSize?: number;
+	/** Lowercase hex SHA-256 of the plaintext bytes for integrity display. */
+	docSha256?: string;
+	/** Whether the encrypted blob has been pushed to the sync server. */
+	docRemote?: boolean;
 }
 
 export type VaultItem =

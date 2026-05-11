@@ -11,13 +11,13 @@ VuVault is part of the [VU ecosystem](https://github.com/vuvault) of privacy-fir
 
 This is the **SvelteKit application scaffold** for VuVault — the production codebase derived from the design prototypes in `docs/prototypes/`. It contains:
 
-- The full UI shell across four routes: landing (`/`), onboarding (`/onboarding`), unlock (`/unlock`), vault (`/vault`), and architectural blueprint (`/blueprint`).
+- The full UI shell across five routes: landing (`/`), onboarding (`/onboarding`), unlock (`/unlock`), vault (`/vault`), and architectural blueprint (`/blueprint`).
 - The dual-theme design system (VU-MODERN dark glass + VU-BRUTALIST stark white), parity-equal, switched via `[data-theme]` attribute.
 - Crypto Layers L01–L05 from the blueprint, all real:
   - L01 WebAuthn-PRF passkey binding (RP id explicit; production fail-closed; demo mode dev-only)
   - L02 HKDF-SHA512 vault-key derivation (PRF · Secret Key · optional Argon2id · optional OPAQUE export key)
   - L03 hybrid X25519 + ML-KEM-1024 envelope (real keygen / encapsulate / decapsulate; FIPS 203 deterministic vectors locked in `npm run test:fips`)
-  - L04 OPAQUE (RFC 9807) client via `@structured-id/opaque` behind a swappable facade; in-process mock server for tests + dev until the M3 Worker lands
+  - L04 OPAQUE (RFC 9807) client via `@structured-id/opaque` behind a swappable facade; SvelteKit API routes persist opaque records in D1 and mint short-lived blob-sync bearer tokens after KE3
   - L05 Argon2id (RFC 9106) opt-in master-password third factor (`VAULT_HIGH_PARAMS`: 256 MiB, 4 passes, p=1)
 - Local persistence under formatVersion 2: a fresh AES-256-GCM key encrypts each vault, the AES key is wrapped under the hybrid envelope, and the AAD authenticates `formatVersion · authMode · deviceSalt · SHA-384(credentialId) · SHA-384(header)`.
 - formatVersion 1 vaults from Milestone 1 still unlock; the first save after a v1 unlock transparently rewrites them as v2.
@@ -28,10 +28,10 @@ This is the **SvelteKit application scaffold** for VuVault — the production co
 - Svelte 5 runes-based stores for theme, audience, audit feed, vault state, and onboarding.
 - A 24-icon flat SVG library.
 - Dexie + IndexedDB storage with v2 schema (account ↔ vault written atomically).
-- Cloudflare Pages deployment config.
-- Vitest unit tests for crypto primitives, vault codec, and pricing invariants.
-- Playwright smoke tests for landing render and `/vault` redirect guard.
-- GitHub Actions CI gating lint / check / test / build on every PR.
+- Cloudflare Pages deployment config with D1, R2, fail-closed production rate-limit mode, idempotent OPAQUE identity bootstrap, and post-deploy API smoke.
+- Vitest unit tests for crypto primitives, vault codec, pricing invariants, and API handler contracts.
+- Playwright smoke tests for landing render, `/vault` redirect guard, and a Wrangler-backed D1/R2 sync round-trip in the M3 CI job.
+- GitHub Actions CI gating lint / check / test / build / e2e / FIPS / M3 D1/R2 E2E on every PR or mainline push.
 
 The visual sources of truth — what the finished UI is supposed to look like pixel-for-pixel — live in **`docs/prototypes/`** as four self-contained HTML files.
 
@@ -91,8 +91,11 @@ vuvault/
 │   │   │   ├── vault-codec.ts         # Versioned vault payload format
 │   │   │   ├── passgen.ts             # CSPRNG with rejection sampling
 │   │   │   └── *.test.ts              # Vitest coverage
+│   │   ├── server/api/                # D1/R2 API helpers for OPAQUE + blob sync
 │   │   ├── services/
-│   │   │   └── vault-session.ts       # provision / open / saveItems / lock
+│   │   │   ├── opaque-client.ts       # RFC 9807 client facade + fetch transport
+│   │   │   ├── sync-client.ts         # Typed API client for OPAQUE + R2 blob sync
+│   │   │   └── vault-session.ts       # provision / open / saveItems / sync / lock
 │   │   ├── stores/
 │   │   │   ├── theme.svelte.ts        # [data-theme] runtime API
 │   │   │   ├── audience.svelte.ts     # landing user/tech toggle
@@ -112,6 +115,7 @@ vuvault/
 │   └── routes/
 │       ├── +layout.svelte             # Loads app.css
 │       ├── +layout.ts                 # Prerender hints
+│       ├── api/                       # SvelteKit Worker API: capabilities, OPAQUE, blobs
 │       ├── (landing)/                 # 11-panel landing pager
 │       │   ├── +page.svelte
 │       │   └── _panels/               # Hero, Problem, Promise, ...
@@ -134,9 +138,9 @@ vuvault/
 │       └── blueprint/
 │           └── +page.svelte           # 18-layer architectural blueprint
 │
-├── tests/e2e/                         # Playwright smoke tests
+├── tests/e2e/                         # Playwright smoke + M3 sync E2E tests
 ├── docs/                              # Prototype HTML + design guides
-├── .github/workflows/ci.yml           # Lint/check/test/build/e2e CI
+├── .github/workflows/ci.yml           # Lint/check/test/build/e2e/M3 sync CI
 ├── playwright.config.ts
 ├── vite.config.ts
 ├── svelte.config.js
@@ -174,10 +178,12 @@ vuvault/
 | GitHub Actions CI (lint/check/test/build/e2e/fips) | ✅ Done |
 | Real ML-KEM-1024 envelope + bundle-integrity verifier | ✅ M2 |
 | OPAQUE client (RFC 9807) + Argon2id third factor | ✅ M2 |
-| OPAQUE server (Cloudflare Worker + D1) + multi-device sync | ⚠️ M3 |
-| Sigstore Rekor publishing in CI | ⚠️ M3 |
+| OPAQUE server (SvelteKit API + D1) | ✅ M3 — stable D1 server identity, release bootstrap, fail-closed production rate limits, same-SHA E2E artifact gate |
+| R2 encrypted blob sync | ✅ M3 — KE3 bearer token path, upload/fetch routes, client `syncNow()`, Wrangler-backed D1/R2 E2E gate |
+| Sigstore Rekor publishing in CI | ✅ M3 release workflow |
 | Tier 2 layers (L06 MLS sharing, L07 CRDT sync, etc.) | ❌ Not started |
-| Document items / encrypted file storage | ❌ Not started |
+| Document item metadata | ✅ Done |
+| Encrypted document file storage | ❌ Not started |
 
 See [`CURSOR_PROMPT.md`](./CURSOR_PROMPT.md) for the original handoff and the broader build queue. The full phased plan lives in `.cursor/plans/vuvault-development-roadmap_*.plan.md`.
 

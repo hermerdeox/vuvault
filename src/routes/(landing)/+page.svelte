@@ -3,13 +3,14 @@
 	import { landing, PANEL_IDS } from '$lib/stores/landing.svelte';
 	import { viewport } from '$lib/stores/viewport.svelte';
 
-	import BackgroundFx from '$lib/components/landing/BackgroundFx.svelte';
+	import BackgroundFx from '$lib/components/BackgroundFx.svelte';
 	import TopBar from '$lib/components/landing/TopBar.svelte';
 	import PagerDots from '$lib/components/landing/PagerDots.svelte';
 
 	import Hero from './_panels/Hero.svelte';
 	import Problem from './_panels/Problem.svelte';
 	import Promise_ from './_panels/Promise.svelte';
+	import Credentials from './_panels/Credentials.svelte';
 	import VaultPanel from './_panels/Vault.svelte';
 	import Mobile from './_panels/Mobile.svelte';
 	import Documents from './_panels/Documents.svelte';
@@ -23,6 +24,7 @@
 		Hero,
 		Problem,
 		Promise_,
+		Credentials,
 		VaultPanel,
 		Mobile,
 		Documents,
@@ -155,6 +157,17 @@
 		height: 100dvh;
 		width: 100%;
 		position: relative;
+		/* Skip layout/paint for offscreen panels. The intrinsic-size
+		   reservation matches each slot's flex basis so the desktop
+		   pager's translateY math, the native-snap scroll calculations,
+		   and #anchor navigation all keep their geometry. The
+		   `[aria-hidden='true']` qualifier means the currently-active
+		   panel is still rendered eagerly. */
+		content-visibility: auto;
+		contain-intrinsic-size: 100vw 100dvh;
+	}
+	.slot[aria-hidden='false'] {
+		content-visibility: visible;
 	}
 
 	/* Native scroll-snap mode: the .stage becomes the scroller, the

@@ -90,8 +90,11 @@ export type OpaqueLoginKE3 = {
 };
 
 export type OpaqueLoginResult = {
-	requestId: string;
+	requestId?: string;
 	accountId: AccountId;
+	token?: string;
+	expiresAt?: number;
+	sequenceClock?: SequenceClock;
 };
 
 export type OpaqueServerError = {

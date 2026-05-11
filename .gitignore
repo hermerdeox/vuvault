@@ -24,6 +24,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*
 
 # defensive: never commit ad-hoc credential files. If you ever paste a
 # Cloudflare token / API key into a markdown for an agent to read, the

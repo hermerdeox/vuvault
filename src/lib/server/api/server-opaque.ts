@@ -171,6 +171,27 @@ export class OpaqueServerEngine {
 		return { serverSecretKey: kp.secretKey, serverPublicKey: kp.publicKey };
 	}
 
+	/**
+	 * Derive the long-lived server public key from the persisted secret key.
+	 *
+	 * Cloudflare D1 stores only `server_identity.oprf_seed` / server secret
+	 * entropy. Production request handlers must reconstruct the matching
+	 * public key deterministically on every request; generating a fresh
+	 * keypair here would make OPAQUE registration/login transcripts
+	 * inconsistent across requests.
+	 */
+	static publicKeyFromServerSecretKey(serverSecretKey: Uint8Array): Uint8Array {
+		const suite = getSuite(SUITE_ID);
+		const group = getGroup(suite.curve);
+		if (serverSecretKey.length !== group.scalarSize) {
+			throw new Error(
+				`opaque: server secret key must be ${group.scalarSize} bytes`
+			);
+		}
+		const publicPoint = group.scalarBaseMult(serverSecretKey);
+		return group.serializeElement(publicPoint);
+	}
+
 	async registerRequest(
 		clientId: ClientIdentifier,
 		request: Uint8Array

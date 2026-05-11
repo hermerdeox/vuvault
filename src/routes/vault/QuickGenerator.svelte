@@ -207,7 +207,11 @@
 		top: 8px;
 		right: 16px;
 		width: min(420px, calc(100vw - 32px));
-		max-height: calc(100dvh - var(--header-h) - 24px);
+		/* Subtract the iOS home-indicator inset so the popover never
+		   extends behind it when content is tall. */
+		max-height: calc(
+			100dvh - var(--header-h) - 24px - env(safe-area-inset-bottom, 0px)
+		);
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-elev);
@@ -252,6 +256,11 @@
 		border-radius: var(--radius-sm);
 		color: var(--text-3);
 		transition: var(--transition);
+	}
+	:global(html[data-vp~='mobile']) .close,
+	:global(html[data-vp~='tablet']) .close {
+		width: 44px;
+		height: 44px;
 	}
 	.close:hover,
 	.close:focus-visible {

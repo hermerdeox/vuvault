@@ -6,6 +6,7 @@
 		hero: 'Hero',
 		problem: 'The problem',
 		promise: 'What you get',
+		credentials: 'Credential vault',
 		vault: 'Inside the vault',
 		mobile: 'On your phone',
 		documents: 'Beyond passwords',

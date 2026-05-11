@@ -4,6 +4,7 @@ const PANEL_IDS = [
 	'hero',
 	'problem',
 	'promise',
+	'credentials',
 	'vault',
 	'mobile',
 	'documents',
@@ -26,7 +27,7 @@ test.describe('landing page · render', () => {
 		await expect(page.locator('main')).not.toContainText('$2.56');
 	});
 
-	test('all 11 panels are present in the DOM with the expected ids', async ({ page }) => {
+	test('all 12 panels are present in the DOM with the expected ids', async ({ page }) => {
 		await page.goto('/');
 		for (const id of PANEL_IDS) {
 			await expect(page.locator(`section#${id}`)).toBeAttached();
@@ -38,8 +39,8 @@ test.describe('landing page · render', () => {
 		const hero = page.locator('section#hero');
 		await expect(hero).toHaveAttribute('aria-hidden', 'false');
 		const others = page.locator('section[aria-hidden="true"]');
-		// 11 panels total, 10 should be aria-hidden when hero is active
-		await expect(others).toHaveCount(10);
+		// 12 panels total, 11 should be aria-hidden when hero is active
+		await expect(others).toHaveCount(11);
 	});
 });
 

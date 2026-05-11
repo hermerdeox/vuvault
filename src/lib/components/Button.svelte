@@ -73,6 +73,16 @@
 		font-size: 15px;
 	}
 
+	/* Mobile touch-target floor: every button must hit >=44x44 CSS px
+	   per WCAG 2.5.5. `sm` is the only size that falls below 44px tall
+	   at desktop padding (8+12+12+8 = 40px). Bump on touch viewports;
+	   leave desktop alone so dense layouts (vault top-bar at 1024+) stay
+	   compact. */
+	html[data-vp~='mobile'] .btn,
+	html[data-vp~='tablet'] .btn {
+		min-height: 44px;
+	}
+
 	.btn.primary {
 		background: var(--brand);
 		color: var(--bg);

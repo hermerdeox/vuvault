@@ -1,208 +1,147 @@
 # M3 Deployment Runbook
 
-Operator-facing checklist for landing the M3 server-side stack
-(Cloudflare Pages Function + D1 + R2 + Sigstore-signed releases).
-Intended audience: anyone with `wrangler login` + `gh auth login`
-and write access to the `vuvault` Cloudflare account and the
-GitHub repo.
+Operator checklist for the M3 server-side stack: SvelteKit API routes
+inside the Cloudflare Pages Worker, D1 OPAQUE state, R2 ciphertext
+blobs, signed releases, and the CI artifact gate that proves the sync
+path before production deploy.
 
-This document is not a replacement for the design docs in
-[ARCHITECTURE.md](./ARCHITECTURE.md) or [SECURITY.md](./SECURITY.md);
-it is a concrete sequence of commands to bring the deployment up.
+## Production Flow
 
-## Prerequisites
+```mermaid
+flowchart LR
+  Main[main SHA] --> CI[m3-sync-e2e CI job]
+  CI --> Artifact[.m3-e2e-passed]
+  Release[GitHub Release] --> Preflight[verify-production-runtime]
+  Artifact --> Preflight
+  Preflight --> Migrate[D1 migrations]
+  Migrate --> Seed[OPAQUE identity bootstrap]
+  Seed --> Deploy[Cloudflare Pages deploy]
+  Deploy --> Smoke[post-deploy smoke]
+```
 
-- `wrangler` CLI ≥ 4.0 (`npm i -g wrangler` if not local-only).
-- A Cloudflare account with Pages + D1 + R2 enabled.
-- `gh` CLI authenticated against the `vuvault` GitHub repo.
-- A clean checkout of the repo at the tag you intend to release.
+## One-Time Cloudflare Setup
 
-## One-time provisioning (per environment)
-
-Each environment (preview, production) gets its own D1 database
-and R2 bucket. The `wrangler.toml` defaults are placeholders; the
-real `database_id` is created on first provision.
-
-### 1. Create the D1 database
+Create production resources and wire the IDs/names in
+[wrangler.toml](../wrangler.toml):
 
 ```bash
-# Production
 wrangler d1 create vuvault-auth-production
-# Preview
-wrangler d1 create vuvault-auth-preview
-```
-
-Each call prints a `database_id`. Paste those into
-[wrangler.toml](../wrangler.toml) under the matching
-`[[d1_databases]]` (preview default) and
-`[[env.production.d1_databases]]` blocks. Commit the change.
-
-### 2. Apply the schema migration
-
-```bash
-wrangler d1 migrations apply AUTH_DB --env=production --remote
-wrangler d1 migrations apply AUTH_DB --env=preview --remote
-```
-
-Migrations live under
-[functions/api/_shared/migrations/](../functions/api/_shared/migrations/).
-The single `0001_init.sql` creates `accounts`, `pending_registrations`,
-`pending_logins`, `sessions`, `device_pairings`, and
-`server_identity`.
-
-### 3. Seed the OPAQUE server identity
-
-The OPAQUE server identity (`oprf_seed`, 32 bytes) is generated
-once per environment and stored in `server_identity`. Rotating it
-invalidates every existing OPAQUE registration — every user has
-to re-enroll. Treat it as an append-only secret.
-
-```bash
-# Generate the 32 random bytes
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-# Copy the output and replace the placeholder in
-# functions/api/_shared/migrations/seed_server_identity.sql
-# (do NOT commit the real bytes; this file is a template).
-
-wrangler d1 execute AUTH_DB --env=production --remote \
-  --file=functions/api/_shared/migrations/seed_server_identity.sql
-```
-
-The script will refuse to load the all-zero placeholder. If you
-forget to replace the bytes, the deploy will print an explicit
-error at `loadServerIdentity()` time.
-
-### 4. Create the R2 bucket
-
-```bash
 wrangler r2 bucket create vuvault-blobs-production
-wrangler r2 bucket create vuvault-blobs-preview
 ```
 
-The `bucket_name` strings in [wrangler.toml](../wrangler.toml)
-already match these names; no commit needed.
+Configure the Pages dashboard rate-limit bindings under:
 
-### 5. Configure rate-limiting bindings
+```text
+Cloudflare Pages > vuvault > Settings > Functions > Rate Limiting
+```
 
-Cloudflare's WAF Rate Limiting API is wired in
-[wrangler.toml](../wrangler.toml) under `[[unsafe.bindings]]`. The
-`namespace_id`s (1001/1002/1003 for preview, 2001/2002/2003 for
-production) are placeholder integers; replace each with the actual
-namespace IDs the Cloudflare dashboard assigns when you create the
-rate-limit rules. Production uses different IDs than preview so a
-botched preview deploy can't drain the production budget.
+Required bindings:
 
-## Per-release checklist
+- `OPAQUE_REGISTER_LIMITER`: 10 req / 60 s, key = client IP.
+- `OPAQUE_LOGIN_LIMITER`: 30 req / 60 s, key = client IP.
+- `BLOB_LIMITER`: 30 req / 60 s, key = account ID.
 
-A release is a tagged event (`gh release create vX.Y.Z`). The
-release workflow does the heavy lifting; the operator only has to
-confirm the inputs.
+Production sets `OPAQUE_RATE_LIMIT_MODE="fail-closed"`, so missing or
+failing bindings make the protected API endpoints return 503 instead of
+silently accepting unlimited traffic.
 
-### 6. Cut the release
+## Release Preconditions
+
+Before publishing a GitHub Release for a SHA:
+
+```bash
+npm run check
+npm run lint
+npm run test
+npm run test:e2e
+```
+
+CI must also pass `m3-sync-e2e`. That job builds the Cloudflare bundle,
+applies local D1 migrations, seeds a local OPAQUE identity with
+[scripts/seed-opaque-identity.mjs](../scripts/seed-opaque-identity.mjs),
+starts Wrangler Pages with real local D1/R2 bindings, runs
+[tests/e2e/sync.spec.ts](../tests/e2e/sync.spec.ts), and uploads
+`.m3-e2e-passed` with the commit SHA. The release workflow downloads
+that artifact by name and refuses to deploy if it is missing or was
+produced for a different SHA.
+
+## Cut a Release
 
 ```bash
 git checkout main
 git pull
-gh release create v0.2.0 \
-  --title "VuVault 0.2.0" \
-  --generate-notes
+gh release create v0.2.0 --title "VuVault 0.2.0" --generate-notes
 ```
 
-This triggers [.github/workflows/release.yml](../.github/workflows/release.yml).
-The workflow:
+The release workflow:
 
-1. Builds twice with `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)`
-   to produce a deterministic `.bundle-digest`.
-2. Signs `.bundle-digest` keylessly via cosign + Sigstore Fulcio,
-   producing `.bundle-digest.sig` + `.bundle-digest.pem` and
-   publishing the Rekor entry.
-3. Verifies the signature locally before deploying.
-4. Bundles `bundle-manifest.json` + signature + cert + Rekor URL
-   into a tarball attached to the GitHub Release.
-5. Deploys to Cloudflare Pages with `PUBLIC_BUNDLE_HASH` set to
-   the just-signed digest, `PUBLIC_VAULT_VERSION` set to the tag.
+1. Builds twice and verifies `.bundle-digest` convergence.
+2. Downloads `.m3-e2e-passed` for the release SHA.
+3. Runs [scripts/verify-production-runtime.mjs](../scripts/verify-production-runtime.mjs), which rejects placeholder hashes, empty or non-HTTPS `PUBLIC_SYNC_ORIGIN`, demo/test auth flags, and missing or mismatched M3 artifacts.
+4. Signs `.bundle-digest` with keyless Sigstore/cosign and attaches release artifacts.
+5. Applies D1 migrations to `AUTH_DB --env production --remote`.
+6. Runs `node scripts/seed-opaque-identity.mjs --env=production --rotate=false`.
+7. Deploys the Cloudflare Pages bundle.
+8. Smokes `/api/capabilities` and unauthenticated `/api/blobs/upload`.
 
-### 7. Verify the running build
+## OPAQUE Identity Operations
 
-After the workflow finishes:
+First deploy and normal redeploys use:
 
 ```bash
-# Fetch the live HTML
-curl -s https://vault.vu | grep -oE 'PUBLIC_BUNDLE_HASH[^"]+' | head -1
-# Should match the value the release workflow signed.
-
-# Look up the Rekor entry
-RELEASE=$(gh release view v0.2.0 --json assets -q '.assets[0].url')
-# RELEASE.txt in the release artifacts has the search URL.
+node scripts/seed-opaque-identity.mjs --env=production --rotate=false
 ```
 
-The unlock screen at <https://vault.vu/unlock> should now display
-the green `(verified)` badge instead of `(dev build · no published
-hash to verify)`.
+This is idempotent: it inserts a random 32-byte seed only if
+`server_identity` is empty.
 
-### 8. Required CI secrets
+Emergency rotation is destructive and requires an explicit env var:
 
-The release workflow needs three secrets configured at the repo or
-org level:
+```bash
+ALLOW_OPAQUE_ROTATION=true \
+  node scripts/seed-opaque-identity.mjs --env=production --rotate=true
+```
 
-| Secret | Purpose |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Pages deploy + D1/R2 write |
-| `CLOUDFLARE_ACCOUNT_ID` | Identifies the target account |
+Rotation invalidates every existing OPAQUE registration. Users must
+re-enroll because the server cannot finish login transcripts generated
+for the old identity.
 
-Cosign keyless signing uses the GitHub-issued OIDC token; no
-long-lived signing key is required. The
-`permissions: id-token: write` block in `release.yml` is what
-unlocks that.
+## Local M3 E2E
+
+To reproduce CI locally:
+
+```bash
+npm run build
+npx wrangler d1 migrations apply AUTH_DB --local
+node scripts/seed-opaque-identity.mjs --env=local --rotate=true
+npx wrangler pages dev .svelte-kit/cloudflare --port 8788
+PUBLIC_SYNC_ORIGIN=http://localhost:8788 PUBLIC_M3_E2E_AUTH=true npx vite preview --port 5173
+PLAYWRIGHT_SKIP_WEB_SERVER=1 M3_E2E=1 npx playwright test tests/e2e/sync.spec.ts
+```
+
+`PUBLIC_M3_E2E_AUTH` is a CI-only WebAuthn PRF shim. Production
+preflight rejects it.
 
 ## Rollback
 
-Cloudflare Pages keeps every deploy. To roll back:
+Cloudflare Pages keeps every deployment:
 
 ```bash
 wrangler pages deployment list --project-name=vuvault
 wrangler pages deployment rollback <previous-id>
 ```
 
-D1 schema changes are forward-only. There is no automatic schema
-rollback — if migration `0002_*.sql` introduces a breaking change,
-the rollback story is "deploy the previous Worker code and tolerate
-the extra columns/tables", or "drop and re-migrate" if the change
-is destructive enough that mixed-version reads break.
+D1 migrations are forward-only. A rollback must tolerate extra columns
+or tables, or ship a forward fix. Do not rotate OPAQUE identity as part
+of rollback unless account re-enrollment is explicitly accepted.
 
-## Operational invariants
+## Operational Invariants
 
-These are the runtime invariants every M3 deploy MUST preserve:
-
-1. **`PUBLIC_BUNDLE_HASH` MUST equal the manifest aggregate of the
-   bytes Cloudflare actually serves.** The two-pass build CI step
-   asserts this on every PR. The reproducible-build job asserts
-   that two independent builds of the same SHA produce byte-
-   identical aggregates.
-2. **The OPAQUE server NEVER stores plaintext passwords.** The
-   schema only has `client_public_key`, `masking_key`,
-   `envelope_bytes`, `oprf_secret_key` — none of which let the
-   server recover a password offline.
-3. **Demo-mode auth is gated by `isDemoAuthEnabled()` AND the
-   server-side `authMode === 'production'` guard.** Production
-   deploys leave `PUBLIC_ENABLE_DEMO_AUTH` unset / false, and the
-   CI marketing-claim and demo-auth guards prevent regressions.
-4. **The session token is bearer-only and `sessionStorage`-scoped.**
-   No persistent token lives on disk — locking a tab kills sync
-   capability until the next OPAQUE login.
-5. **Sync failure is non-fatal.** Every sync method returns
-   `{ ok: false, reason }` rather than throwing; the caller stays
-   on the local-only path on failure. The
-   `vault-session.test.ts > sync fallback` block proves this.
-
-## Follow-ups deferred to future tiers
-
-- **R2 GC of old blob versions** — currently retained indefinitely.
-  The Cron Trigger Worker that prunes to the latest 8 versions is
-  a follow-up PR.
-- **MLS sharing (L06)** — group encryption with forward secrecy is
-  a Tier-2 follow-up, separately tracked.
-- **CONIKS / AKD transparency log (L09)** — Tier-3 (2028); requires
-  a separate verifiable log infrastructure beyond Sigstore.
-- **FROST recovery (L11)** — Tier-3 (2028); coordinates threshold
-  signatures across paired devices.
+1. `PUBLIC_BUNDLE_HASH` must equal the signed manifest aggregate.
+2. The OPAQUE server stores only protocol records, never plaintext or
+   password-equivalent material.
+3. Production API rate-limit bindings fail closed.
+4. Blob sync requires a short-lived KE3 bearer token and stores only
+   encrypted vault fragments in R2.
+5. Release deploys require a same-SHA real D1/R2 E2E artifact and a
+   post-deploy API smoke check.

@@ -19,9 +19,8 @@ type Body = { clientId?: string; ke1?: string };
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	if (!(await checkRateLimit(env.OPAQUE_LOGIN_LIMITER, `ip:${ip}`))) {
-		return jsonError(429, 'rate limit exceeded');
-	}
+	const rateLimit = await checkRateLimit(env.OPAQUE_LOGIN_LIMITER, `ip:${ip}`, env);
+	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
 	if (!body || typeof body.clientId !== 'string' || typeof body.ke1 !== 'string') {
@@ -58,6 +57,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		if (msg.includes('KE1 length')) {
 			return jsonError(400, 'malformed ke1');
 		}
+		console.error('opaque login ke1 failed', err);
 		return jsonError(500, 'opaque login ke1 failed');
 	}
 };

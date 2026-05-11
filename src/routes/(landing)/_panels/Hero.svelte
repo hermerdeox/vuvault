@@ -6,7 +6,7 @@
 		landing.last();
 	}
 	function seeItWork() {
-		landing.goTo(6); // stack panel
+		landing.goTo(7); // stack panel (shifted +1 by the Credentials panel insertion)
 	}
 </script>
 

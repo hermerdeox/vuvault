@@ -24,7 +24,10 @@ import {
 	OpaqueServerEngine,
 	type ServerIdentity
 } from '../../src/lib/server/api/server-opaque';
-import { D1OpaqueStorage } from '../../src/lib/server/api/d1-storage';
+import {
+	D1OpaqueStorage,
+	loadServerIdentity
+} from '../../src/lib/server/api/d1-storage';
 import {
 	authenticate,
 	advanceSequenceClock
@@ -179,6 +182,90 @@ describe('Worker integration · D1 + engine round-trip', () => {
 
 	beforeEach(() => {
 		db = new FakeD1();
+	});
+
+	it('loads a stable D1-backed OPAQUE server identity across requests', async () => {
+		const seeded = OpaqueServerEngine.generateServerKeypair();
+		db.serverIdentity = {
+			oprf_seed: seeded.serverSecretKey.buffer.slice(
+				seeded.serverSecretKey.byteOffset,
+				seeded.serverSecretKey.byteOffset + seeded.serverSecretKey.byteLength
+			)
+		};
+
+		const first = await loadServerIdentity(db, SERVER_ID);
+		const second = await loadServerIdentity(db, SERVER_ID);
+
+		expect(Buffer.from(first.serverSecretKey).equals(Buffer.from(seeded.serverSecretKey))).toBe(
+			true
+		);
+		expect(Buffer.from(first.serverPublicKey).equals(Buffer.from(seeded.serverPublicKey))).toBe(
+			true
+		);
+		expect(Buffer.from(second.serverPublicKey).equals(Buffer.from(first.serverPublicKey))).toBe(
+			true
+		);
+	});
+
+	it('rejects an all-zero D1 OPAQUE server identity seed', async () => {
+		db.serverIdentity = { oprf_seed: new ArrayBuffer(32) };
+
+		await expect(loadServerIdentity(db, SERVER_ID)).rejects.toThrow(/must not be all zero/);
+	});
+
+	it('registers with one request engine and logs in with a fresh engine from the same D1 identity', async () => {
+		const seeded = OpaqueServerEngine.generateServerKeypair();
+		db.serverIdentity = {
+			oprf_seed: seeded.serverSecretKey.buffer.slice(
+				seeded.serverSecretKey.byteOffset,
+				seeded.serverSecretKey.byteOffset + seeded.serverSecretKey.byteLength
+			)
+		};
+		const storage = new D1OpaqueStorage(db);
+
+		const registerEngine = new OpaqueServerEngine(
+			await loadServerIdentity(db, SERVER_ID),
+			storage
+		);
+		const regTransport = {
+			registerRequest: (cid: string, req: Uint8Array) =>
+				registerEngine.registerRequest(cid, req),
+			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
+				registerEngine.registerRecord(cid, rid, rec),
+			loginKE1: (cid: string, ke1: Uint8Array) => registerEngine.loginKE1(cid, ke1),
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) =>
+				registerEngine.loginKE3(cid, rid, ke3)
+		};
+
+		const reg = await register({
+			serverId: SERVER_ID,
+			clientId: 'stable-identity',
+			password: 'same-server-secret',
+			transport: regTransport
+		});
+
+		const loginEngine = new OpaqueServerEngine(
+			await loadServerIdentity(db, SERVER_ID),
+			storage
+		);
+		const loginTransport = {
+			registerRequest: (cid: string, req: Uint8Array) =>
+				loginEngine.registerRequest(cid, req),
+			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
+				loginEngine.registerRecord(cid, rid, rec),
+			loginKE1: (cid: string, ke1: Uint8Array) => loginEngine.loginKE1(cid, ke1),
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) =>
+				loginEngine.loginKE3(cid, rid, ke3)
+		};
+		const log = await login({
+			serverId: SERVER_ID,
+			clientId: 'stable-identity',
+			password: 'same-server-secret',
+			transport: loginTransport
+		});
+
+		expect(log.accountId).toBe(reg.accountId);
+		expect(Buffer.from(log.exportKey).equals(Buffer.from(reg.exportKey))).toBe(true);
 	});
 
 	it('register then login derives matching export keys via D1Storage', async () => {

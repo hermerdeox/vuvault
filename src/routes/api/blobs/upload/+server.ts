@@ -31,9 +31,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
-	if (!(await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`))) {
-		return jsonError(429, 'rate limit exceeded');
-	}
+	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
 	if (

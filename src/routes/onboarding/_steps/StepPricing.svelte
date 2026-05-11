@@ -21,9 +21,9 @@
 			Free, or <span class="italic-serif">$25.60 a year.</span>
 		</h1>
 		<p class="lede">
-			Free is genuinely free, forever, on this device. $25.60 a year unlocks encrypted multi-device
-			sync, family sharing via MLS, and the Emergency Kit cloud backup. One flat price. No tiers,
-			no per-user multipliers, no upsells. Cancel anytime.
+			Free is genuinely free, forever, on this device. Paid plans fund the roadmap: encrypted
+			multi-device sync in Tier 2, MLS sharing and cloud backup in Tier 2+, and FROST recovery
+			in Tier 3. No per-user multipliers, no surprise upsells. Cancel anytime.
 		</p>
 
 		<div class="grid">
@@ -39,7 +39,7 @@
 					<li>Unlimited credentials, cards, notes, documents</li>
 					<li>Touch ID unlock + Secret Key</li>
 					<li>ML-KEM-1024 vault encryption</li>
-					<li>Bring-your-own-storage sync (R2, S3)</li>
+					<li>Local encrypted storage on this device</li>
 					<li>Open-source, self-hostable</li>
 				</ul>
 			</button>
@@ -51,14 +51,14 @@
 			>
 				<div class="label">Unlimited</div>
 				<div class="amount">$25.60<small>/year</small></div>
-				<div class="tag"><span class="italic-serif">Sync everywhere.</span> All features.</div>
+				<div class="tag"><span class="italic-serif">Roadmap access.</span> Future sync tiers.</div>
 				<div class="math">256 bits × $0.10 = honest math</div>
 				<ul class="bullets">
 					<li>Everything in Free, plus:</li>
-					<li>Encrypted sync across all devices</li>
-					<li>MLS family/team sharing</li>
-					<li>Cloud Emergency Kit backup</li>
-					<li>FROST t-of-n threshold recovery</li>
+					<li>Encrypted multi-device sync planned for Tier 2</li>
+					<li>MLS family/team sharing planned for Tier 2+</li>
+					<li>Cloud Emergency Kit backup planned for Tier 2+</li>
+					<li>FROST t-of-n threshold recovery planned for Tier 3</li>
 					<li>Priority support, no upsells</li>
 				</ul>
 			</button>

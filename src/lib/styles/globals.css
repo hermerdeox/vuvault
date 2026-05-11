@@ -153,15 +153,34 @@ html[data-vp~='desktop'] [data-vp-show='mobile'] {
 	}
 }
 
-/* Mobile perf: backdrop-filter at 18-30px blur is one of the most
-   expensive composited operations on mobile GPUs. Cap it at 8px on
-   any element that opts in via the .vu-bar utility. We don't blanket
-   override `backdrop-filter: blur(...)` because some panel internals
-   rely on tightly-tuned values. */
+/* Mobile perf: backdrop-filter at 12-30px blur is one of the most
+   expensive composited operations on mobile GPUs. Cap it at 8px (or
+   drop it entirely on card surfaces) so cards composite without
+   GPU stalls. Surfaces listed below are common-noun classes used
+   across landing panels, the vault command palette, and the
+   header / footer chrome bars. Adding a new card-style surface?
+   Append its class here. */
 html[data-vp~='mobile'] .vu-bar,
 html[data-vp~='mobile'] .topbar,
 html[data-vp~='mobile'] .footer,
-html[data-vp~='mobile'] .mobile-tabs {
+html[data-vp~='mobile'] .mobile-tabs,
+html[data-vp~='mobile'] .palette,
+html[data-vp~='mobile'] .status-pill {
 	backdrop-filter: blur(8px) !important;
 	-webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* Decorative panel cards (Promise / Problem / Stack / Pricing /
+   Trust / Mobile-feature). Mobile mode drops the blur entirely —
+   the underlying gradient is fine on its own without paying for
+   per-card compositing. */
+html[data-vp~='mobile'] .stat-card,
+html[data-vp~='mobile'] .promise-card,
+html[data-vp~='mobile'] .stack-step,
+html[data-vp~='mobile'] .price-card,
+html[data-vp~='mobile'] .trust-card,
+html[data-vp~='mobile'] .mobile-feature,
+html[data-vp~='mobile'] .compare-wrap {
+	backdrop-filter: none !important;
+	-webkit-backdrop-filter: none !important;
 }

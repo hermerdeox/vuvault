@@ -3,18 +3,18 @@
 	import Eyebrow from '$lib/components/Eyebrow.svelte';
 	import { onboarding } from '$lib/stores/onboarding.svelte';
 	import { audit } from '$lib/stores/audit.svelte';
-	import {
-		provisionVault,
-		getVaultByteSize,
-		rotateAuth
-	} from '$lib/services/vault-session';
 	import { vault } from '$lib/stores/vault.svelte';
-	import { register, createFetchTransport } from '$lib/services/opaque-client';
-	import { setSessionToken } from '$lib/services/sync-client';
 	import { encodeBase32 } from '$lib/crypto/secret-key';
 	import { saveAccount } from '$lib/utils/storage';
 	import { getSyncOrigin, isSyncOriginConfigured, getRpId } from '$lib/utils/env';
 	import { IconArrowRight, IconCheck, IconWarning } from '$lib/icons';
+
+	// PERFORMANCE: vault-session, opaque-client, and sync-client pull
+	// the Noble curves + ML-KEM-1024 + AES-GCM chunks (~155 KB JS) and
+	// the OPAQUE WASM (~143 KB). These are loaded lazily inside
+	// `runProvision()` so the onboarding step UI renders before the
+	// crypto stack downloads. The user is already watching a "sealing
+	// your vault" pipeline; the chunk fetch is invisible inside it.
 
 	/**
 	 * Derive an OPAQUE clientId from the WebAuthn credential id.
@@ -122,6 +122,20 @@
 			return;
 		}
 
+		// Lazy-load the heavy crypto stack. The chunk fetches happen in
+		// parallel; the pipeline below blocks on them via the awaited
+		// `Promise.all`, which is fine because the user is watching the
+		// "Sealing your vault" progress UI.
+		const [vaultSessionMod, opaqueClientMod, syncClientMod] =
+			await Promise.all([
+				import('$lib/services/vault-session'),
+				import('$lib/services/opaque-client'),
+				import('$lib/services/sync-client')
+			]);
+		const { provisionVault, getVaultByteSize, rotateAuth } = vaultSessionMod;
+		const { register, login, createFetchTransport } = opaqueClientMod;
+		const { setSessionToken } = syncClientMod;
+
 		try {
 			// CRITICAL: reuse the salt generated in StepTouch. The PRF output
 			// captured at registration is bound to that exact salt; future
@@ -191,37 +205,70 @@
 							password,
 							transport
 						});
-						// Re-derive the vault key with the OPAQUE export key
-						// folded in. Subsequent unlocks must run OPAQUE login
-						// to reproduce the same key — the server gates that.
-						await rotateAuth({
-							prfOutput: prfOutput,
-							secretKey: onboarding.secretKey!,
-							opaqueExportKey: reg.exportKey,
-							opaqueAccountId: reg.accountId,
-							opaqueServerId: serverId,
-							opaqueClientId: clientId
-						});
-						// Persist the OPAQUE metadata on the account row.
-						// `saveAccount` re-reads existing fields and merges.
-						await saveAccount({
-							deviceLabel: onboarding.deviceLabel,
-							deviceSalt: onboarding.deviceSalt!,
-							credentialId: onboarding.credentialId!,
-							credentialPublicKey:
-								onboarding.publicKey ?? new ArrayBuffer(0),
-							authMode: onboarding.authMode!,
-							formatVersion: 2,
-							createdAt: Date.now(),
-							plan: onboarding.plan,
-							opaqueState: 'enrolled',
-							opaqueAccountId: reg.accountId,
-							opaqueServerId: serverId,
-							opaqueClientId: clientId
-						});
-						setSessionToken(null);
-						// Zeroize the export key after rotateAuth folds it in.
-						reg.exportKey.fill(0);
+						try {
+							// Re-derive the vault key with the OPAQUE export key
+							// folded in. Subsequent unlocks must run OPAQUE login
+							// to reproduce the same key — the server gates that.
+							await rotateAuth({
+								prfOutput: prfOutput,
+								secretKey: onboarding.secretKey!,
+								opaqueExportKey: reg.exportKey,
+								opaqueAccountId: reg.accountId,
+								opaqueServerId: serverId,
+								opaqueClientId: clientId
+							});
+							// Persist the OPAQUE metadata on the account row.
+							// `saveAccount` re-reads existing fields and merges.
+							await saveAccount({
+								deviceLabel: onboarding.deviceLabel,
+								deviceSalt: onboarding.deviceSalt!,
+								credentialId: onboarding.credentialId!,
+								credentialPublicKey:
+									onboarding.publicKey ?? new ArrayBuffer(0),
+								authMode: onboarding.authMode!,
+								formatVersion: 2,
+								createdAt: Date.now(),
+								plan: onboarding.plan,
+								opaqueState: 'enrolled',
+								opaqueAccountId: reg.accountId,
+								opaqueServerId: serverId,
+								opaqueClientId: clientId
+							});
+							try {
+								const loginResult = await login({
+									serverId,
+									clientId,
+									password,
+									transport
+								});
+								try {
+									setSessionToken(loginResult.token ?? null);
+									if (loginResult.token) {
+										audit.push('success', 'Sync session established after OPAQUE registration', {
+											serverId
+										});
+									} else {
+										audit.push('warn', 'OPAQUE login returned no sync token', {
+											serverId
+										});
+									}
+								} finally {
+									loginResult.exportKey.fill(0);
+								}
+							} catch (err) {
+								setSessionToken(null);
+								const msg =
+									err instanceof Error ? err.message : 'OPAQUE login failed';
+								audit.push(
+									'warn',
+									'OPAQUE registered, but sync session was not established',
+									{ message: msg }
+								);
+							}
+						} finally {
+							// Zeroize the export key after rotateAuth folds it in.
+							reg.exportKey.fill(0);
+						}
 					});
 					audit.push('success', 'OPAQUE registered with sync server', {
 						serverId: getRpId()
@@ -380,6 +427,20 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		transition: var(--transition);
+	}
+	@media (max-width: 30em) {
+		/* On 360 px viewports the 3-column grid forced the title +
+		   detail mono caption to elide. Drop the time pill below the
+		   title so all three lines stay legible. */
+		.step {
+			grid-template-columns: 36px 1fr;
+			gap: 10px;
+			padding: 12px 14px;
+		}
+		.step .time {
+			grid-column: 2;
+			justify-self: start;
+		}
 	}
 	.step.active {
 		background: var(--accent-dim);

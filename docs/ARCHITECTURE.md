@@ -119,10 +119,10 @@ VuVault explicitly **does not** defend against:
 
 This scaffold implements **Tier 1 substantially**:
 
-- **L01 OPAQUE** (RFC 9807): client-side facade shipped via `@structured-id/opaque` (pinned, exact-version) wrapped in `src/lib/services/opaque-client.ts`, exercised in tests by an in-process `mock-opaque-server.ts`. The cross-origin server is part of the M3 sync ship; until then `src/lib/services/sync-client.ts` returns `NOT_WIRED`.
+- **L01 OPAQUE** (RFC 9807): client-side facade shipped via `@structured-id/opaque` (pinned, exact-version) wrapped in `src/lib/services/opaque-client.ts`, exercised in tests by an in-process `mock-opaque-server.ts`. M3 server routes now live under `src/routes/api/opaque/`; production sync remains partial until D1/R2 E2E, rate-limit bindings, and release runtime vars are verified.
 - **L02 PRF + Secret Key + Argon2id**: real `crypto.getRandomValues`, real `navigator.credentials.create` with PRF extension, real HKDF-SHA512, optional Argon2id master-password derivation (RFC 9106 algorithm; `VAULT_HIGH_PARAMS` preset = 256 MiB, 4 passes, p=1; self-hosted WASM under `static/argon2id/`).
 - **L03 ML-KEM-1024 hybrid envelope**: shipped end-to-end. Hybrid X25519 + ML-KEM-1024 KEM via `@noble/post-quantum` (FIPS 203), wrapping AES-256-GCM with header-bound AAD. Vault format v2 wraps a per-vault AES key under this hybrid envelope; v1→v2 migration is transparent on first save. Locked under `npm run test:fips` against curated KAT vectors at `src/lib/crypto/kat/ml-kem-1024.json`.
 - **L04 XMSS**: not implemented client-side (it's a build-system / release-tooling concern).
-- **L05 Reproducible builds**: SHA-384 bundle manifest emitted by `scripts/build-manifest.mjs` at build time, recomputed in-browser by `verifyBundleIntegrity()` on every unlock; mismatch refuses decryption. Sigstore Rekor publishing lands with M3 release tooling.
+- **L05 Reproducible builds**: SHA-384 bundle manifest emitted by `scripts/build-manifest.mjs` at build time, recomputed in-browser by `verifyBundleIntegrity()` on every unlock; mismatch refuses decryption. Sigstore Rekor publishing is wired in the release workflow.
 
 See `ROADMAP.md` for the M3+ build-out plan.

@@ -10,6 +10,7 @@ export const PANEL_IDS = [
 	'hero',
 	'problem',
 	'promise',
+	'credentials',
 	'vault',
 	'mobile',
 	'documents',

@@ -6,7 +6,8 @@
 	}
 </script>
 
-<div class="aud-toggle" role="tablist" aria-label="Audience">
+<!-- Desktop / tablet: full two-pill segmented control. -->
+<div class="aud-toggle full" role="tablist" aria-label="Audience">
 	<button
 		class="aud-opt"
 		class:active={audience.current === 'user'}
@@ -26,6 +27,23 @@
 		Show me the proof
 	</button>
 </div>
+
+<!-- Mobile: single toggle button that flips on tap. ~280px wide
+     two-pill chrome on 360px viewports was eating most of the topbar
+     row; one short pill leaves space for Start-free + ThemeToggle. -->
+<button
+	class="aud-compact"
+	type="button"
+	aria-label={`Audience: ${audience.current === 'user' ? 'plain language' : 'technical proof'} (tap to switch)`}
+	onclick={() => pick(audience.current === 'user' ? 'tech' : 'user')}
+>
+	<span class="aud-compact-icon" aria-hidden="true">
+		{audience.current === 'user' ? '◐' : '◑'}
+	</span>
+	<span class="aud-compact-label">
+		{audience.current === 'user' ? 'Plain' : 'Technical'}
+	</span>
+</button>
 
 <style>
 	.aud-toggle {
@@ -52,5 +70,36 @@
 		background: var(--surface-strong);
 		color: var(--text);
 		box-shadow: inset 0 0 0 1px var(--border);
+	}
+
+	.aud-compact {
+		display: none;
+		align-items: center;
+		gap: 6px;
+		min-height: 44px;
+		padding: 0 12px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-2);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		transition: var(--transition);
+	}
+	.aud-compact-icon {
+		font-size: 14px;
+		color: var(--accent);
+	}
+	.aud-compact:hover {
+		background: var(--surface-hover);
+	}
+
+	:global(html[data-vp~='mobile']) .full,
+	:global(html[data-vp~='tablet']) .full {
+		display: none;
+	}
+	:global(html[data-vp~='mobile']) .aud-compact,
+	:global(html[data-vp~='tablet']) .aud-compact {
+		display: inline-flex;
 	}
 </style>

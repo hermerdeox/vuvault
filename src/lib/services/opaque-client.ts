@@ -62,7 +62,12 @@ export interface OpaqueTransport {
 		clientId: ClientIdentifier,
 		requestId: string,
 		ke3: Uint8Array
-	): Promise<{ accountId: AccountId }>;
+	): Promise<{
+		accountId: AccountId;
+		token?: string;
+		expiresAt?: number;
+		sequenceClock?: number;
+	}>;
 }
 
 export interface OpaqueRegisterResult {
@@ -74,6 +79,9 @@ export interface OpaqueLoginResult {
 	accountId: AccountId;
 	sessionKey: Uint8Array;
 	exportKey: Uint8Array;
+	token?: string;
+	expiresAt?: number;
+	sequenceClock?: number;
 }
 
 export interface OpaqueRegisterInput {
@@ -135,15 +143,18 @@ export async function login(opts: OpaqueLoginInput): Promise<OpaqueLoginResult> 
 	// `loginFinish` throws if the recovered envelope's auth tag is
 	// invalid — i.e. wrong password.
 	const finish = await client.loginFinish(opts.password, ke2, state);
-	const { accountId } = await opts.transport.loginKE3(
+	const session = await opts.transport.loginKE3(
 		opts.clientId,
 		requestId,
 		finish.ke3
 	);
 	return {
-		accountId,
+		accountId: session.accountId,
 		sessionKey: finish.sessionKey,
-		exportKey: finish.exportKey
+		exportKey: finish.exportKey,
+		token: session.token,
+		expiresAt: session.expiresAt,
+		sequenceClock: session.sequenceClock
 	};
 }
 
@@ -253,11 +264,21 @@ export function createFetchTransport(origin: string): OpaqueTransport {
 			};
 		},
 		async loginKE3(clientId, requestId, ke3) {
-			const data = await postJson<{ accountId: string }>(
+			const data = await postJson<{
+				accountId: string;
+				token?: string;
+				expiresAt?: number;
+				sequenceClock?: number;
+			}>(
 				`${base}/api/opaque/login/ke3`,
 				{ clientId, requestId, ke3: bytesToBase64(ke3) }
 			);
-			return { accountId: data.accountId };
+			return {
+				accountId: data.accountId,
+				token: data.token,
+				expiresAt: data.expiresAt,
+				sequenceClock: data.sequenceClock
+			};
 		}
 	};
 }

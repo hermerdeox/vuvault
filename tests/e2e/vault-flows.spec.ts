@@ -36,14 +36,14 @@ async function completeDemoOnboarding(page: Page, deviceLabel = 'Test Mac'): Pro
 	await page.getByRole('button', { name: 'Begin setup' }).click();
 	// Step 2 — Identity. Fill the device label.
 	await page.locator('input[type="text"]').first().fill(deviceLabel);
-	await page.getByRole('button', { name: /^Continue/ }).click();
+	await page.getByRole('button', { name: 'Continue', exact: true }).click();
 	// Step 3 — Secret. Acknowledge the checkbox, then continue.
 	await page.locator('input[type="checkbox"]').first().check();
-	await page.getByRole('button', { name: /^Continue/ }).click();
+	await page.getByRole('button', { name: 'Continue', exact: true }).click();
 	// Step 4 — Touch. Pick demo mode (gated behind the dev flag).
 	await page.getByRole('button', { name: 'Use demo mode' }).click();
 	await page.getByRole('button', { name: 'Continue in demo mode' }).click();
-	await page.getByRole('button', { name: /^Continue/ }).click();
+	await page.getByRole('button', { name: 'Continue', exact: true }).click();
 	// Step 5 — Verify. Just continue.
 	await page.getByRole('button', { name: 'Looks right, continue' }).click();
 	// Step 6 — Pricing. Continue with Free.

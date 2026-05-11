@@ -230,9 +230,21 @@
 			grid-template-columns: 48px 1fr;
 			gap: 12px;
 		}
-		.layer-prim,
-		.layer-tag {
+		/* On phablets and tablets keep the .layer-tag visible — it's
+		   the only shipped/partial/alone signal in the stack listing.
+		   Hide the secondary primitive label since it's the more
+		   skippable column. */
+		.layer-prim {
 			display: none;
+		}
+	}
+	@media (max-width: 30em) {
+		/* On true mobile (<=480px) the row collapses to numeral +
+		   title only; the tag wraps to the next line via grid
+		   layout for legibility. */
+		.layer-tag {
+			grid-column: 1 / -1;
+			justify-self: start;
 		}
 	}
 	@media (max-width: 30em) {

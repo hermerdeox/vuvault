@@ -124,6 +124,12 @@
 		border: 1px solid transparent;
 		cursor: pointer;
 	}
+	:global(html[data-vp~='mobile']) .row,
+	:global(html[data-vp~='tablet']) .row {
+		min-height: 44px;
+		padding: 12px 14px;
+		font-size: 14px;
+	}
 	.row:hover:not(.disabled) {
 		background: var(--surface);
 		color: var(--text);

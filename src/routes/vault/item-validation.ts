@@ -69,7 +69,21 @@ export type DocumentInput = {
 	title: string;
 	docDescription: string;
 	docExternalRef: string;
+	/** Metadata for an already-encrypted attached file, if any. */
+	docFileName?: string;
+	docMimeType?: string;
+	docSize?: number;
 };
+
+/**
+ * Hard upper bound on attached document plaintext size. Aligns with the
+ * R2 upload route's ciphertext cap so a save here never produces a blob
+ * the sync server will reject. 8 MiB matches `MAX_CIPHERTEXT_BYTES` in
+ * [src/routes/api/blobs/upload/+server.ts](src/routes/api/blobs/upload/+server.ts);
+ * GCM tag + 12-byte nonce adds at most 28 bytes so the plaintext cap is
+ * deliberately a few KB under that.
+ */
+export const DOCUMENT_FILE_MAX = 8 * 1024 * 1024 - 1024;
 
 export const TITLE_MAX = 200;
 export const NOTE_MAX = 100_000;
@@ -238,6 +252,12 @@ export function validateDocument(input: DocumentInput): ValidationResult {
 	}
 	if (input.docExternalRef && input.docExternalRef.length > 1024) {
 		fieldErrors.docExternalRef = 'External reference is too long.';
+	}
+	if (typeof input.docSize === 'number' && input.docSize > DOCUMENT_FILE_MAX) {
+		fieldErrors.docFile = `File is too large (max ${(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB).`;
+	}
+	if (input.docFileName && input.docFileName.length > 512) {
+		fieldErrors.docFile = 'File name is too long.';
 	}
 	return {
 		ok: Object.keys(fieldErrors).length === 0,

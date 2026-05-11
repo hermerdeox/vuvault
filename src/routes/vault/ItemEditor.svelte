@@ -12,7 +12,8 @@
 		validateSsh,
 		validateSeed,
 		validateDocument,
-		labelFor
+		labelFor,
+		DOCUMENT_FILE_MAX
 	} from './item-validation';
 	import {
 		IconKey,
@@ -27,6 +28,7 @@
 		IconEyeOff,
 		IconWarning
 	} from '$lib/icons';
+	import { untrack } from 'svelte';
 
 	type Props = {
 		open: boolean;
@@ -39,6 +41,10 @@
 	};
 
 	let { open, mode, initial, kind, openGenerator = false, onClose }: Props = $props();
+	const initialMode = untrack(() => mode);
+	const initialItem = untrack(() => initial);
+	const initialRequestedKind = untrack(() => kind);
+	const initialOpenGenerator = untrack(() => openGenerator);
 
 	type KindOption = {
 		id: ItemKind;
@@ -76,6 +82,14 @@
 	let seedPhrase = $state('');
 	let docDescription = $state('');
 	let docExternalRef = $state('');
+	let docFileName = $state<string | undefined>(undefined);
+	let docMimeType = $state<string | undefined>(undefined);
+	let docSize = $state<number | undefined>(undefined);
+	let docSha256 = $state<string | undefined>(undefined);
+	let docBlobId = $state<string | undefined>(undefined);
+	let docRemote = $state<boolean | undefined>(undefined);
+	let docAttaching = $state(false);
+	let docError = $state<string | null>(null);
 
 	let showGenerator = $state(false);
 
@@ -89,6 +103,18 @@
 	let showSshKey = $state(false);
 
 	let attemptedSave = $state(false);
+
+	const initialKind =
+		initialMode === 'edit' && initialItem ? initialItem.kind : initialRequestedKind;
+	if (initialMode === 'edit' && initialItem) {
+		hydrateFromInitial(initialItem);
+	} else {
+		reset();
+	}
+	if (initialOpenGenerator && (initialKind === 'login' || initialKind === null)) {
+		selectedKind = 'login';
+		showGenerator = true;
+	}
 
 	const validation = $derived.by(() => {
 		switch (selectedKind) {
@@ -111,14 +137,21 @@
 			case 'crypto-seed':
 				return validateSeed({ title, seedPhrase });
 			case 'document':
-				return validateDocument({ title, docDescription, docExternalRef });
+				return validateDocument({
+					title,
+					docDescription,
+					docExternalRef,
+					docFileName,
+					docMimeType,
+					docSize
+				});
 			default:
 				return { ok: false, fieldErrors: {} as Record<string, string> };
 		}
 	});
 
 	function reset() {
-		selectedKind = kind ?? null;
+		selectedKind = initialRequestedKind ?? null;
 		title = '';
 		url = '';
 		username = '';
@@ -138,6 +171,14 @@
 		seedPhrase = '';
 		docDescription = '';
 		docExternalRef = '';
+		docFileName = undefined;
+		docMimeType = undefined;
+		docSize = undefined;
+		docSha256 = undefined;
+		docBlobId = undefined;
+		docRemote = undefined;
+		docAttaching = false;
+		docError = null;
 		showGenerator = false;
 		showPassword = false;
 		showCvc = false;
@@ -185,23 +226,15 @@
 			case 'document':
 				docDescription = item.docDescription ?? '';
 				docExternalRef = item.docExternalRef ?? '';
+				docFileName = item.docFileName;
+				docMimeType = item.docMimeType;
+				docSize = item.docSize;
+				docSha256 = item.docSha256;
+				docBlobId = item.docBlobId;
+				docRemote = item.docRemote;
 				break;
 		}
 	}
-
-	$effect(() => {
-		if (open) {
-			if (mode === 'edit' && initial) {
-				hydrateFromInitial(initial);
-			} else {
-				reset();
-			}
-			if (openGenerator && (selectedKind === 'login' || selectedKind === null)) {
-				selectedKind = 'login';
-				showGenerator = true;
-			}
-		}
-	});
 
 	function buildPayload(): VaultItemPayload | null {
 		if (!selectedKind) return null;
@@ -269,7 +302,17 @@
 					title: trimmedTitle,
 					docDescription: docDescription.trim() || undefined,
 					docExternalRef: docExternalRef.trim() || undefined,
-					subtitle: 'Document (metadata-only)'
+					docFileName,
+					docMimeType,
+					docSize,
+					docSha256,
+					docBlobId,
+					docRemote,
+					subtitle: docFileName
+						? docFileName
+						: docExternalRef.trim()
+							? 'Document (reference only)'
+							: 'Document'
 				};
 		}
 	}
@@ -310,6 +353,64 @@
 		showGenerator = false;
 	}
 
+	async function onDocumentFileChange(ev: Event) {
+		const target = ev.currentTarget as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+		docError = null;
+		if (file.size > DOCUMENT_FILE_MAX) {
+			docError = `File is too large (max ${(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB).`;
+			target.value = '';
+			return;
+		}
+		docAttaching = true;
+		try {
+			const { attachDocumentFile } = await import('$lib/services/document-blobs');
+			const result = await attachDocumentFile(file);
+			docBlobId = result.blobId;
+			docFileName = result.fileName;
+			docMimeType = result.mimeType;
+			docSize = result.size;
+			docSha256 = result.sha256Hex;
+			docRemote = result.remote;
+			audit.push('success', `Attached document (${result.size} bytes)`, {
+				blob: result.blobId.slice(0, 8),
+				remote: result.remote ? 'pushed' : 'local'
+			});
+		} catch (err) {
+			docError = err instanceof Error ? err.message : 'Could not attach the file.';
+			audit.push('danger', `Document attach failed: ${docError}`);
+		} finally {
+			docAttaching = false;
+			target.value = '';
+		}
+	}
+
+	async function clearDocumentFile() {
+		if (!docBlobId) return;
+		const idToPurge = docBlobId;
+		try {
+			const { purgeDocumentBlob } = await import('$lib/services/document-blobs');
+			await purgeDocumentBlob(idToPurge);
+		} catch {
+			// Non-fatal — the user can still proceed without an attachment.
+		}
+		docBlobId = undefined;
+		docFileName = undefined;
+		docMimeType = undefined;
+		docSize = undefined;
+		docSha256 = undefined;
+		docRemote = undefined;
+		docError = null;
+	}
+
+	function formatDocSize(n: number | undefined): string {
+		if (typeof n !== 'number') return '';
+		if (n < 1024) return `${n} B`;
+		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+		return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+	}
+
 	function err(field: string): string | null {
 		if (!attemptedSave) return null;
 		return validation.fieldErrors[field] ?? null;
@@ -331,8 +432,9 @@
 					{/each}
 				</div>
 				<p class="picker-note">
-					Document items currently store metadata only — the encrypted file blob
-					layer ships in a later milestone.
+					Files attached to document items are sealed client-side with the
+					active vault key (AES-256-GCM) before they touch local storage or
+					the sync server.
 				</p>
 			</div>
 		{:else}
@@ -671,20 +773,85 @@
 					</div>
 				{:else if selectedKind === 'document'}
 					<div class="info-banner">
-						<IconWarning size={14} stroke={2} />
+						<IconShield size={14} stroke={2} />
 						<div>
-							<strong>Metadata-only document.</strong>
-							The encrypted file-blob storage layer ships in a later milestone.
-							For now, store a description and an external reference (e.g. a
-							private object storage URL).
+							<strong>Encrypted client-side.</strong>
+							The file is sealed in your browser with the active vault key
+							(AES-256-GCM, document-scoped AAD) before it touches local
+							storage or the sync server. The server only ever holds opaque
+							ciphertext.
 						</div>
 					</div>
 					<div class="field">
-						<label for="ie-doc-desc">Description</label>
+						<label for="ie-doc-file">File</label>
+						<div class="doc-attach-row">
+							<input
+								id="ie-doc-file"
+								type="file"
+								onchange={onDocumentFileChange}
+								disabled={docAttaching}
+								data-testid="document-file-input"
+							/>
+							{#if docAttaching}
+								<span class="hint">Encrypting…</span>
+							{/if}
+						</div>
+						{#if docFileName}
+							<div class="doc-summary" data-testid="document-summary">
+								<div class="doc-summary-row">
+									<span class="doc-key">Name</span>
+									<span class="doc-val">{docFileName}</span>
+								</div>
+								<div class="doc-summary-row">
+									<span class="doc-key">Type</span>
+									<span class="doc-val mono">{docMimeType || 'application/octet-stream'}</span>
+								</div>
+								<div class="doc-summary-row">
+									<span class="doc-key">Size</span>
+									<span class="doc-val mono">{formatDocSize(docSize)}</span>
+								</div>
+								{#if docSha256}
+									<div class="doc-summary-row">
+										<span class="doc-key">SHA-256</span>
+										<span class="doc-val mono doc-digest" title={docSha256}>
+											{docSha256.slice(0, 16)}…
+										</span>
+									</div>
+								{/if}
+								<div class="doc-summary-row">
+									<span class="doc-key">Sync</span>
+									<span class="doc-val mono">
+										{docRemote ? 'pushed to server (opaque ciphertext)' : 'local only'}
+									</span>
+								</div>
+								<button
+									type="button"
+									class="btn ghost doc-clear-btn"
+									onclick={clearDocumentFile}
+								>
+									Remove file
+								</button>
+							</div>
+						{/if}
+						{#if docError}
+							<div class="field-err" role="alert">
+								<IconWarning size={12} stroke={2} /> {docError}
+							</div>
+						{/if}
+						{#if err('docFile')}
+							<div class="field-err">{err('docFile')}</div>
+						{/if}
+						<div class="hint">
+							Maximum {(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB per
+							document.
+						</div>
+					</div>
+					<div class="field">
+						<label for="ie-doc-desc">Description (optional)</label>
 						<textarea
 							id="ie-doc-desc"
 							bind:value={docDescription}
-							rows="4"
+							rows="3"
 							placeholder="What this document is, why it matters…"
 							aria-invalid={err('docDescription') !== null}
 						></textarea>
@@ -745,6 +912,12 @@
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
 		gap: 8px;
+	}
+	:global(html[data-vp~='mobile']) .picker-grid {
+		/* On phones the 3-col grid pushed cells to ~80 px each, below
+		   thumb-comfortable. Drop to 2-col so each option is ~152 px
+		   wide on a 360 px modal. */
+		grid-template-columns: repeat(2, 1fr);
 	}
 	.picker-item {
 		display: flex;
@@ -927,6 +1100,11 @@
 		cursor: pointer;
 		flex-shrink: 0;
 	}
+	:global(html[data-vp~='mobile']) .ico-btn,
+	:global(html[data-vp~='tablet']) .ico-btn {
+		width: 44px;
+		height: 44px;
+	}
 	.ico-btn:hover {
 		color: var(--text);
 		background: var(--surface-hover);
@@ -988,5 +1166,60 @@
 	.btn:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	.doc-attach-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+	.doc-attach-row .hint {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-3);
+	}
+	.doc-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 10px 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-size: 12px;
+	}
+	.doc-summary-row {
+		display: grid;
+		grid-template-columns: 80px 1fr;
+		gap: 10px;
+		align-items: center;
+	}
+	.doc-key {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--text-3);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.doc-val {
+		color: var(--text);
+		overflow-wrap: anywhere;
+	}
+	.doc-val.mono {
+		font-family: var(--font-mono);
+		font-size: 11px;
+	}
+	.doc-digest {
+		letter-spacing: 0.02em;
+	}
+	.doc-clear-btn {
+		align-self: flex-start;
+		margin-top: 4px;
+	}
+	.hint {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-3);
 	}
 </style>

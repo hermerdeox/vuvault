@@ -153,6 +153,8 @@ const VAR_FIELD_NAMES = new Set([
 	'PUBLIC_VAULT_VERSION',
 	'PUBLIC_ENABLE_DEMO_AUTH',
 	'PUBLIC_SYNC_ORIGIN',
+	'PUBLIC_M3_E2E_AUTH',
+	'OPAQUE_RATE_LIMIT_MODE',
 	'OPAQUE_SERVER_ID'
 ]);
 
@@ -162,10 +164,12 @@ const envBindings = new Map(
 
 // Rule 1: every REQUIRED Env field MUST exist in wrangler.toml in
 // both the default and production blocks. OPTIONAL Env fields are
-// allowed to be entirely absent from wrangler.toml — that's the
-// runtime-fail-open contract honored by `checkRateLimit()` at
-// src/lib/server/api/env.ts:78. Optional bindings that ARE wired
-// in only one of the two envs still trigger Rule 3 (parity), so
+// allowed to be entirely absent from wrangler.toml. Rate-limit
+// bindings are optional here because Cloudflare Pages currently wires
+// them through the dashboard; production is separately gated by
+// scripts/verify-production-runtime.mjs requiring
+// PRODUCTION_RATE_LIMITS_CONFIGURED=true. Optional bindings that ARE
+// wired in only one of the two envs still trigger Rule 3 (parity), so
 // preview/production drift is caught regardless.
 for (const [name, info] of envBindings) {
 	if (info.required) {

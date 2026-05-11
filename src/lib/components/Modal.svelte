@@ -24,7 +24,7 @@
 
 	let { open, title, onClose, size = 'md', children, footer }: Props = $props();
 
-	let dialogEl: HTMLDivElement | null = $state(null);
+	let dialogEl = $state<HTMLDivElement | null>(null);
 	let prevActive: Element | null = null;
 
 	// Per-instance ID so two simultaneous modals (rare today, common
@@ -170,6 +170,11 @@
 		color: var(--text-3);
 		transition: var(--transition);
 	}
+	html[data-vp~='mobile'] .close,
+	html[data-vp~='tablet'] .close {
+		width: 44px;
+		height: 44px;
+	}
 	.close:hover {
 		background: var(--surface-hover);
 		color: var(--text);
@@ -190,11 +195,14 @@
 		background: var(--surface);
 	}
 
-	/* On phones, the modal becomes full-bleed (8px gutter) so the
-	   ItemEditor + CommandK no longer float in a narrow window. The
-	   safe-area inset on top/bottom keeps the close button reachable
-	   under the iOS notch and home-indicator. */
-	@media (max-width: 30em) {
+	/* On phones AND small tablets, the modal becomes full-bleed (8px
+	   gutter) so the ItemEditor + CommandK no longer float in a
+	   narrow window. The safe-area inset on top/bottom keeps the
+	   close button reachable under the iOS notch and home-indicator.
+	   Expanded from <=30em to <=45em (phablets, small tablets in
+	   portrait) where the 24px-gutter centered modal was leaving
+	   awkward unused chrome. */
+	@media (max-width: 45em) {
 		.backdrop {
 			padding: max(8px, env(safe-area-inset-top)) 8px
 				max(8px, env(safe-area-inset-bottom)) 8px;

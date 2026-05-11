@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Apple-style squircle clip (continuous curvature) -->
+    <clipPath id="squircle">
+      <path d="
+        M 512 0
+        C 717.5 0, 823.5 0, 893.3 41.2
+        C 940.8 68.6, 955.4 83.2, 982.8 130.7
+        C 1024 200.5, 1024 306.5, 1024 512
+        C 1024 717.5, 1024 823.5, 982.8 893.3
+        C 955.4 940.8, 940.8 955.4, 893.3 982.8
+        C 823.5 1024, 717.5 1024, 512 1024
+        C 306.5 1024, 200.5 1024, 130.7 982.8
+        C 83.2 955.4, 68.6 940.8, 41.2 893.3
+        C 0 823.5, 0 717.5, 0 512
+        C 0 306.5, 0 200.5, 41.2 130.7
+        C 68.6 83.2, 83.2 68.6, 130.7 41.2
+        C 200.5 0, 306.5 0, 512 0
+        Z"/>
+    </clipPath>
+
+    <!-- Background radial gradient -->
+    <radialGradient id="bg" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#0c1828"/>
+      <stop offset="55%" stop-color="#050a14"/>
+      <stop offset="100%" stop-color="#02060d"/>
+    </radialGradient>
+
+    <!-- Glyph gradient (off-white / steel / dark gray) -->
+    <linearGradient id="glyphGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#c8c8c0"/>
+      <stop offset="100%" stop-color="#505050"/>
+    </linearGradient>
+
+    <!-- Dome highlight -->
+    <radialGradient id="dome" cx="50%" cy="0%" r="65%">
+      <stop offset="0%" stop-color="#78c8ff" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#78c8ff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#78c8ff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Comet gradient -->
+    <linearGradient id="cometGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#b4e6ff" stop-opacity="0"/>
+      <stop offset="30%" stop-color="#b4e6ff" stop-opacity="0.45"/>
+      <stop offset="70%" stop-color="#b4e6ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#b4e6ff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Glyph outer glow filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="b1"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="36" result="b2"/>
+      <feMerge>
+        <feMergeNode in="b2"/>
+        <feMergeNode in="b1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Glyph bevel (specular highlight) -->
+    <filter id="bevel" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blurred"/>
+      <feSpecularLighting in="blurred" result="spec" specularExponent="20" lighting-color="#ffffff" surfaceScale="3">
+        <fePointLight x="380" y="220" z="300"/>
+      </feSpecularLighting>
+      <feComposite in="spec" in2="SourceAlpha" operator="in" result="specOut"/>
+      <feComposite in="SourceGraphic" in2="specOut" operator="arithmetic" k1="0" k2="1" k3="0.6" k4="0"/>
+    </filter>
+
+    <!-- Cast shadow blur -->
+    <filter id="shadow" x="-30%" y="-10%" width="160%" height="140%">
+      <feGaussianBlur stdDeviation="15"/>
+    </filter>
+
+    <!-- Faint grid pattern -->
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#00d4ff" stroke-opacity="0.04" stroke-width="1"/>
+    </pattern>
+
+    <!-- Glyph cyan halo (separate from glow for color control) -->
+    <filter id="cyanHalo" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="24" result="h1"/>
+      <feFlood flood-color="#00d4ff" flood-opacity="0.45" result="c1"/>
+      <feComposite in="c1" in2="h1" operator="in" result="halo1"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="60" result="h2"/>
+      <feFlood flood-color="#0096dc" flood-opacity="0.25" result="c2"/>
+      <feComposite in="c2" in2="h2" operator="in" result="halo2"/>
+      <feMerge>
+        <feMergeNode in="halo2"/>
+        <feMergeNode in="halo1"/>
+      </feMerge>
+    </filter>
+
+    <!-- Bezel inner ring gradient -->
+    <linearGradient id="bezelGrad" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#0a1424"/>
+      <stop offset="100%" stop-color="#02060d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- All content clipped to squircle -->
+  <g clip-path="url(#squircle)">
+
+    <!-- L1: Outer bezel rim -->
+    <rect width="1024" height="1024" fill="url(#bezelGrad)"/>
+
+    <!-- L2: Background -->
+    <rect x="4" y="4" width="1016" height="1016" rx="224" fill="url(#bg)"/>
+
+    <!-- L3: Subtle technical grid -->
+    <rect width="1024" height="1024" fill="url(#grid)"/>
+
+    <!-- L4: Compass dial ring + ticks -->
+    <g transform="translate(512,512)" stroke="#00d4ff" fill="none">
+      <!-- Outer dial ring -->
+      <circle r="340" stroke-width="1.2" stroke-opacity="0.22"/>
+      <!-- Inner dial ring -->
+      <circle r="328" stroke-width="0.5" stroke-opacity="0.12"/>
+
+      <!-- 12 Major ticks (30- intervals) -->
+      <line x1="0" y1="-340" x2="0" y2="-322" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="170" y1="-294.4" x2="161" y2="-278.8" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="294.4" y1="-170" x2="278.8" y2="-161" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="340" y1="0" x2="322" y2="0" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="294.4" y1="170" x2="278.8" y2="161" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="170" y1="294.4" x2="161" y2="278.8" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="0" y1="340" x2="0" y2="322" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="-170" y1="294.4" x2="-161" y2="278.8" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="-294.4" y1="170" x2="-278.8" y2="161" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="-340" y1="0" x2="-322" y2="0" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="-294.4" y1="-170" x2="-278.8" y2="-161" stroke-width="2" stroke-opacity="0.3"/>
+      <line x1="-170" y1="-294.4" x2="-161" y2="-278.8" stroke-width="2" stroke-opacity="0.3"/>
+
+      <!-- 60 Minor ticks (6- intervals, skip major positions) -->
+      <g stroke-width="0.8" stroke-opacity="0.15">
+        <line x1="35.3" y1="-338.2" x2="33.6" y2="-331.3"/>
+        <line x1="70.2" y1="-332.7" x2="66.8" y2="-326"/>
+        <line x1="104.1" y1="-323.7" x2="99" y2="-317.2"/>
+        <line x1="136.7" y1="-311.3" x2="130" y2="-305.2"/>
+        <line x1="200.3" y1="-275.1" x2="190.3" y2="-270.4"/>
+        <line x1="227" y1="-256.8" x2="215.6" y2="-252.5"/>
+        <line x1="251" y1="-235.7" x2="238.5" y2="-232"/>
+        <line x1="272.1" y1="-212.1" x2="258.5" y2="-209.1"/>
+        <line x1="311.3" y1="-136.7" x2="305.2" y2="-130"/>
+        <line x1="323.7" y1="-104.1" x2="317.2" y2="-99"/>
+        <line x1="332.7" y1="-70.2" x2="326" y2="-66.8"/>
+        <line x1="338.2" y1="-35.3" x2="331.3" y2="-33.6"/>
+        <line x1="338.2" y1="35.3" x2="331.3" y2="33.6"/>
+        <line x1="332.7" y1="70.2" x2="326" y2="66.8"/>
+        <line x1="323.7" y1="104.1" x2="317.2" y2="99"/>
+        <line x1="311.3" y1="136.7" x2="305.2" y2="130"/>
+        <line x1="272.1" y1="212.1" x2="258.5" y2="209.1"/>
+        <line x1="251" y1="235.7" x2="238.5" y2="232"/>
+        <line x1="227" y1="256.8" x2="215.6" y2="252.5"/>
+        <line x1="200.3" y1="275.1" x2="190.3" y2="270.4"/>
+        <line x1="136.7" y1="311.3" x2="130" y2="305.2"/>
+        <line x1="104.1" y1="323.7" x2="99" y2="317.2"/>
+        <line x1="70.2" y1="332.7" x2="66.8" y2="326"/>
+        <line x1="35.3" y1="338.2" x2="33.6" y2="331.3"/>
+        <line x1="-35.3" y1="338.2" x2="-33.6" y2="331.3"/>
+        <line x1="-70.2" y1="332.7" x2="-66.8" y2="326"/>
+        <line x1="-104.1" y1="323.7" x2="-99" y2="317.2"/>
+        <line x1="-136.7" y1="311.3" x2="-130" y2="305.2"/>
+        <line x1="-200.3" y1="275.1" x2="-190.3" y2="270.4"/>
+        <line x1="-227" y1="256.8" x2="-215.6" y2="252.5"/>
+        <line x1="-251" y1="235.7" x2="-238.5" y2="232"/>
+        <line x1="-272.1" y1="212.1" x2="-258.5" y2="209.1"/>
+        <line x1="-311.3" y1="136.7" x2="-305.2" y2="130"/>
+        <line x1="-323.7" y1="104.1" x2="-317.2" y2="99"/>
+        <line x1="-332.7" y1="70.2" x2="-326" y2="66.8"/>
+        <line x1="-338.2" y1="35.3" x2="-331.3" y2="33.6"/>
+        <line x1="-338.2" y1="-35.3" x2="-331.3" y2="-33.6"/>
+        <line x1="-332.7" y1="-70.2" x2="-326" y2="-66.8"/>
+        <line x1="-323.7" y1="-104.1" x2="-317.2" y2="-99"/>
+        <line x1="-311.3" y1="-136.7" x2="-305.2" y2="-130"/>
+        <line x1="-272.1" y1="-212.1" x2="-258.5" y2="-209.1"/>
+        <line x1="-251" y1="-235.7" x2="-238.5" y2="-232"/>
+        <line x1="-227" y1="-256.8" x2="-215.6" y2="-252.5"/>
+        <line x1="-200.3" y1="-275.1" x2="-190.3" y2="-270.4"/>
+      </g>
+
+      <!-- Crosshair lines -->
+      <line x1="-360" y1="0" x2="360" y2="0" stroke-width="0.6" stroke-opacity="0.12"/>
+      <line x1="0" y1="-360" x2="0" y2="360" stroke-width="0.6" stroke-opacity="0.12"/>
+
+      <!-- North pin indicator -->
+      <line x1="0" y1="-352" x2="0" y2="-318" stroke-width="2" stroke-opacity="0.7" stroke="#b4e6ff"/>
+      <circle cy="-352" r="3" fill="#b4e6ff" fill-opacity="0.9" stroke="none"/>
+    </g>
+
+    <!-- L5: Diagonal comet streak -->
+    <path d="M 100 240 Q 340 150 750 210"
+          stroke="url(#cometGrad)" stroke-width="2.5" fill="none"
+          stroke-linecap="round" opacity="0.55"/>
+
+    <!-- L6: Dome highlight -->
+    <rect width="1024" height="1024" fill="url(#dome)"/>
+
+    <!-- L7: Cast shadow under glyph -->
+    <ellipse cx="512" cy="720" rx="180" ry="18" fill="#000000" opacity="0.5" filter="url(#shadow)"/>
+
+    <!-- L8: Cyan halo behind glyph -->
+    <g filter="url(#cyanHalo)">
+      <!-- Vault door / safe glyph - geometric shield with keyhole -->
+      <g transform="translate(512,480)">
+        <rect x="-190" y="-220" width="380" height="440" rx="40" fill="#808080"/>
+      </g>
+    </g>
+
+    <!-- L9+L10+L11: Glyph with gradient + bevel + glow -->
+    <g filter="url(#glow)">
+      <g filter="url(#bevel)">
+        <g transform="translate(512,480)">
+          <!-- Vault door body - rounded rectangle -->
+          <rect x="-175" y="-205" width="350" height="410" rx="32" fill="url(#glyphGrad)"/>
+
+          <!-- Vault door inner frame -->
+          <rect x="-155" y="-185" width="310" height="370" rx="20" fill="none"
+                stroke="#ffffff" stroke-width="2" stroke-opacity="0.25"/>
+
+          <!-- Vault handle - horizontal bar with circular grip -->
+          <line x1="50" y1="10" x2="155" y2="10" stroke="url(#glyphGrad)" stroke-width="14" stroke-linecap="round"/>
+          <circle cx="155" cy="10" r="28" fill="none" stroke="url(#glyphGrad)" stroke-width="10"/>
+
+          <!-- Keyhole - classic vault keyhole shape -->
+          <circle cx="-20" cy="-40" r="32" fill="#0c1828" opacity="0.9"/>
+          <rect x="-30" y="-40" width="20" height="70" rx="4" fill="#0c1828" opacity="0.9"/>
+
+          <!-- Keyhole inner glow -->
+          <circle cx="-20" cy="-40" r="22" fill="none" stroke="#00d4ff" stroke-width="2" stroke-opacity="0.5"/>
+          <rect x="-26" y="-36" width="12" height="56" rx="2" fill="none" stroke="#00d4ff" stroke-width="1.5" stroke-opacity="0.3"/>
+
+          <!-- Bolt indicators (left edge) -->
+          <rect x="-175" y="-120" width="20" height="8" rx="2" fill="#ffffff" opacity="0.15"/>
+          <rect x="-175" y="-60" width="20" height="8" rx="2" fill="#ffffff" opacity="0.15"/>
+          <rect x="-175" y="0" width="20" height="8" rx="2" fill="#ffffff" opacity="0.15"/>
+          <rect x="-175" y="60" width="20" height="8" rx="2" fill="#ffffff" opacity="0.15"/>
+          <rect x="-175" y="120" width="20" height="8" rx="2" fill="#ffffff" opacity="0.15"/>
+
+          <!-- Hinge indicators (right side, top and bottom) -->
+          <rect x="148" y="-180" width="18" height="30" rx="4" fill="#ffffff" opacity="0.1"/>
+          <rect x="148" y="150" width="18" height="30" rx="4" fill="#ffffff" opacity="0.1"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- L2 supplement: inner bezel rim (drawn last to overlay everything at the edge) -->
+    <rect x="2" y="2" width="1020" height="1020" rx="228" fill="none"
+          stroke="#000000" stroke-width="3" stroke-opacity="0.5"/>
+  </g>
+</svg>

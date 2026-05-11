@@ -2,11 +2,66 @@
 <html lang="en" data-theme="modern" data-audience="user" data-vp="lg desktop">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-		<meta name="theme-color" content="#000000" />
-		<meta name="description" content="VuVault — zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction." />
 		<meta name="referrer" content="no-referrer" />
+
+		<!-- Favicons -->
+		<link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
+		<link rel="icon" type="image/x-icon" href="%sveltekit.assets%/favicon.ico" />
+		<link rel="icon" type="image/png" sizes="16x16" href="%sveltekit.assets%/icons/icon-16.png" />
+		<link rel="icon" type="image/png" sizes="32x32" href="%sveltekit.assets%/icons/icon-32.png" />
+
+		<!-- iOS -->
+		<link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/icons/icon-180.png" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="apple-mobile-web-app-title" content="VuVault" />
+
+		<!-- PWA -->
+		<link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+		<meta name="theme-color" content="#000000" />
+
+		<!-- SEO -->
+		<meta name="description" content="VuVault — zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction." />
+
+		<!-- Open Graph -->
+		<meta property="og:title" content="VuVault — Zero-knowledge password manager" />
+		<meta property="og:description" content="Zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction." />
+		<meta property="og:image" content="/og-image.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:type" content="website" />
+
+		<!-- Twitter -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="VuVault — Zero-knowledge password manager" />
+		<meta name="twitter:description" content="Zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction." />
+		<meta name="twitter:image" content="/twitter-card.png" />
+
+		<!--
+			Preload the two Latin font subsets used on every route's
+			first paint (Instrument Sans, weight 400, latin; Instrument
+			Serif, weight 400 normal, latin). Non-Latin subsets and
+			JetBrains Mono are demand-loaded only when the matching
+			Unicode range is referenced (per `src/lib/styles/fonts.css`).
+			Without this preload the browser only discovers the font URLs
+			after `0.CpJaTATP.css` is parsed, adding ~200-400 ms LCP on
+			slow links.
+		-->
+		<link
+			rel="preload"
+			as="font"
+			type="font/woff2"
+			crossorigin="anonymous"
+			href="%sveltekit.assets%/fonts/instrument-sans-31fe1ea2.woff2"
+		/>
+		<link
+			rel="preload"
+			as="font"
+			type="font/woff2"
+			crossorigin="anonymous"
+			href="%sveltekit.assets%/fonts/instrument-serif-51cc973f.woff2"
+		/>
 
 		<!-- FOUC prevention: read theme + audience + viewport class before first paint. -->
 		<!-- SvelteKit hashes this inline script for prerendered pages -->

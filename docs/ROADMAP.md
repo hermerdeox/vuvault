@@ -22,19 +22,33 @@ The minimum credible product. Everything below is on the critical path to public
 
 ### Milestone 2 — Crypto wiring (Aug → Sep 2026)
 
-- ✅ Verify `@noble/post-quantum` against deterministic regression vectors locked to `@noble/post-quantum@0.4.1` (5 ML-KEM-1024 cases under `npm run test:fips`; FIPS 203 sizes, not NIST-CAVP-published vectors — pulling official ACVP vectors is M4 audit prep)
+- ✅ Verify `@noble/post-quantum` against deterministic regression vectors at the exact version `@noble/post-quantum@0.4.1` (enforced by [scripts/verify-pins.mjs](../scripts/verify-pins.mjs); 5 deterministic ML-KEM-1024 cases under `npm run test:fips`; the runtime version is asserted against `kat.nobleVersion` from [src/lib/crypto/ml-kem-1024.kat.test.ts](../src/lib/crypto/ml-kem-1024.kat.test.ts) so a silent lockfile drift fails the suite). NIST ACVP vectors (tcId 51–55) also run under `npm run test:fips` via [src/lib/crypto/ml-kem-1024.acvp.kat.test.ts](../src/lib/crypto/ml-kem-1024.acvp.kat.test.ts).
 - ✅ Implement OPAQUE client (RFC 9807) via `@structured-id/opaque` behind a swappable transport facade
 - ✅ End-to-end vault encryption: vault store → hybrid envelope → IndexedDB (formatVersion 2 wraps a fresh AES-256 key under X25519 + ML-KEM-1024)
-- ✅ Argon2id (RFC 9106) master-password fallback as an opt-in third factor; `VAULT_HIGH_PARAMS` preset (256 MiB, 4 passes, p=1 — well above OWASP's published Argon2id minimums and libsodium INTERACTIVE, below libsodium SENSITIVE)
-- ✅ Bundle integrity check at every unlock — refuses decryption on mismatch; renders a per-build Rekor link in the unlock footer for out-of-band verification
+- ✅ Argon2id (RFC 9106) master-password fallback as an opt-in third factor; `VAULT_HIGH_PARAMS` preset (256 MiB, 4 passes, p=1 — well above OWASP's published Argon2id minimums and libsodium INTERACTIVE, below libsodium SENSITIVE). RFC 9106 §5.3 KAT runs under `npm run test:fips` via [src/lib/crypto/argon2id-rfc9106.kat.test.ts](../src/lib/crypto/argon2id-rfc9106.kat.test.ts).
+- ✅ Bundle integrity check at every unlock — refuses decryption on mismatch; renders a per-build Rekor link in the unlock footer for out-of-band verification. Per-chunk SHA-384 verification runs in parallel via `Promise.all` so the unlock TTI stays small.
 
 ### Milestone 3 — Server-side stack (Sep 2026)
 
-- ✅ Cloudflare Pages Functions + D1 OPAQUE record storage (see [functions/api/opaque/](../functions/api/opaque/), [functions/api/_shared/migrations/0001_init.sql](../functions/api/_shared/migrations/0001_init.sql), [d1-storage.ts](../functions/api/_shared/d1-storage.ts))
-- ✅ R2 bucket for opaque encrypted vault blobs (see [functions/api/blobs/](../functions/api/blobs/), [wrangler.toml](../wrangler.toml) `VAULT_BLOBS` binding)
-- ✅ Worker routes for OPAQUE register + login flow — server only ever stores the RFC 9807 envelope, never password-equivalent material (see [server-opaque.ts](../functions/api/_shared/server-opaque.ts) `OpaqueServerEngine`)
+- ✅ SvelteKit API routes + D1 OPAQUE record storage are production-gated by stable D1 server identity derivation, idempotent release-time identity bootstrap, fail-closed production rate-limit mode, and the `m3-sync-e2e` CI artifact (see [`src/routes/api/opaque/`](../src/routes/api/opaque/), [`migrations/0001_init.sql`](../migrations/0001_init.sql), [`src/lib/server/api/d1-storage.ts`](../src/lib/server/api/d1-storage.ts), [`scripts/seed-opaque-identity.mjs`](../scripts/seed-opaque-identity.mjs)).
+- ✅ R2 binding + blob upload/fetch routes are wired through authenticated KE3 session tokens and release-time `PUBLIC_SYNC_ORIGIN` verification; production release requires a real local Wrangler D1/R2 round-trip artifact, post-deploy `/api/capabilities` smoke, and a **12-request burst probe against `/api/opaque/register/request` that asserts at least one 429/503 returns** (see [`.github/workflows/release.yml`](../.github/workflows/release.yml) `Post-deploy production smoke` step) so the dashboard rate-limiter is mechanically verified before traffic flows. See also [`src/routes/api/blobs/`](../src/routes/api/blobs/), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts), [`wrangler.toml`](../wrangler.toml) `VAULT_BLOBS` binding.
+- ✅ Worker routes for OPAQUE register + login flow are production-ready inside the SvelteKit Cloudflare Worker — server stores the RFC 9807 envelope, not password-equivalent material, and release preflight refuses deploys without a same-SHA `.m3-e2e-passed` artifact (see [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts) `OpaqueServerEngine`, [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs)).
 - ✅ Sigstore + Rekor keyless publishing in CI (see [.github/workflows/release.yml](../.github/workflows/release.yml) — pinned `sigstore/cosign-installer@v3.5.0` + `cosign@v2.4.0`, `id-token: write` OIDC flow, attaches signature + cert + Rekor index to every published release)
 - ✅ Reproducible build verification job — two-pass build with `SOURCE_DATE_EPOCH`-pinned `generatedAt` and a deterministic `kit.version.name`, asserts byte-identical `.bundle-digest` across independent builds (see [scripts/verify-reproducible.mjs](../scripts/verify-reproducible.mjs), [.github/workflows/ci.yml](../.github/workflows/ci.yml) `reproducible-build` job)
+
+### Performance baseline (May 2026)
+
+Captured at the end of the Roadmap Audit + Perf + Mobile-First Overhaul pass. The full per-route byte inventory lives in [docs/PERFORMANCE-BASELINE.md](./PERFORMANCE-BASELINE.md). Headline numbers:
+
+- `/unlock` ships **only** the lightweight unlock UI on cold cache; the ~155 KB Noble curves + ML-KEM-1024 + OPAQUE + Argon2id WASM payload defers until the user clicks "Unlock" (dynamic `import()` inside the handler in [`src/routes/unlock/+page.svelte`](../src/routes/unlock/+page.svelte)).
+- `/vault` ships **only** the three-pane chrome on cold cache; `ItemEditor`, `CommandK`, `MasterPasswordSettings`, and `QuickGenerator` lazy-load on first open via `{#await import(...)}` in [`src/routes/vault/+page.svelte`](../src/routes/vault/+page.svelte).
+- Landing-panel server chunk dropped from 99.74 KB to 59.36 KB after the three device-mock SVGs were extracted to `static/landing/{vault,documents,mobile}-mock.svg` and referenced via `<img loading="lazy">`.
+- Five JetBrains Mono non-Latin subsets dropped (~35 KB font payload) — Latin and Latin-ext only.
+- Two Latin font subsets are now `<link rel="preload">`-ed from [`src/app.html`](../src/app.html) so first-paint cuts ~300 ms on slow links.
+- Production sourcemaps emit `'hidden'` — ~2.1 MB CDN egress per region saved on every release.
+- Bundle-integrity verifier on `/unlock` parallelizes per-chunk SHA-384 via `Promise.all` (was sequential).
+- Mobile chrome (landing TopBar, onboarding header, unlock topbar, blueprint topbar, recover topbar) honors `env(safe-area-inset-*)` and every primary interactive element (`.ico-btn`, `.add-btn`, `.lock-btn`, `.overflow-trigger`, `.head-btn`, `.row`, `.chip`, `.action`, `.toggle`, modal `.close`, `Button.sm`) hits the WCAG 2.5.5 44×44 floor on `[data-vp~='mobile']` / `[data-vp~='tablet']`.
+- Manual chunking (`vendor-noble-pq`, `vendor-noble-ciphers`, `vendor-noble-core`, `vendor-opaque`, `vendor-dexie`) keeps the crypto stack in stable chunks so a Svelte component change does not invalidate them on every release.
 
 ### Milestone 4 — Audits & launch prep (Oct → Q4 2026)
 

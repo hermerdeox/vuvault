@@ -157,6 +157,11 @@
 		color: var(--text-3);
 		transition: var(--transition);
 	}
+	:global(html[data-vp~='mobile']) .ico-btn,
+	:global(html[data-vp~='tablet']) .ico-btn {
+		width: 44px;
+		height: 44px;
+	}
 	.ico-btn:hover {
 		background: var(--surface-hover);
 		color: var(--text);
@@ -245,6 +250,7 @@
 		padding: 6px 10px;
 		font-family: var(--font-mono);
 		font-size: 11px;
+		min-height: 32px;
 		font-weight: 600;
 		color: var(--text-2);
 		background: var(--surface);
@@ -260,6 +266,12 @@
 	}
 	.toggle input {
 		display: none;
+	}
+	:global(html[data-vp~='mobile']) .toggle,
+	:global(html[data-vp~='tablet']) .toggle {
+		min-height: 44px;
+		padding: 10px 14px;
+		font-size: 12px;
 	}
 
 	.actions {

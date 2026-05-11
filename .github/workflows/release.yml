@@ -35,6 +35,8 @@ permissions:
   # Read repo contents to build, write release artifacts back to the
   # release page.
   contents: write
+  # Read CI artifacts from the successful M3 D1/R2 E2E job for this SHA.
+  actions: read
 
 jobs:
   release:
@@ -73,6 +75,7 @@ jobs:
         env:
           PUBLIC_BUNDLE_HASH: ''
           PUBLIC_ENABLE_DEMO_AUTH: 'false'
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
 
       - name: Capture pass-1 digest
         run: |
@@ -88,6 +91,7 @@ jobs:
         run: npm run build
         env:
           PUBLIC_ENABLE_DEMO_AUTH: 'false'
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
 
       - name: Verify two-pass convergence
         # Sanity check: the same fixed-point assertion as the quality
@@ -102,6 +106,29 @@ jobs:
             exit 1
           fi
           echo "Release bundle digest: $PUBLIC_BUNDLE_HASH"
+
+      - name: Download M3 D1/R2 E2E artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh run download \
+            --repo "${{ github.repository }}" \
+            --name "m3-e2e-passed-${RELEASE_SHA}" \
+            --dir .
+          if [ ! -f .m3-e2e-passed ]; then
+            echo "::error::.m3-e2e-passed artifact was not downloaded"
+            exit 1
+          fi
+
+      - name: Verify production runtime configuration
+        env:
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+          PUBLIC_M3_E2E_AUTH: 'false'
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/verify-production-runtime.mjs
 
       - name: Install cosign (pinned)
         # Pinned exact version so a silent cosign upgrade can't change
@@ -196,6 +223,20 @@ jobs:
             release-artifacts/bundle-manifest.json
             release-artifacts/RELEASE.txt
 
+      - name: Apply production D1 migrations
+        if: github.event_name == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 migrations apply AUTH_DB --env production --remote
+
+      - name: Bootstrap OPAQUE server identity
+        if: github.event_name == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/seed-opaque-identity.mjs --env=production --rotate=false
+
       - name: Deploy to Cloudflare Pages
         # The deploy step is gated on `release` (tagged release) — a
         # workflow_dispatch run produces artifacts but does NOT push to
@@ -205,9 +246,71 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
         run: |
           set -euo pipefail
           npx wrangler pages deploy .svelte-kit/cloudflare \
             --project-name=vuvault \
             --branch=main \
             --commit-hash="${{ github.sha }}"
+
+      - name: Post-deploy production smoke
+        if: github.event_name == 'release'
+        env:
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const origin = process.env.PUBLIC_SYNC_ORIGIN;
+          if (!origin) throw new Error('PUBLIC_SYNC_ORIGIN is empty');
+
+          const capabilities = await fetch(`${origin}/api/capabilities`, {
+            cache: 'no-store'
+          });
+          if (!capabilities.ok) {
+            throw new Error(`/api/capabilities returned ${capabilities.status}`);
+          }
+          const caps = await capabilities.json();
+          if (caps?.ok !== true || caps?.data?.opaque !== true || caps?.data?.blobSync !== true) {
+            throw new Error(`/api/capabilities response mismatch: ${JSON.stringify(caps)}`);
+          }
+
+          const unauthBlob = await fetch(`${origin}/api/blobs/upload`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+            cache: 'no-store'
+          });
+          if (unauthBlob.status !== 401 && unauthBlob.status !== 503) {
+            throw new Error(`/api/blobs/upload unauth probe returned ${unauthBlob.status}`);
+          }
+
+          // Burst rate-limit probe: production sets
+          // OPAQUE_REGISTER_LIMITER to 10 req / 60 s per IP. Issue 12
+          // shape-valid (but cryptographically nonsense) requests in
+          // parallel; at least one MUST come back 429. If the dashboard
+          // limiter is missing, production fail-closed returns 503 —
+          // also acceptable as a positive signal that the gate is wired
+          // and refusing traffic. Anything else (e.g. all 400s) means
+          // the limiter binding silently dropped from the dashboard.
+          const burst = await Promise.all(
+            Array.from({ length: 12 }, () =>
+              fetch(`${origin}/api/opaque/register/request`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  clientId: 'release-smoke-probe',
+                  request: 'AA=='
+                }),
+                cache: 'no-store'
+              }).then((r) => r.status)
+            )
+          );
+          const sawLimited = burst.some((s) => s === 429 || s === 503);
+          if (!sawLimited) {
+            throw new Error(
+              `rate-limit burst probe never returned 429/503; got [${burst.join(',')}]. Verify OPAQUE_REGISTER_LIMITER is wired in the Cloudflare dashboard.`
+            );
+          }
+          console.log(`post-deploy-smoke: OK (burst statuses ${burst.join(',')})`);
+          NODE

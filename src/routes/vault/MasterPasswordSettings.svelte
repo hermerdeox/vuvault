@@ -12,8 +12,10 @@
 	 *   3. ENABLE: ask for new password (twice, must match) +
 	 *      Secret Key re-confirmation; we re-evaluate WebAuthn PRF,
 	 *      derive Argon2id key, and rotateAuth() under the new factor.
-	 *   4. DISABLE: ask for current Secret Key (re-confirmation) +
-	 *      current master password; rotateAuth({ masterPasswordKey: null }).
+	 *   4. DISABLE: require an active unlocked vault session plus
+	 *      Secret Key/passkey re-confirmation; then rotateAuth({
+	 *      masterPasswordKey: null }). No real password verification is
+	 *      performed in this UI pass.
 	 *
 	 * The actual cryptographic operations live in
 	 * `vault-session.rotateAuth()` and `crypto/argon2.deriveMasterPasswordKey()`
@@ -53,7 +55,6 @@
 	let mode = $state<'enable' | 'disable'>('enable');
 	let password1 = $state('');
 	let password2 = $state('');
-	let currentPassword = $state('');
 	let secretKeyInput = $state('');
 	let busy = $state(false);
 	let errorMessage = $state<string | null>(null);
@@ -66,7 +67,6 @@
 			successMessage = null;
 			password1 = '';
 			password2 = '';
-			currentPassword = '';
 			secretKeyInput = '';
 			loadAccount()
 				.then((acc) => {
@@ -103,9 +103,7 @@
 	const canSubmitEnable = $derived(
 		!busy && validSecretKey && passwordsMatch
 	);
-	const canSubmitDisable = $derived(
-		!busy && validSecretKey && currentPassword.length >= 1
-	);
+	const canSubmitDisable = $derived(!busy && validSecretKey);
 
 	async function submit() {
 		if (!summary) return;
@@ -156,13 +154,10 @@
 					mpk.fill(0);
 				}
 			} else {
-				// Disable. Use the user-typed currentPassword to derive
-				// the SAME mpk that's currently bound — though we
-				// actually don't need it to call rotateAuth (we pass
-				// `null`). We DO need it implicitly via the unlock flow
-				// that produced the current session, so we just re-use
-				// the unlocked vaultKey. rotateAuth refuses if MPK is
-				// `undefined` for an enrolled account; we pass `null`.
+				// Disable uses the active unlocked session plus
+				// Secret Key/passkey re-confirmation. We deliberately
+				// do not collect or fake-verify the current password here;
+				// rotateAuth gets `null` to remove the enrolled MPK factor.
 				await rotateAuth({
 					prfOutput,
 					secretKey,
@@ -180,7 +175,6 @@
 			if (secretKey) secretKey.fill(0);
 			password1 = '';
 			password2 = '';
-			currentPassword = '';
 			secretKeyInput = '';
 			busy = false;
 		}
@@ -235,17 +229,14 @@
 						<div class="hint warn">Passwords don't match (minimum 8 chars).</div>
 					{/if}
 				</div>
-			{:else}
-				<div class="form-block">
-					<label for="mp-cur" class="lbl">Current master password</label>
-					<input
-						id="mp-cur"
-						type="password"
-						bind:value={currentPassword}
-						autocomplete="current-password"
-						disabled={busy}
-					/>
-				</div>
+			{/if}
+
+			{#if mode === 'disable'}
+				<p class="lede">
+					Disabling requires this vault to already be unlocked, then re-confirms
+					your Secret Key and passkey. Current-password verification is not
+					implemented in this pass.
+				</p>
 			{/if}
 
 			<div class="form-block">

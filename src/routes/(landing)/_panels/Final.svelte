@@ -184,6 +184,17 @@
 			grid-template-columns: 1fr;
 			text-align: center;
 			gap: 14px;
+			/* iOS PWAs / Safari home-indicator: the Final panel is the
+			   bottom snap target, so its foot is what sits over the
+			   indicator. Push it above the safe area with a max() floor
+			   so unnotched browsers keep the original padding. */
+			padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+		}
+		.final-foot-links a {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+			padding: 4px 8px;
 		}
 	}
 	@media (max-width: 30em) {

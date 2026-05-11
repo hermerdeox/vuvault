@@ -1,6 +1,6 @@
 /**
- * Pages Function `Env` type — shared by every handler under
- * `functions/api/`. Lists every binding the Worker expects to find
+ * SvelteKit API `Env` type — shared by every handler under
+ * `src/routes/api/`. Lists every binding the Worker expects to find
  * at request time. Bindings come from `wrangler.toml`'s `[[d1_databases]]`,
  * `[[r2_buckets]]`, and `[vars]` blocks.
  */
@@ -34,10 +34,10 @@ export type R2Bucket = {
  * returns `{ success: boolean }` and the binding stores a sliding-
  * window counter against the opaque key.
  *
- * Bindings declared in wrangler.toml under `[[unsafe.bindings]]` with
- * `type = "ratelimit"`. The unsafe wrapping is documented; the
- * dashboard-side rate-limit rules are the production safety net if
- * this shape changes.
+ * Pages projects currently wire these through the Cloudflare dashboard,
+ * not wrangler.toml. Production runs with `OPAQUE_RATE_LIMIT_MODE =
+ * "fail-closed"` so a missing binding disables the protected endpoint
+ * instead of silently accepting unlimited traffic.
  */
 export type RateLimit = {
 	limit(input: { key: string }): Promise<{ success: boolean }>;
@@ -55,6 +55,7 @@ export interface Env {
 	PUBLIC_VAULT_VERSION?: string;
 	PUBLIC_ENABLE_DEMO_AUTH?: string;
 	PUBLIC_SYNC_ORIGIN?: string;
+	OPAQUE_RATE_LIMIT_MODE?: string;
 
 	/**
 	 * Server-facing identity string used as the OPAQUE `serverIdentity`
@@ -66,25 +67,34 @@ export interface Env {
 }
 
 /**
- * Apply a rate-limiter binding if it's wired. If the binding isn't
- * present (e.g. local Wrangler dev without the unsafe binding
- * configured), the call is a no-op. Production deploys MUST have
- * the binding wired — verified by the deploy step.
+ * Apply a rate-limiter binding if it's wired. Preview/dev intentionally
+ * fail open so local work does not require dashboard-only bindings.
+ * Production sets `OPAQUE_RATE_LIMIT_MODE=fail-closed`, which turns a
+ * missing or failing limiter into a 503 instead of a silent bypass.
  */
+export type RateLimitDecision =
+	| { ok: true }
+	| { ok: false; status: 429 | 503; message: string };
+
 export async function checkRateLimit(
 	limiter: RateLimit | undefined,
-	key: string
-): Promise<boolean> {
-	if (!limiter) return true;
+	key: string,
+	env: Pick<Env, 'OPAQUE_RATE_LIMIT_MODE'>
+): Promise<RateLimitDecision> {
+	const mode = (env.OPAQUE_RATE_LIMIT_MODE ?? 'fail-open').trim().toLowerCase();
+	const failClosed = mode === 'fail-closed';
+	if (!limiter) {
+		return failClosed
+			? { ok: false, status: 503, message: 'rate limiter binding not configured' }
+			: { ok: true };
+	}
 	try {
 		const { success } = await limiter.limit({ key });
-		return success;
+		return success ? { ok: true } : { ok: false, status: 429, message: 'rate limit exceeded' };
 	} catch {
-		// Fail open on rate-limiter errors — we'd rather serve a
-		// burst of legitimate traffic than refuse everything when
-		// the limiter binding hiccups. Cloudflare WAF dashboard
-		// rules are the layered defense.
-		return true;
+		return failClosed
+			? { ok: false, status: 503, message: 'rate limiter unavailable' }
+			: { ok: true };
 	}
 }
 

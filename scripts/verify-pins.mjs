@@ -45,6 +45,11 @@ const NPM_EXACT_PINS = [
 		name: 'argon2id',
 		field: 'dependencies',
 		why: 'RFC 9106 master-password stretching; unaudited new runtime dep'
+	},
+	{
+		name: '@noble/post-quantum',
+		field: 'dependencies',
+		why: 'FIPS 203 ML-KEM-1024 in the hybrid envelope; only PQ implementation in the bundle, deterministic regression vectors are tied to this version'
 	}
 ];
 

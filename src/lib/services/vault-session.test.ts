@@ -68,9 +68,21 @@ import {
 	generateDeviceSalt,
 	currentFormatVersion,
 	rotateAuth,
-	PROVISION_FORMAT_VERSION
+	PROVISION_FORMAT_VERSION,
+	sealDocument,
+	openDocument,
+	sha256Hex
 } from './vault-session';
-import { db, validateAccountRow, validateVaultRow } from '$lib/utils/storage';
+import {
+	db,
+	validateAccountRow,
+	validateVaultRow,
+	validateDocumentBlobRow,
+	saveDocumentBlob,
+	getDocumentBlob,
+	deleteDocumentBlob,
+	listDocumentBlobIds
+} from '$lib/utils/storage';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
 import { deriveVaultKey } from '$lib/crypto/derive';
@@ -470,6 +482,57 @@ describe('vault-session — formatVersion 1 → 2 migration', () => {
 		expect(reopened.map((i) => i.title).sort()).toEqual(['fresh', 'old-login']);
 	});
 
+	it('preserves optional account fields during the atomic v1 → v2 upgrade', async () => {
+		await seedV1Vault([
+			{
+				id: 'legacy-optional',
+				kind: 'note',
+				title: 'legacy optional',
+				noteBody: 'metadata should survive',
+				createdAt: 1,
+				updatedAt: 1
+			}
+		]);
+		await openVault({ secretKey: SECRET_KEY });
+
+		const before = await db.account.get('singleton');
+		expect(before).toBeDefined();
+		before!.opaqueState = 'enrolled';
+		before!.opaqueAccountId = 'acct-upgrade';
+		before!.opaqueServerId = 'opaque.example';
+		before!.opaqueClientId = 'client-upgrade';
+		before!.masterPasswordEnabled = true;
+		before!.masterPasswordSalt = new Uint8Array(16).fill(0x42);
+		before!.masterPasswordParams = {
+			memoryKiB: 1024,
+			iterations: 2,
+			parallelism: 1,
+			tagLength: 32
+		};
+		await db.account.put(before!);
+
+		await saveItems([
+			{
+				id: 'legacy-optional',
+				kind: 'note',
+				title: 'legacy optional',
+				noteBody: 'metadata survived',
+				createdAt: 1,
+				updatedAt: 2
+			}
+		]);
+
+		const after = await db.account.get('singleton');
+		expect(after?.formatVersion).toBe(PROVISION_FORMAT_VERSION);
+		expect(after?.opaqueState).toBe('enrolled');
+		expect(after?.opaqueAccountId).toBe('acct-upgrade');
+		expect(after?.opaqueServerId).toBe('opaque.example');
+		expect(after?.opaqueClientId).toBe('client-upgrade');
+		expect(after?.masterPasswordEnabled).toBe(true);
+		expect(after?.masterPasswordSalt).toEqual(new Uint8Array(16).fill(0x42));
+		expect(after?.masterPasswordParams?.tagLength).toBe(32);
+	});
+
 	it('a v2-provisioned vault stays v2 across save → lock → unlock', async () => {
 		const credentialId = freshCredentialId();
 		const deviceSalt = generateDeviceSalt();
@@ -817,5 +880,109 @@ describe('storage validators', () => {
 			updatedAt: 1
 		};
 		expect(() => validateVaultRow(bad)).toThrow(/nonce must be 12 bytes/);
+	});
+});
+
+describe('document blob crypto', () => {
+	async function provision(): Promise<void> {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({
+			credentialId,
+			salt: deviceSalt
+		})) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'doc-test',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+	}
+
+	it('seals and opens a document round-trip', async () => {
+		await provision();
+		const plaintext = new TextEncoder().encode('lease contents — confidential');
+		const sealed = await sealDocument(plaintext);
+		expect(sealed.size).toBe(plaintext.length);
+		expect(sealed.sha256Hex).toHaveLength(64);
+		expect(sealed.ciphertext.length).toBeGreaterThan(plaintext.length);
+		const opened = await openDocument({
+			blobId: sealed.blobId,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext
+		});
+		expect(new TextDecoder().decode(opened)).toBe(
+			'lease contents — confidential'
+		);
+		expect(sha256Hex(opened)).toBe(sealed.sha256Hex);
+	});
+
+	it('rejects an opened blob with a different blobId (AAD swap)', async () => {
+		await provision();
+		const sealed = await sealDocument(new Uint8Array([1, 2, 3, 4, 5]));
+		await expect(
+			openDocument({
+				blobId: '00000000-0000-0000-0000-000000000000',
+				nonce: sealed.nonce,
+				ciphertext: sealed.ciphertext
+			})
+		).rejects.toThrow();
+	});
+
+	it('rejects tampered ciphertext', async () => {
+		await provision();
+		const sealed = await sealDocument(new Uint8Array([9, 9, 9, 9]));
+		const tampered = new Uint8Array(sealed.ciphertext);
+		tampered[0] ^= 0xff;
+		await expect(
+			openDocument({
+				blobId: sealed.blobId,
+				nonce: sealed.nonce,
+				ciphertext: tampered
+			})
+		).rejects.toThrow();
+	});
+
+	it('refuses to seal when the vault is locked', async () => {
+		lockSession();
+		await expect(sealDocument(new Uint8Array(1))).rejects.toThrow(
+			/vault must be unlocked/
+		);
+	});
+
+	it('persists, validates, and clears document blob rows', async () => {
+		await provision();
+		const sealed = await sealDocument(new Uint8Array([1, 2, 3]));
+		await saveDocumentBlob({
+			id: sealed.blobId,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext,
+			size: sealed.size,
+			sha256: sealed.sha256Hex,
+			createdAt: Date.now()
+		});
+		const got = await getDocumentBlob(sealed.blobId);
+		expect(got).toBeDefined();
+		expect(got?.id).toBe(sealed.blobId);
+		const ids = await listDocumentBlobIds();
+		expect(ids).toContain(sealed.blobId);
+		await deleteDocumentBlob(sealed.blobId);
+		expect(await getDocumentBlob(sealed.blobId)).toBeUndefined();
+	});
+
+	it('document blob row validator rejects malformed rows', () => {
+		expect(() =>
+			validateDocumentBlobRow({
+				id: 'x',
+				nonce: new Uint8Array(8),
+				ciphertext: new Uint8Array(2),
+				size: 2,
+				sha256: 'ZZ',
+				createdAt: 1
+			})
+		).toThrow(/nonce must be 12 bytes/);
 	});
 });

@@ -159,177 +159,14 @@
 				<div class="ipad">
 					<div class="ipad-camera"></div>
 					<div class="ipad-screen">
-						<svg viewBox="0 0 1024 768" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-							<rect width="1024" height="768" fill="#000"/>
-							<text x="40" y="22" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="700" fill="#fff">9:41 AM · Wed Mar 15</text>
-							<g transform="translate(900, 12)">
-								<rect x="0" y="2" width="3" height="8" rx="0.5" fill="#fff"/>
-								<rect x="5" y="0" width="3" height="10" rx="0.5" fill="#fff"/>
-								<rect x="10" y="-2" width="3" height="12" rx="0.5" fill="#fff"/>
-								<text x="22" y="11" font-family="Instrument Sans, sans-serif" font-size="11" fill="#fff">5G</text>
-								<rect x="50" y="0" width="22" height="10" rx="2" fill="none" stroke="#fff" stroke-width="1"/>
-								<rect x="52" y="2" width="16" height="6" rx="0.5" fill="#22c55e"/>
-								<rect x="72" y="3" width="2" height="4" rx="0.5" fill="#fff"/>
-								<text x="80" y="11" font-family="Instrument Sans, sans-serif" font-size="11" fill="#fff">87%</text>
-							</g>
-							<rect x="0" y="32" width="1024" height="52" fill="#0a0a0a"/>
-							<line x1="0" y1="84" x2="1024" y2="84" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<rect x="24" y="46" width="26" height="26" rx="6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.1)"/>
-							<text x="37" y="64" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="800" fill="#f5f5f0">V</text>
-							<text x="60" y="63" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="700" fill="#fff">VuVault</text>
-							<text x="138" y="63" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">/ Documents</text>
-							<rect x="280" y="44" width="380" height="28" rx="6" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-							<circle cx="294" cy="58" r="5" fill="none" stroke="#666" stroke-width="1.4"/>
-							<line x1="298" y1="62" x2="302" y2="66" stroke="#666" stroke-width="1.4"/>
-							<text x="308" y="62" font-family="Instrument Sans, sans-serif" font-size="11" fill="#666">Search 47 documents</text>
-							<rect x="844" y="44" width="84" height="28" rx="6" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-							<text x="886" y="62" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="11" font-weight="600" fill="#b8b8b8">+ Upload</text>
-							<rect x="938" y="44" width="64" height="28" rx="14" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.3)"/>
-							<circle cx="952" cy="58" r="3" fill="#22c55e"/>
-							<text x="960" y="62" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="700" fill="#22c55e">SEALED</text>
-							<rect x="0" y="84" width="200" height="684" fill="#080808"/>
-							<line x1="200" y1="84" x2="200" y2="768" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<text x="20" y="116" font-family="JetBrains Mono, monospace" font-size="9" font-weight="700" fill="#666" letter-spacing="1.5">CATEGORIES</text>
-							<g font-family="Instrument Sans, sans-serif" font-size="13">
-								<rect x="22" y="129" width="14" height="14" rx="2" fill="none" stroke="#888" stroke-width="1.4"/>
-								<circle cx="29" cy="136" r="2" fill="#888"/>
-								<text x="46" y="141" fill="#b8b8b8">Logins</text>
-								<text x="178" y="141" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">14</text>
-								<rect x="22" y="161" width="16" height="11" rx="1.5" fill="none" stroke="#888" stroke-width="1.4"/>
-								<line x1="22" y1="165" x2="38" y2="165" stroke="#888" stroke-width="1.4"/>
-								<text x="46" y="171" fill="#b8b8b8">Cards</text>
-								<text x="178" y="171" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">2</text>
-								<rect x="22" y="191" width="14" height="11" rx="2" fill="none" stroke="#888" stroke-width="1.4"/>
-								<circle cx="29" cy="197" r="2" fill="#888"/>
-								<text x="46" y="201" fill="#b8b8b8">IDs &amp; Passports</text>
-								<text x="178" y="201" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">4</text>
-								<rect x="12" y="217" width="176" height="32" rx="6" fill="rgba(0,212,255,0.08)" stroke="rgba(0,212,255,0.25)"/>
-								<rect x="22" y="227" width="14" height="14" rx="1.5" fill="none" stroke="#00d4ff" stroke-width="1.4"/>
-								<line x1="25" y1="231" x2="33" y2="231" stroke="#00d4ff" stroke-width="1.4"/>
-								<line x1="25" y1="234" x2="33" y2="234" stroke="#00d4ff" stroke-width="1.4"/>
-								<line x1="25" y1="237" x2="30" y2="237" stroke="#00d4ff" stroke-width="1.4"/>
-								<text x="46" y="237" font-weight="600" fill="#fff">Documents</text>
-								<text x="178" y="237" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#00d4ff">47</text>
-								<rect x="22" y="261" width="14" height="14" rx="2" fill="none" stroke="#888" stroke-width="1.4"/>
-								<line x1="26" y1="265" x2="34" y2="265" stroke="#888" stroke-width="1.4"/>
-								<line x1="26" y1="269" x2="34" y2="269" stroke="#888" stroke-width="1.4"/>
-								<text x="46" y="271" fill="#b8b8b8">Secure notes</text>
-								<text x="178" y="271" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">8</text>
-								<path d="M22 295 L29 290 L36 295 L36 302 L29 307 L22 302 Z" fill="none" stroke="#888" stroke-width="1.4"/>
-								<text x="46" y="301" fill="#b8b8b8">Crypto seeds</text>
-								<text x="178" y="301" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">3</text>
-							</g>
-							<line x1="0" y1="708" x2="200" y2="708" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<circle cx="22" cy="730" r="3" fill="#22c55e"/>
-							<text x="34" y="734" font-family="Instrument Sans, sans-serif" font-size="10" fill="#b8b8b8">Local · sync Tier 2</text>
-							<text x="22" y="752" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">2.4 MB · ML-KEM-1024</text>
-							<rect x="200" y="84" width="240" height="684" fill="#0a0a0a"/>
-							<line x1="440" y1="84" x2="440" y2="768" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<text x="220" y="116" font-family="JetBrains Mono, monospace" font-size="9" font-weight="700" fill="#666" letter-spacing="1.5">47 DOCUMENTS · ALL</text>
-							<rect x="212" y="130" width="216" height="64" rx="8" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.25)"/>
-							<rect x="224" y="144" width="32" height="40" rx="4" fill="#172a5e" stroke="rgba(0,212,255,0.3)"/>
-							<text x="240" y="170" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#00d4ff">PDF</text>
-							<text x="266" y="152" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#fff">Warranty Deed</text>
-							<text x="266" y="168" font-family="Instrument Sans, sans-serif" font-size="10" fill="#888">128 Catawba Pl · Greenville</text>
-							<text x="266" y="184" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">2.1 MB · signed · sealed</text>
-							<rect x="212" y="206" width="216" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="224" y="220" width="32" height="36" rx="4" fill="#1a1a1a" stroke="rgba(255,255,255,0.1)"/>
-							<text x="240" y="242" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#888">PDF</text>
-							<text x="266" y="228" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#e8e8e8">Vehicle Title</text>
-							<text x="266" y="244" font-family="Instrument Sans, sans-serif" font-size="10" fill="#888">2024 Tesla Model 3</text>
-							<text x="266" y="258" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">1.4 MB · 09 / 04 / 2024</text>
-							<rect x="212" y="278" width="216" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="224" y="292" width="32" height="36" rx="4" fill="#1a1a1a" stroke="rgba(255,255,255,0.1)"/>
-							<text x="240" y="314" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#888">PDF</text>
-							<text x="266" y="300" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#e8e8e8">Office Lease 2025</text>
-							<text x="266" y="316" font-family="Instrument Sans, sans-serif" font-size="10" fill="#888">Suite 412 · 24 months</text>
-							<text x="266" y="330" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">3.8 MB · 14 pages</text>
-							<rect x="212" y="350" width="216" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="224" y="364" width="32" height="36" rx="4" fill="#1a1a1a" stroke="rgba(255,255,255,0.1)"/>
-							<text x="240" y="386" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#888">PDF</text>
-							<text x="266" y="372" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#e8e8e8">1040 — Tax Return</text>
-							<text x="266" y="388" font-family="Instrument Sans, sans-serif" font-size="10" fill="#888">Tax year 2024</text>
-							<text x="266" y="402" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">1.1 MB · April 2025</text>
-							<rect x="212" y="422" width="216" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
-							<rect x="224" y="436" width="32" height="36" rx="4" fill="#0a3a1a" stroke="rgba(34,197,94,0.3)"/>
-							<text x="240" y="458" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#22c55e">JPG</text>
-							<text x="266" y="444" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#e8e8e8">Passport Scan</text>
-							<text x="266" y="460" font-family="Instrument Sans, sans-serif" font-size="10" fill="#888">Expires Aug 2031</text>
-							<text x="266" y="474" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">880 KB · biometric pg</text>
-							<rect x="212" y="494" width="216" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,165,0,0.2)"/>
-							<rect x="224" y="508" width="32" height="36" rx="4" fill="#3a2810" stroke="rgba(255,165,0,0.3)"/>
-							<text x="240" y="530" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="8" font-weight="700" fill="#ffa500">LOCK</text>
-							<text x="266" y="516" font-family="Instrument Sans, sans-serif" font-size="12" font-weight="600" fill="#e8e8e8">Last Will</text>
-							<text x="266" y="532" font-family="Instrument Sans, sans-serif" font-size="10" fill="#ffa500">Time-locked · 2055-01-01</text>
-							<text x="266" y="546" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">tlock + drand</text>
-							<rect x="440" y="84" width="584" height="684" fill="#0a0a0a"/>
-							<rect x="440" y="84" width="584" height="40" fill="#080808"/>
-							<line x1="440" y1="124" x2="1024" y2="124" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<text x="460" y="108" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600" fill="#fff">Warranty Deed.pdf</text>
-							<text x="588" y="108" font-family="JetBrains Mono, monospace" font-size="10" fill="#666">2.1 MB · 4 pages · signed</text>
-							<g transform="translate(750, 92)">
-								<rect x="0" y="0" width="56" height="22" rx="4" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-								<text x="28" y="15" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#b8b8b8">1 / 4</text>
-								<rect x="64" y="0" width="50" height="22" rx="4" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-								<text x="89" y="15" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="600" fill="#b8b8b8">100%</text>
-								<rect x="124" y="0" width="50" height="22" rx="4" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-								<text x="149" y="15" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="600" fill="#b8b8b8">⤓ Save</text>
-								<rect x="184" y="0" width="84" height="22" rx="4" fill="rgba(0,212,255,0.1)" stroke="rgba(0,212,255,0.3)"/>
-								<text x="226" y="15" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="700" fill="#00d4ff">↗ Sign / Verify</text>
-							</g>
-							<rect x="498" y="148" width="468" height="572" rx="3" fill="#ffffff"/>
-							<g transform="translate(732, 434) rotate(-30)" opacity="0.06">
-								<text x="0" y="0" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="34" font-weight="800" fill="#172a5e" letter-spacing="6">VUVAULT</text>
-								<text x="0" y="38" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="14" font-weight="700" fill="#172a5e" letter-spacing="4">SEALED · ENCRYPTED</text>
-							</g>
-							<text x="732" y="186" text-anchor="middle" font-family="Instrument Serif, serif" font-size="22" font-weight="700" fill="#0a0a0a" letter-spacing="1">WARRANTY DEED</text>
-							<line x1="540" y1="200" x2="924" y2="200" stroke="#0a0a0a" stroke-width="0.6"/>
-							<text x="732" y="218" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="9" fill="#444" letter-spacing="2">STATE OF SOUTH CAROLINA · COUNTY OF GREENVILLE</text>
-							<text x="528" y="248" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">KNOW ALL MEN BY THESE PRESENTS, that the Grantor</text>
-							<text x="528" y="262" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">named below, in consideration of the sum of Three Hundred</text>
-							<text x="528" y="276" font-family="Instrument Sans, sans-serif" font-size="9" font-weight="700" fill="#1a1a1a">Forty-Eight Thousand and 00/100 Dollars ($348,000.00),</text>
-							<text x="528" y="290" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">paid by the Grantee, has granted, bargained, sold, and</text>
-							<text x="528" y="304" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">released unto the Grantee, and Grantee's heirs and assigns,</text>
-							<text x="528" y="318" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">the following described real property:</text>
-							<rect x="528" y="334" width="408" height="76" fill="#f7f7f3" stroke="#cccccc" stroke-width="0.5"/>
-							<text x="540" y="352" font-family="JetBrains Mono, monospace" font-size="8" fill="#1a1a1a">Lot 14, Block C, Catawba Place Subdivision,</text>
-							<text x="540" y="366" font-family="JetBrains Mono, monospace" font-size="8" fill="#1a1a1a">according to plat recorded in Plat Book 47,</text>
-							<text x="540" y="380" font-family="JetBrains Mono, monospace" font-size="8" fill="#1a1a1a">Page 128, of the public records of Greenville</text>
-							<text x="540" y="394" font-family="JetBrains Mono, monospace" font-size="8" fill="#1a1a1a">County, South Carolina. Property address:</text>
-							<text x="540" y="408" font-family="JetBrains Mono, monospace" font-size="8" font-weight="700" fill="#1a1a1a">128 Catawba Place, Greenville, SC 29609</text>
-							<text x="528" y="436" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">TO HAVE AND TO HOLD all and singular the Premises before</text>
-							<text x="528" y="450" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">mentioned unto the Grantee and Grantee's heirs and assigns</text>
-							<text x="528" y="464" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">forever. AND the Grantor doth hereby bind themselves and</text>
-							<text x="528" y="478" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">their heirs to warrant and forever defend all and singular</text>
-							<text x="528" y="492" font-family="Instrument Sans, sans-serif" font-size="9" fill="#1a1a1a">the said Premises unto the Grantee.</text>
-							<line x1="528" y1="528" x2="700" y2="528" stroke="#0a0a0a" stroke-width="0.6"/>
-							<text x="528" y="542" font-family="JetBrains Mono, monospace" font-size="8" fill="#444">GRANTOR · R LOPEZ</text>
-							<path d="M 540 522 Q 552 510, 568 520 Q 580 528, 600 518 Q 620 510, 640 522 Q 658 530, 680 518" fill="none" stroke="#172a5e" stroke-width="1.4" stroke-linecap="round"/>
-							<text x="528" y="558" font-family="JetBrains Mono, monospace" font-size="7" fill="#666">Signed in vault · 2024-09-12</text>
-							<line x1="752" y1="528" x2="924" y2="528" stroke="#0a0a0a" stroke-width="0.6"/>
-							<text x="752" y="542" font-family="JetBrains Mono, monospace" font-size="8" fill="#444">NOTARY · M. WHEELER</text>
-							<path d="M 760 522 Q 776 514, 790 520 Q 808 528, 824 520 Q 842 512, 860 522 Q 880 530, 900 522" fill="none" stroke="#172a5e" stroke-width="1.4" stroke-linecap="round"/>
-							<text x="752" y="558" font-family="JetBrains Mono, monospace" font-size="7" fill="#666">Notarized · 2024-09-12</text>
-							<g transform="translate(870, 618)">
-								<circle cx="0" cy="0" r="34" fill="none" stroke="#a0202a" stroke-width="1.4"/>
-								<circle cx="0" cy="0" r="28" fill="none" stroke="#a0202a" stroke-width="0.6"/>
-								<text x="0" y="-12" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="6" font-weight="700" fill="#a0202a" letter-spacing="0.5">NOTARY PUBLIC</text>
-								<text x="0" y="2" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="5" font-weight="700" fill="#a0202a">SOUTH</text>
-								<text x="0" y="9" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="5" font-weight="700" fill="#a0202a">CAROLINA</text>
-								<text x="0" y="20" text-anchor="middle" font-family="Instrument Sans, sans-serif" font-size="5" fill="#a0202a">M. WHEELER</text>
-							</g>
-							<text x="732" y="700" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="8" fill="#888">Page 1 of 4</text>
-							<rect x="498" y="724" width="468" height="32" rx="3" fill="#0f1f0f" stroke="rgba(34,197,94,0.4)"/>
-							<circle cx="516" cy="740" r="5" fill="#22c55e"/>
-							<path d="M 513 740 L 516 743 L 520 738" stroke="#0a0a0a" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-							<text x="528" y="738" font-family="Instrument Sans, sans-serif" font-size="10" font-weight="700" fill="#22c55e">DOCUMENT VERIFIED</text>
-							<text x="528" y="750" font-family="JetBrains Mono, monospace" font-size="8" fill="#888">Ed25519 sig · sha384:a4f1c7e2 · transparency log entry #41827</text>
-							<rect x="200" y="744" width="824" height="24" fill="#080808"/>
-							<line x1="200" y1="744" x2="1024" y2="744" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-							<circle cx="220" cy="757" r="3" fill="#22c55e"/>
-							<text x="232" y="761" font-family="Instrument Sans, sans-serif" font-size="10" fill="#b8b8b8">Document opened · local-only · all decryption in-browser</text>
-							<text x="980" y="761" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="9" fill="#666">vault.vu · 47 docs · ML-KEM-1024 active · Tier 2 preview</text>
-						</svg>
+						<img
+							src="/landing/documents-mock.svg"
+							alt=""
+							loading="lazy"
+							decoding="async"
+							width="1024"
+							height="768"
+						/>
 					</div>
 				</div>
 				{:else}
@@ -521,7 +358,8 @@
 		overflow: hidden;
 		position: relative;
 	}
-	.ipad-screen svg {
+	.ipad-screen svg,
+	.ipad-screen img {
 		display: block;
 		width: 100%;
 		height: 100%;

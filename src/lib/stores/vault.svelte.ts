@@ -16,8 +16,10 @@ import {
 	saveItems,
 	lockSession,
 	getVaultByteSize,
-	setSyncObserver
+	setSyncObserver,
+	syncNow as syncNowSession
 } from '$lib/services/vault-session';
+import { hasSession, isSyncWired } from '$lib/services/sync-client';
 import {
 	computeVaultHealth,
 	type VaultHealth
@@ -47,6 +49,13 @@ export const ITEM_HARD_CAP = 5000;
 export const ITEM_WARN_AT = 4000;
 
 export type VaultStatus = 'locked' | 'unlocking' | 'unlocked' | 'error';
+export type VaultSyncStatus =
+	| 'local-only'
+	| 'ready'
+	| 'syncing'
+	| 'synced'
+	| 'failed'
+	| 'no-session';
 
 const PERSIST_DEBOUNCE_MS = 500;
 const HEALTH_DEBOUNCE_MS = 1000;
@@ -68,6 +77,9 @@ class VaultState {
 	selectedId = $state<string | null>(null);
 	deviceLabel = $state<string>('');
 	revealedField = $state<string | null>(null); // hoisted from VaultDetail for ⌘K access
+	syncStatus = $state<VaultSyncStatus>('local-only');
+	syncMessage = $state('Sync server not configured.');
+	syncing = $state(false);
 
 	// Filter state — moved from VaultSidebar/topbar local state in Phase 1.
 	categoryFilter = $state<'all' | ItemKind | 'weak' | 'reused'>('all');
@@ -158,6 +170,7 @@ class VaultState {
 		this.searchQuery = '';
 		this.revealedField = null;
 		this.otherTabActivity = null;
+		this.refreshSyncState();
 		this.subscribeTabSync();
 		postTabMessage('unlocked');
 		void this.scheduleHealthRecompute();
@@ -198,6 +211,21 @@ class VaultState {
 		});
 	}
 
+	private refreshSyncState(): void {
+		if (!isSyncWired()) {
+			this.syncStatus = 'local-only';
+			this.syncMessage = 'Sync server not configured.';
+			return;
+		}
+		if (!hasSession()) {
+			this.syncStatus = 'no-session';
+			this.syncMessage = 'No active sync session.';
+			return;
+		}
+		this.syncStatus = 'ready';
+		this.syncMessage = 'Sync ready.';
+	}
+
 	private healthRecomputeToken = 0;
 	private healthRecomputeTimer: number | null = null;
 
@@ -235,6 +263,14 @@ class VaultState {
 			const msg = err instanceof Error ? err.message : String(err);
 			audit.push('danger', `Health recompute failed: ${msg}`);
 		}
+	}
+
+	private async recomputeHealthNow(): Promise<void> {
+		if (this.healthRecomputeTimer !== null) {
+			clearTimeout(this.healthRecomputeTimer);
+			this.healthRecomputeTimer = null;
+		}
+		await this.runHealthRecompute();
 	}
 
 	private persistTimer: number | null = null;
@@ -287,6 +323,65 @@ class VaultState {
 		}
 	}
 
+	async syncNow(): Promise<void> {
+		if (this.syncing) return;
+
+		this.syncing = true;
+		this.syncStatus = 'syncing';
+		this.syncMessage = 'Syncing vault…';
+		audit.push('info', 'Sync started');
+
+		try {
+			await this.flushPersist();
+			const result = await syncNowSession();
+			this.syncMessage = result.message;
+
+			switch (result.status) {
+				case 'promoted':
+					this.items = result.items;
+					if (this.selectedId && !this.items.some((item) => item.id === this.selectedId)) {
+						this.selectedId = this.items[0]?.id ?? null;
+					} else if (!this.selectedId) {
+						this.selectedId = this.items[0]?.id ?? null;
+					}
+					this.otherTabActivity = null;
+					this.syncStatus = 'synced';
+					await this.recomputeHealthNow();
+					postTabMessage('persisted');
+					audit.push('success', result.message, {
+						status: result.status,
+						seq: result.sequenceClock
+					});
+					break;
+				case 'local-newer':
+					this.syncStatus = 'synced';
+					audit.lastSyncAt = Date.now();
+					audit.push('success', result.message, { status: result.status });
+					break;
+				case 'not-wired':
+					this.syncStatus = 'local-only';
+					audit.push('info', result.message, { status: result.status });
+					break;
+				case 'no-session':
+				case 'locked':
+					this.syncStatus = 'no-session';
+					audit.push('warn', result.message, { status: result.status });
+					break;
+				case 'failed':
+					this.syncStatus = 'failed';
+					audit.push('danger', result.message, { status: result.status });
+					break;
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Sync failed.';
+			this.syncStatus = 'failed';
+			this.syncMessage = message;
+			audit.push('danger', message, { status: 'failed' });
+		} finally {
+			this.syncing = false;
+		}
+	}
+
 	async lock(): Promise<void> {
 		// Flush any pending writes BEFORE we tear down the session key,
 		// otherwise saveItems() throws "no active vault session" mid-flight
@@ -312,6 +407,11 @@ class VaultState {
 		this.searchQuery = '';
 		this.categoryFilter = 'all';
 		this.status = 'locked';
+		this.syncing = false;
+		this.syncStatus = isSyncWired() ? 'no-session' : 'local-only';
+		this.syncMessage = isSyncWired()
+			? 'Vault locked. Unlock with OPAQUE to sync.'
+			: 'Sync server not configured.';
 		// Drop computed health buckets — they reference ids that no longer
 		// exist and could leak which credential ids exist if the store is
 		// inspected post-lock.
@@ -395,9 +495,22 @@ class VaultState {
 	}
 
 	remove(id: string): void {
+		const removed = this.items.find((i) => i.id === id);
 		this.items = this.items.filter((i) => i.id !== id);
 		if (this.selectedId === id) this.selectedId = null;
 		audit.push('warn', 'Item deleted', { id });
+		// If this was a document item with an attached encrypted blob,
+		// purge the blob from local Dexie storage (and from the sync
+		// server when wired). Fire-and-forget — the vault item itself
+		// is the source of truth that this attachment should no longer
+		// be referenced, and the periodic GC sweep on next unlock
+		// catches any leftovers.
+		if (removed && removed.kind === 'document' && removed.docBlobId) {
+			const blobId = removed.docBlobId;
+			void import('$lib/services/document-blobs')
+				.then(({ purgeDocumentBlob }) => purgeDocumentBlob(blobId))
+				.catch(() => undefined);
+		}
 		this.schedulePersist();
 		this.scheduleHealthRecompute();
 	}
@@ -429,6 +542,8 @@ export const vault = new VaultState();
 // direct dependency on the audit store.
 setSyncObserver({
 	onPushSuccess: ({ sequenceClock, bytes }) => {
+		vault.syncStatus = 'synced';
+		vault.syncMessage = 'Vault pushed to sync server.';
 		audit.lastSyncAt = Date.now();
 		audit.bytesSent += bytes;
 		audit.push('success', 'Vault pushed to sync server', {
@@ -437,12 +552,16 @@ setSyncObserver({
 		});
 	},
 	onPushFailure: ({ reason, message }) => {
+		vault.syncStatus = isSyncWired() ? 'failed' : 'local-only';
+		vault.syncMessage = message;
 		audit.push('warn', 'Sync push failed — local copy retained', {
 			reason,
 			message
 		});
 	},
 	onPullPromoted: ({ sequenceClock }) => {
+		vault.syncStatus = 'synced';
+		vault.syncMessage = 'Pulled newer vault from sync server.';
 		audit.lastSyncAt = Date.now();
 		audit.push('success', 'Pulled newer vault from sync server', {
 			seq: sequenceClock
@@ -453,7 +572,20 @@ setSyncObserver({
 		// only surface harder errors. The other reasons (`network`,
 		// `server`, `pull-crashed`, `remote-decrypt-failed`) ARE
 		// worth surfacing.
-		if (reason === 'local-newer' || reason === 'not-wired') return;
+		if (reason === 'not-wired') {
+			vault.syncStatus = 'local-only';
+			vault.syncMessage = 'Sync server not configured.';
+			return;
+		}
+		if (reason === 'local-newer') {
+			if (isSyncWired() && hasSession()) {
+				vault.syncStatus = 'ready';
+				vault.syncMessage = 'No newer remote vault found.';
+			}
+			return;
+		}
+		vault.syncStatus = 'failed';
+		vault.syncMessage = `Sync pull skipped: ${reason}`;
 		audit.push('warn', 'Sync pull skipped', { reason });
 	}
 });

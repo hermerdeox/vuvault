@@ -20,9 +20,8 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
-	if (!(await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`))) {
-		return jsonError(429, 'rate limit exceeded');
-	}
+	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const prefix = `vaults/${session.accountId}/`;
 	let listing: { objects: { key: string; uploaded: Date; size: number }[]; truncated: boolean };
@@ -53,8 +52,13 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	}
 	if (!r2obj) return jsonError(404, 'no blob');
 
-	const ab = await r2obj.arrayBuffer();
-	const buf = new Uint8Array(ab);
+	let buf: Uint8Array;
+	try {
+		const ab = await r2obj.arrayBuffer();
+		buf = new Uint8Array(ab);
+	} catch {
+		return jsonError(503, 'blob storage unavailable');
+	}
 	if (buf.length < 8) return jsonError(500, 'malformed blob');
 	const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 	const headerLen = view.getUint32(0, false);

@@ -131,7 +131,14 @@
 }
 @media (max-width: 30em) {
 	.panel {
-		padding: calc(var(--top-bar-h, 56px) + 12px) 18px 24px;
+		/* Safe-area horizontal padding so landscape-notch iPhones don't
+		   bury content under the camera cutout / chrome rounded
+		   corners. The `max()` keeps a sane 18px floor on unnotched
+		   devices. */
+		padding-top: calc(var(--top-bar-h, 56px) + 12px);
+		padding-right: max(18px, env(safe-area-inset-right, 0px));
+		padding-bottom: 24px;
+		padding-left: max(18px, env(safe-area-inset-left, 0px));
 	}
 	.section-title {
 		font-size: clamp(24px, 7vw, 32px);
@@ -147,12 +154,16 @@
 		margin-bottom: 14px;
 	}
 	.lbtn {
-		padding: 8px 12px;
-		font-size: 12px;
+		/* Touch floor: WCAG 2.5.5 wants >=44 CSS px. The xs `.lbtn`
+		   was shrinking to ~28px; bump to >=44 on every panel. */
+		min-height: 44px;
+		padding: 10px 14px;
+		font-size: 13px;
 	}
 	.lbtn.lg {
+		min-height: 48px;
 		padding: 12px 18px;
-		font-size: 13px;
+		font-size: 14px;
 	}
 }
 @media (max-height: 44em) {

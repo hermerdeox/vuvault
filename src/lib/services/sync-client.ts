@@ -253,6 +253,56 @@ export async function fetchBlob(
 	};
 }
 
+// --- Document blob upload / fetch / delete --------------------------
+//
+// Per-document opaque blob endpoints. The server stores ciphertext
+// only; AES-GCM happens client-side in `vault-session.ts` with a
+// document-scoped AAD. These wrappers are no-ops when sync isn't
+// wired so the local-only build still functions.
+
+export type DocumentBlobResponse = {
+	blobId: string;
+	nonce: string;
+	ciphertext: string;
+	updatedAt: number;
+};
+
+export type DocumentBlobUpload = {
+	blobId: string;
+	nonce: string;
+	ciphertext: string;
+};
+
+export async function uploadDocumentBlob(
+	req: DocumentBlobUpload
+): Promise<SyncResult<{ blobId: string; updatedAt: number }>> {
+	return call<{ blobId: string; updatedAt: number }>(
+		`/api/documents/${encodeURIComponent(req.blobId)}`,
+		{
+			method: 'PUT',
+			body: JSON.stringify({ nonce: req.nonce, ciphertext: req.ciphertext })
+		}
+	);
+}
+
+export async function fetchDocumentBlob(
+	blobId: string
+): Promise<SyncResult<DocumentBlobResponse>> {
+	return call<DocumentBlobResponse>(
+		`/api/documents/${encodeURIComponent(blobId)}`,
+		{ method: 'GET' }
+	);
+}
+
+export async function deleteDocumentBlob(
+	blobId: string
+): Promise<SyncResult<{ blobId: string; deletedAt: number }>> {
+	return call<{ blobId: string; deletedAt: number }>(
+		`/api/documents/${encodeURIComponent(blobId)}`,
+		{ method: 'DELETE' }
+	);
+}
+
 /**
  * Whether sync is wired in this build. Driven by
  * `PUBLIC_SYNC_ORIGIN` — empty → false → callers stay on the

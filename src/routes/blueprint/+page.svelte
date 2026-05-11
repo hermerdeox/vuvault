@@ -371,7 +371,9 @@
 		grid-template-columns: auto 1fr auto;
 		align-items: center;
 		gap: 12px;
-		padding: 0 24px;
+		padding-top: env(safe-area-inset-top, 0px);
+		padding-left: max(24px, env(safe-area-inset-left, 0px));
+		padding-right: max(24px, env(safe-area-inset-right, 0px));
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px);
@@ -385,6 +387,11 @@
 		border-radius: var(--radius-sm);
 		color: var(--text-3);
 		transition: var(--transition);
+	}
+	:global(html[data-vp~='mobile']) .back,
+	:global(html[data-vp~='tablet']) .back {
+		width: 44px;
+		height: 44px;
 	}
 	.back:hover {
 		color: var(--text);
@@ -616,14 +623,24 @@
 		border-radius: var(--radius);
 		transition: var(--transition);
 	}
+	/* Extend the slim layout to <=45em so 480-720 px viewports also
+	   drop the risk-meter column instead of cramming three columns
+	   into 480 px. */
+	@media (max-width: 45em) {
+		.layer {
+			grid-template-columns: 48px 1fr;
+			gap: 12px;
+			padding: 12px 14px;
+		}
+		.layer .risk {
+			display: none;
+		}
+	}
 	@media (max-width: 30em) {
 		.layer {
 			grid-template-columns: 40px 1fr;
 			gap: 10px;
 			padding: 10px 12px;
-		}
-		.layer .risk {
-			display: none;
 		}
 		.layer-title {
 			font-size: 13px;

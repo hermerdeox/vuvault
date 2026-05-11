@@ -21,11 +21,15 @@ PUBLIC_BUNDLE_HASH = "9f4c7d2e8b16a4f122e0d5c83a7e91b4"
 PUBLIC_VAULT_VERSION = "0.1.0"
 # Production builds MUST leave demo auth disabled. CI verifies this.
 PUBLIC_ENABLE_DEMO_AUTH = "false"
+PUBLIC_M3_E2E_AUTH = "false"
 # Empty string means local-only mode (sync-client.ts returns NOT_WIRED).
 # Production sets this to the deployed origin (same-origin only).
 # Preview environments leave it empty so a stray `wrangler pages dev`
 # can never accidentally talk to production OPAQUE records.
 PUBLIC_SYNC_ORIGIN = ""
+# Preview/local development cannot receive Pages dashboard rate-limit
+# bindings, so it stays fail-open. Production pins this to fail-closed.
+OPAQUE_RATE_LIMIT_MODE = "fail-open"
 
 # D1 binding — OPAQUE record storage + sessions + device pairings.
 # Local development uses Wrangler's auto-provisioned local SQLite
@@ -62,13 +66,12 @@ bucket_name = "vuvault-blobs-preview"
 #   - OPAQUE_LOGIN_LIMITER    : 30 req / 60 s, key = client IP
 #   - BLOB_LIMITER            : 30 req / 60 s, key = accountId
 #
-# The Pages Functions code in `functions/api/` and the `Env` interface
-# in `src/lib/server/api/env.ts` already declare these as OPTIONAL
-# bindings; if they are not configured, `checkRateLimit()` fail-opens
-# (`return true`) per the comment at env.ts:78. This means a brand-new
-# deploy without the dashboard rate-limits configured will accept
-# unlimited requests until the dashboard rule is added — DO that
-# right after the first successful deploy.
+# The SvelteKit API routes under `src/routes/api/` and the `Env`
+# interface in `src/lib/server/api/env.ts` declare these as OPTIONAL
+# bindings because Wrangler's Pages TOML schema cannot represent them.
+# Runtime behavior is controlled by `OPAQUE_RATE_LIMIT_MODE`: preview
+# fails open for local development, production fails closed until the
+# dashboard bindings exist.
 
 # ============================================================
 # PRODUCTION ENV
@@ -81,6 +84,8 @@ bucket_name = "vuvault-blobs-preview"
 [env.production.vars]
 PUBLIC_VAULT_VERSION = "0.1.0"
 PUBLIC_ENABLE_DEMO_AUTH = "false"
+PUBLIC_M3_E2E_AUTH = "false"
+OPAQUE_RATE_LIMIT_MODE = "fail-closed"
 # `PUBLIC_BUNDLE_HASH` and `PUBLIC_SYNC_ORIGIN` are injected at deploy
 # time by `.github/workflows/release.yml`. We deliberately do NOT
 # bake them into this file so a manual `wrangler pages deploy`
@@ -99,7 +104,7 @@ bucket_name = "vuvault-blobs-production"
 
 # Rate-limiters — see the explanatory comment in the [vars] section
 # above. Configure on the Cloudflare dashboard for the production
-# project; runtime fail-opens until they're wired.
+# project; runtime fails closed until they're wired.
 
 # `[build]` block — REMOVED. Wrangler 4.90 Pages-config validation
 # rejects it. The build command for Pages comes from the dashboard

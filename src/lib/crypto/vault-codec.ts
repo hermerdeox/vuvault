@@ -162,7 +162,13 @@ function validateItem(raw: unknown, idx: number): VaultItem {
 				...base,
 				kind: 'document',
 				docDescription: asString(obj.docDescription),
-				docExternalRef: asString(obj.docExternalRef)
+				docExternalRef: asString(obj.docExternalRef),
+				docBlobId: asString(obj.docBlobId),
+				docFileName: asString(obj.docFileName),
+				docMimeType: asString(obj.docMimeType),
+				docSize: typeof obj.docSize === 'number' ? obj.docSize : undefined,
+				docSha256: asString(obj.docSha256),
+				docRemote: typeof obj.docRemote === 'boolean' ? obj.docRemote : undefined
 			} as DocumentItem;
 	}
 }
