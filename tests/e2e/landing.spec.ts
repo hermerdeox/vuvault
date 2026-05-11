@@ -19,6 +19,23 @@ async function readDocAttr(page: Page, attr: string): Promise<string | null> {
 	return page.evaluate((a) => document.documentElement.getAttribute(a), attr);
 }
 
+async function waitForLandingHydration(page: Page): Promise<void> {
+	await expect(page.locator('main.stage')).toHaveAttribute('data-hydrated', 'true');
+	await expect(page.locator('section#hero')).toHaveAttribute('aria-hidden', 'false');
+}
+
+async function pressLandingShortcut(page: Page, key: string): Promise<void> {
+	await page.evaluate((shortcut) => {
+		window.dispatchEvent(
+			new KeyboardEvent('keydown', {
+				key: shortcut,
+				bubbles: true,
+				cancelable: true
+			})
+		);
+	}, key);
+}
+
 test.describe('landing page · render', () => {
 	test('renders the canonical $25.60/year price and never $2.56', async ({ page }) => {
 		await page.goto('/');
@@ -47,32 +64,35 @@ test.describe('landing page · render', () => {
 test.describe('landing page · keyboard navigation', () => {
 	test('J advances and K retreats one panel at a time', async ({ page }) => {
 		await page.goto('/');
+		await waitForLandingHydration(page);
 		// Hero is active initially. Press J → problem.
-		await page.keyboard.press('j');
+		await pressLandingShortcut(page, 'j');
 		await expect(page.locator('section#problem')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('j');
+		await pressLandingShortcut(page, 'j');
 		await expect(page.locator('section#promise')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('k');
+		await pressLandingShortcut(page, 'k');
 		await expect(page.locator('section#problem')).toHaveAttribute('aria-hidden', 'false');
 	});
 
 	test('PageDown / PageUp / Home / End', async ({ page }) => {
 		await page.goto('/');
-		await page.keyboard.press('End');
+		await waitForLandingHydration(page);
+		await pressLandingShortcut(page, 'End');
 		await expect(page.locator('section#final')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('Home');
+		await pressLandingShortcut(page, 'Home');
 		await expect(page.locator('section#hero')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('PageDown');
+		await pressLandingShortcut(page, 'PageDown');
 		await expect(page.locator('section#problem')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('PageUp');
+		await pressLandingShortcut(page, 'PageUp');
 		await expect(page.locator('section#hero')).toHaveAttribute('aria-hidden', 'false');
 	});
 
 	test('arrow keys also advance and retreat', async ({ page }) => {
 		await page.goto('/');
-		await page.keyboard.press('ArrowDown');
+		await waitForLandingHydration(page);
+		await pressLandingShortcut(page, 'ArrowDown');
 		await expect(page.locator('section#problem')).toHaveAttribute('aria-hidden', 'false');
-		await page.keyboard.press('ArrowUp');
+		await pressLandingShortcut(page, 'ArrowUp');
 		await expect(page.locator('section#hero')).toHaveAttribute('aria-hidden', 'false');
 	});
 });
@@ -80,6 +100,7 @@ test.describe('landing page · keyboard navigation', () => {
 test.describe('landing page · audience toggle', () => {
 	test('T key flips the data-audience attribute', async ({ page }) => {
 		await page.goto('/');
+		await waitForLandingHydration(page);
 		expect(await readDocAttr(page, 'data-audience')).toBe('user');
 		await page.keyboard.press('t');
 		// Audience toggle has a 160ms fade; allow for it.
@@ -90,6 +111,7 @@ test.describe('landing page · audience toggle', () => {
 
 	test('the tab UI also flips audience', async ({ page }) => {
 		await page.goto('/');
+		await waitForLandingHydration(page);
 		await page.getByRole('tab', { name: 'Show me the proof' }).click();
 		await expect.poll(async () => readDocAttr(page, 'data-audience')).toBe('tech');
 		await page.getByRole('tab', { name: 'I just want it safe' }).click();

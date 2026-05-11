@@ -17,6 +17,9 @@
 	import StepProvision from './_steps/StepProvision.svelte';
 
 	import { onboarding } from '$lib/stores/onboarding.svelte';
+	import { vault } from '$lib/stores/vault.svelte';
+	import { isSessionActive } from '$lib/services/vault-session';
+	import { hasAccount } from '$lib/utils/storage';
 	import { IconClose } from '$lib/icons';
 
 	const stepDefs = [
@@ -59,10 +62,17 @@
 		goto('/vault');
 	}
 
-	onMount(() => {
-		// In production: check if user already has an account; if so,
-		// redirect to /vault. For now: always start at welcome.
+	async function routeExistingAccount() {
+		if (await hasAccount()) {
+			await goto(isSessionActive() && vault.status === 'unlocked' ? '/vault' : '/unlock');
+			return;
+		}
+
 		onboarding.reset();
+	}
+
+	onMount(() => {
+		void routeExistingAccount();
 	});
 </script>
 

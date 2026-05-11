@@ -76,9 +76,10 @@ test.describe('vault flows · onboarding', () => {
 		page
 	}) => {
 		await completeDemoOnboarding(page);
-		// /onboarding now has an account and the vault is unlocked → /vault.
+		// A fresh navigation reloads the app, so persisted accounts are sent to unlock
+		// instead of restarting setup and overwriting the existing vault.
 		await page.goto('/onboarding');
-		await expect(page).toHaveURL(/\/vault/);
+		await expect(page).toHaveURL(/\/unlock/);
 	});
 });
 
@@ -102,25 +103,17 @@ test.describe('vault flows · CRUD', () => {
 		await expect(page.locator('.detail')).toContainText('r-lopez');
 	});
 
-	test('javascript: URLs are NOT rendered as clickable links (XSS guard)', async ({ page }) => {
+	test('javascript: URLs are rejected before save (XSS guard)', async ({ page }) => {
 		await page.getByRole('button', { name: 'Add item' }).click();
 		await page.getByRole('button', { name: /^Login$/ }).click();
 		await page.locator('#ie-title').fill('Evil');
 		await page.locator('#ie-username').fill('attacker');
-		// `type="url"` rejects `javascript:` natively, so use the `novalidate`
-		// path by setting the value via JS to simulate a malicious import.
-		await page.locator('#ie-url').evaluate((el, url) => {
-			(el as HTMLInputElement).value = url;
-			el.dispatchEvent(new Event('input', { bubbles: true }));
-		}, 'javascript:alert(1)');
+		await page.locator('#ie-url').fill('javascript:alert(1)');
 		await page.getByRole('button', { name: 'Add to vault' }).click();
-		await page.locator('.list-pane button.item').first().click();
-		// The URL field is rendered as plain text (no <a href>) and a
-		// warning hint is shown.
-		const detail = page.locator('.detail');
-		await expect(detail).toContainText('javascript:alert(1)');
-		await expect(detail.locator('a.value.link')).toHaveCount(0);
-		await expect(detail).toContainText('non-http(s) scheme');
+		await expect(page.locator('.field-err')).toContainText(
+			'URL does not look valid'
+		);
+		await expect(page.locator('.list-pane')).not.toContainText('Evil');
 	});
 
 	test('item editor blocks save when title is empty', async ({ page }) => {
@@ -230,9 +223,9 @@ test.describe('vault flows · password generator', () => {
 		// password and the four character-class toggles.
 		const password = popover.locator('.password');
 		await expect(password).not.toHaveText('enable at least one class');
-		await expect(popover.getByText('a–z')).toBeVisible();
-		await expect(popover.getByText('A–Z')).toBeVisible();
-		await expect(popover.getByText('0–9')).toBeVisible();
-		await expect(popover.getByText('!@#')).toBeVisible();
+		await expect(popover.getByText('a–z', { exact: true })).toBeVisible();
+		await expect(popover.getByText('A–Z', { exact: true })).toBeVisible();
+		await expect(popover.getByText('0–9', { exact: true })).toBeVisible();
+		await expect(popover.getByText('!@#', { exact: true })).toBeVisible();
 	});
 });

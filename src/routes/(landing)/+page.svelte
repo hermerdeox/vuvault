@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+
 	import { audience } from '$lib/stores/audience.svelte';
 	import { landing, PANEL_IDS } from '$lib/stores/landing.svelte';
 	import { viewport } from '$lib/stores/viewport.svelte';
@@ -41,6 +43,11 @@
 	// momentum scrolling and the dvh-during-address-bar-collapse animation
 	// that the native scroller handles correctly.
 	const useNativeSnap = $derived(viewport.isMobile || viewport.isTablet);
+	let hydrated = $state(false);
+
+	onMount(() => {
+		hydrated = true;
+	});
 
 	let wheelLockedUntil = 0;
 	const WHEEL_COOLDOWN_MS = 600;
@@ -117,6 +124,7 @@
 <main
 	class="stage"
 	class:native-snap={useNativeSnap}
+	data-hydrated={hydrated}
 	role="region"
 	aria-label="Landing"
 	ontouchstart={onTouchStart}
