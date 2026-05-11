@@ -238,7 +238,7 @@
 								<div class="cm-field">
 									<div class="cm-key">Website</div>
 									<div class="cm-field-row">
-										<span class="cm-value link">https://fastmail.com</span>
+										<span class="cm-value link">fastmail.com</span>
 										<span class="cm-ico-btn" aria-hidden="true">
 											<svg
 												width="11"
