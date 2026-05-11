@@ -122,6 +122,7 @@ test.describe('landing page · audience toggle', () => {
 test.describe('landing page · pager dots', () => {
 	test('clicking pager dots jumps to the matching panel', async ({ page }) => {
 		await page.goto('/');
+		await waitForLandingHydration(page);
 		const pager = page.getByRole('navigation', { name: 'Sections' });
 		await pager.getByRole('button', { name: 'Pricing' }).click();
 		await expect(page.locator('section#pricing')).toHaveAttribute('aria-hidden', 'false');
@@ -133,6 +134,7 @@ test.describe('landing page · pager dots', () => {
 test.describe('landing page · theme parity', () => {
 	test('theme toggle flips data-theme attribute', async ({ page }) => {
 		await page.goto('/');
+		await waitForLandingHydration(page);
 		expect(await readDocAttr(page, 'data-theme')).toBe('modern');
 		await page.getByRole('button', { name: 'Toggle theme' }).click();
 		await expect.poll(async () => readDocAttr(page, 'data-theme')).toBe('brutalist');
