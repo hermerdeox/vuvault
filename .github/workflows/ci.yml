@@ -506,6 +506,7 @@ jobs:
         with:
           name: m3-e2e-passed-${{ github.sha }}
           path: .m3-e2e-passed
+          include-hidden-files: true
           retention-days: 30
 
       - name: Upload M3 server logs
