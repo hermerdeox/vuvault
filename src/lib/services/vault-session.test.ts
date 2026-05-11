@@ -936,7 +936,7 @@ describe('document blob crypto', () => {
 		await provision();
 		const sealed = await sealDocument(new Uint8Array([9, 9, 9, 9]));
 		const tampered = new Uint8Array(sealed.ciphertext);
-		tampered[0] ^= 0xff;
+		tampered[0] = tampered[0]! ^ 0xff;
 		await expect(
 			openDocument({
 				blobId: sealed.blobId,
