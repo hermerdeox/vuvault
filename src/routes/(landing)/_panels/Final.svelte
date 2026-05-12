@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { PRICE } from '$lib/data/pricing';
 
 	function startFree() {
-		goto('/onboarding');
+		goto(resolve('/onboarding'));
 	}
 </script>
 
@@ -48,7 +49,7 @@
 				>
 				Get VuVault — {PRICE}
 			</button>
-			<a href="/blueprint" class="lbtn lg">
+			<a href={resolve('/blueprint')} class="lbtn lg">
 				<svg
 					width="16"
 					height="16"
@@ -80,14 +81,10 @@
 			<span>VuVault</span>
 		</div>
 		<div class="final-foot-links">
-			<a href="/blueprint">Whitepaper</a>
-			<a
-				href="https://github.com/vuvault"
-				rel="noreferrer noopener"
-				target="_blank">GitHub</a
-			>
-			<a href="/blueprint">Architecture</a>
-			<a href="/recover">Recover</a>
+			<a href={resolve('/blueprint')}>Whitepaper</a>
+			<a href={resolve('/blueprint')}>Source model</a>
+			<a href={resolve('/blueprint')}>Architecture</a>
+			<a href={resolve('/recover')}>Recover</a>
 		</div>
 		<div class="final-foot-tagline">Your data. Your device. Your control.</div>
 	</div>

@@ -12,21 +12,17 @@ pages_build_output_dir = ".svelte-kit/cloudflare"
 # `--branch main` so production traffic is isolated.
 #
 # Production deploys MUST set `PUBLIC_BUNDLE_HASH` from the release
-# workflow's pass-2 digest — never the placeholder. CI's two-pass
-# guard refuses to merge if it leaks. This file's [vars] block is
-# the dev/preview default; the release workflow overrides via env.
+# workflow's pass-2 digest — never the placeholder. `PUBLIC_SYNC_ORIGIN`
+# is likewise injected by the release workflow. Do not declare those two
+# vars here: Wrangler warns when a top-level var is absent from
+# `[env.production.vars]`, but adding placeholder production values would
+# make manual deploys dangerous.
 
 [vars]
-PUBLIC_BUNDLE_HASH = "9f4c7d2e8b16a4f122e0d5c83a7e91b4"
 PUBLIC_VAULT_VERSION = "0.1.0"
 # Production builds MUST leave demo auth disabled. CI verifies this.
 PUBLIC_ENABLE_DEMO_AUTH = "false"
 PUBLIC_M3_E2E_AUTH = "false"
-# Empty string means local-only mode (sync-client.ts returns NOT_WIRED).
-# Production sets this to the deployed origin (same-origin only).
-# Preview environments leave it empty so a stray `wrangler pages dev`
-# can never accidentally talk to production OPAQUE records.
-PUBLIC_SYNC_ORIGIN = ""
 # Preview/local development cannot receive Pages dashboard rate-limit
 # bindings, so it stays fail-open. Production pins this to fail-closed.
 OPAQUE_RATE_LIMIT_MODE = "fail-open"

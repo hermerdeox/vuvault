@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { waitForHydration } from './_helpers';
+import { clearStorage, completeDemoOnboarding } from './helpers';
 
 /**
  * Mobile responsiveness regression spec.
@@ -68,6 +70,46 @@ async function noHorizontalOverflow(page: Page): Promise<void> {
 	expect(result.scrollWidth - result.clientWidth).toBeLessThanOrEqual(1);
 }
 
+async function assertTouchTargetFloor(
+	page: Page,
+	selector: string,
+	label: string
+): Promise<void> {
+	const boxes = await page
+		.locator(selector)
+		.evaluateAll((elements) =>
+			elements
+				.filter((el) => {
+					const style = window.getComputedStyle(el);
+					const rect = el.getBoundingClientRect();
+					return (
+						style.display !== 'none' &&
+						style.visibility !== 'hidden' &&
+						rect.width > 0 &&
+						rect.height > 0
+					);
+				})
+				.map((el) => {
+					const rect = el.getBoundingClientRect();
+					const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 48);
+					const aria =
+						el.getAttribute('aria-label') ?? el.getAttribute('title') ?? text;
+					return {
+						width: Math.round(rect.width * 100) / 100,
+						height: Math.round(rect.height * 100) / 100,
+						label: aria || el.className.toString()
+					};
+				})
+		);
+	expect(boxes, `${label}: expected at least one visible target`).not.toHaveLength(0);
+	for (const box of boxes) {
+		expect(
+			Math.min(box.width, box.height),
+			`${label} "${box.label}" is ${box.width}×${box.height}, below WCAG 2.5.5 44×44 floor`
+		).toBeGreaterThanOrEqual(44);
+	}
+}
+
 test.describe('mobile · data-vp first-paint', () => {
 	for (const route of ROUTES) {
 		test(`html[data-vp] resolves to mobile on ${route}`, async ({ page }) => {
@@ -131,5 +173,32 @@ test.describe('mobile · landing key panels still rendered', () => {
 		await page.goto('/');
 		await expect(page.locator('section#vault .vault-preview-mini')).toBeAttached();
 		await expect(page.locator('section#vault .vault-preview-mock')).toHaveCount(0);
+	});
+});
+
+test.describe('mobile · touch-target floor', () => {
+	test('primary vault chrome hits at least 44×44 CSS px', async ({ page }) => {
+		await clearStorage(page);
+		await completeDemoOnboarding(page);
+		await waitForHydration(page);
+		await expect(page.getByRole('button', { name: 'Add item' })).toBeVisible();
+
+		await assertTouchTargetFloor(page, '.ico-btn:visible', '.ico-btn');
+		await assertTouchTargetFloor(page, '.add-btn:visible', '.add-btn');
+		await assertTouchTargetFloor(page, '.lock-btn:visible', '.lock-btn');
+		await assertTouchTargetFloor(page, '.overflow-trigger:visible', '.overflow-trigger');
+		await assertTouchTargetFloor(page, '.mobile-tabs .tab:visible', '.tab');
+
+		await page.getByRole('button', { name: 'More actions' }).click();
+		await page.getByTestId('open-mp-settings-mobile').click();
+		await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
+		await assertTouchTargetFloor(page, '.modal .close:visible', 'modal .close');
+		await assertTouchTargetFloor(page, '.btn.sm:visible, .btn:visible', 'Button');
+		await page.keyboard.press('Escape');
+
+		const isMac = process.platform === 'darwin';
+		await page.keyboard.press(isMac ? 'Meta+k' : 'Control+k');
+		await expect(page.getByTestId('command-palette')).toBeVisible();
+		await assertTouchTargetFloor(page, '[role="option"]:visible', 'command palette row');
 	});
 });

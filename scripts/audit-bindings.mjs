@@ -162,6 +162,19 @@ const envBindings = new Map(
 	[...env.entries()].filter(([name]) => !VAR_FIELD_NAMES.has(name))
 );
 
+// Rule 0: Wrangler environments do not inherit `[vars]`. A var present
+// only in the top-level block produces a warning today and can become a
+// production footgun tomorrow. Preview-only vars should instead be set by
+// the local dev server / release workflow, not hardcoded as placeholders
+// that production might accidentally inherit.
+for (const name of wrangler.varsDefaults) {
+	if (!wrangler.varsProduction.has(name)) {
+		fail(
+			`Var '${name}' exists in [vars] but not in [env.production.vars] — Wrangler env vars are not inherited`
+		);
+	}
+}
+
 // Rule 1: every REQUIRED Env field MUST exist in wrangler.toml in
 // both the default and production blocks. OPTIONAL Env fields are
 // allowed to be entirely absent from wrangler.toml. Optional bindings
