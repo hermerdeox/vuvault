@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { afterNavigate } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import VuEcosystemLauncher from '$lib/components/VuEcosystemLauncher.svelte';
 	import '../app.css';
 
 	type Props = {
@@ -92,3 +93,5 @@
 {#if children}
 	{@render children()}
 {/if}
+
+<VuEcosystemLauncher />
