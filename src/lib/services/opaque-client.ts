@@ -22,7 +22,26 @@
  */
 
 // REVIEW: new runtime dep — see header comment.
-import { OpaqueClient } from '@structured-id/opaque';
+import {
+	DEFAULT_SUITE,
+	OpaqueClient,
+	clientAkeFinish,
+	clientAkeStart,
+	deserializeKE2,
+	deriveRandomizedPassword,
+	getGroup,
+	getSuite,
+	oprfBlind,
+	oprfFinalize,
+	recover,
+	serializeEnvelope,
+	serializeKE1,
+	setBackend,
+	store,
+	unmaskResponse
+} from '@structured-id/opaque';
+import { expand } from '@noble/hashes/hkdf';
+import { sha256, sha384, sha512 } from '@noble/hashes/sha2';
 import type { AccountId, ServerIdentifier, ClientIdentifier } from '$lib/types/sync';
 
 /**
@@ -98,6 +117,197 @@ export interface OpaqueLoginInput {
 	transport: OpaqueTransport;
 }
 
+type OpaqueState = {
+	readonly suite: typeof DEFAULT_SUITE;
+	readonly blind: Uint8Array;
+	readonly clientEphemeralSecret?: Uint8Array;
+	readonly clientEphemeralPublic?: Uint8Array;
+	readonly ke1?: Uint8Array;
+};
+
+type OpaqueIdentifiers = {
+	server: string;
+	client: string;
+};
+
+type OpaqueSuite = ReturnType<typeof getSuite>;
+
+const te = new TextEncoder();
+let jsBackendForced = false;
+
+function concatBytes(...arrays: Uint8Array[]): Uint8Array {
+	const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
+	const out = new Uint8Array(total);
+	let offset = 0;
+	for (const arr of arrays) {
+		out.set(arr, offset);
+		offset += arr.length;
+	}
+	return out;
+}
+
+function deriveKeyPairFromSeed(group: ReturnType<typeof getGroup>, seed: Uint8Array) {
+	const secretKey = group.scalarReduce(seed);
+	const publicElement = group.scalarBaseMult(secretKey);
+	return { secretKey, publicKey: group.serializeElement(publicElement) };
+}
+
+function hashFnForSuite(suite: OpaqueSuite) {
+	switch (suite.hash) {
+		case 'SHA-256':
+			return sha256;
+		case 'SHA-384':
+			return sha384;
+		case 'SHA-512':
+			return sha512;
+		default:
+			throw new Error(`Unsupported OPAQUE hash suite ${suite.hash}`);
+	}
+}
+
+/**
+ * @structured-id/opaque@1.0.4 ships a WASM backend that handles password
+ * policy/breach helpers but deliberately throws for the OPAQUE protocol
+ * methods. In browsers that WASM backend loads first, so force a protocol
+ * backend built from the package's public JS primitives before creating
+ * any clients. Node usually falls back naturally, but using the same path
+ * everywhere keeps registration/login behavior identical.
+ */
+function forceJsOpaqueBackend(): void {
+	if (jsBackendForced) return;
+	setBackend({
+		name: 'js',
+		async registrationStart(password: string, suiteId = DEFAULT_SUITE) {
+			const suite = getSuite(suiteId);
+			const input = te.encode(password);
+			const { blind, blindedElement } = oprfBlind(suite.curve, input);
+			return { request: blindedElement, state: { suite: suiteId, blind } };
+		},
+		async registrationFinish(
+			password: string,
+			response: Uint8Array,
+			state: OpaqueState,
+			identifiers: OpaqueIdentifiers
+		) {
+			const suite = getSuite(state.suite);
+			const group = getGroup(suite.curve);
+			const input = te.encode(password);
+			const evaluatedMessage = response.slice(0, suite.elementSize);
+			const serverPublicKey = response.slice(suite.elementSize, suite.elementSize * 2);
+			const oprfOutput = oprfFinalize(
+				suite.curve,
+				input,
+				state.blind,
+				evaluatedMessage
+			);
+			const randomizedPassword = deriveRandomizedPassword(oprfOutput, suite);
+			const deriveKP = (seed: Uint8Array) => deriveKeyPairFromSeed(group, seed);
+			const storeResult = store(
+				randomizedPassword,
+				serverPublicKey,
+				deriveKP,
+				suite,
+				te.encode(identifiers.server),
+				te.encode(identifiers.client)
+			);
+			return {
+				record: concatBytes(
+					storeResult.clientPublicKey,
+					storeResult.maskingKey,
+					serializeEnvelope(storeResult.envelope)
+				),
+				exportKey: storeResult.exportKey
+			};
+		},
+		async loginStart(password: string, suiteId = DEFAULT_SUITE) {
+			const suite = getSuite(suiteId);
+			const input = te.encode(password);
+			const { blind, blindedElement } = oprfBlind(suite.curve, input);
+			const { ke1, state: akeState } = clientAkeStart(blindedElement, suite);
+			const ke1Bytes = serializeKE1(ke1);
+			return {
+				ke1: ke1Bytes,
+				state: {
+					suite: suiteId,
+					blind,
+					clientEphemeralSecret: akeState.clientSecretKeyshare,
+					clientEphemeralPublic: ke1.clientPublicKeyshare,
+					ke1: ke1Bytes
+				}
+			};
+		},
+		async loginFinish(
+			password: string,
+			ke2Bytes: Uint8Array,
+			state: OpaqueState,
+			identifiers: OpaqueIdentifiers
+		) {
+			const suite = getSuite(state.suite);
+			const group = getGroup(suite.curve);
+			const input = te.encode(password);
+			const ke2 = deserializeKE2(ke2Bytes, suite);
+			const credResp = ke2.credentialResponse;
+			const evaluatedMessage = credResp.slice(0, suite.elementSize);
+			const maskingNonce = credResp.slice(
+				suite.elementSize,
+				suite.elementSize + suite.nonceSize
+			);
+			const maskedResponse = credResp.slice(suite.elementSize + suite.nonceSize);
+			const oprfOutput = oprfFinalize(
+				suite.curve,
+				input,
+				state.blind,
+				evaluatedMessage
+			);
+			const randomizedPassword = deriveRandomizedPassword(oprfOutput, suite);
+			const maskingKey = expand(
+				hashFnForSuite(suite),
+				randomizedPassword,
+				te.encode('MaskingKey'),
+				suite.oprfOutputSize
+			);
+			const { serverPublicKey, envelope } = unmaskResponse(
+				maskingKey,
+				maskingNonce,
+				maskedResponse,
+				suite
+			);
+			const deriveKP = (seed: Uint8Array) => deriveKeyPairFromSeed(group, seed);
+			const clientIdBytes = te.encode(identifiers.client);
+			const serverIdBytes = te.encode(identifiers.server);
+			const recoverResult = recover(
+				randomizedPassword,
+				serverPublicKey,
+				envelope,
+				deriveKP,
+				suite,
+				serverIdBytes,
+				clientIdBytes
+			);
+			const { ke1 } = state;
+			if (!ke1 || !state.clientEphemeralSecret) {
+				throw new Error('OPAQUE login state is incomplete');
+			}
+			const akeState = {
+				clientSecretKeyshare: state.clientEphemeralSecret,
+				clientNonce: ke1.slice(suite.elementSize, suite.elementSize + suite.nonceSize),
+				ke1Serialized: ke1
+			};
+			const { ke3, sessionKey } = clientAkeFinish(
+				recoverResult.clientSecretKey,
+				serverPublicKey,
+				ke2,
+				akeState,
+				clientIdBytes,
+				serverIdBytes,
+				suite
+			);
+			return { ke3, sessionKey, exportKey: recoverResult.exportKey };
+		}
+	});
+	jsBackendForced = true;
+}
+
 /**
  * OPAQUE registration: end-to-end. Returns the export key (32 bytes
  * for the default Ristretto255+SHA-512 suite) — this is the value
@@ -106,6 +316,7 @@ export interface OpaqueLoginInput {
 export async function register(
 	opts: OpaqueRegisterInput
 ): Promise<OpaqueRegisterResult> {
+	forceJsOpaqueBackend();
 	const client = new OpaqueClient({
 		serverId: opts.serverId,
 		clientId: opts.clientId
@@ -134,6 +345,7 @@ export async function register(
  * if the server rejects KE3.
  */
 export async function login(opts: OpaqueLoginInput): Promise<OpaqueLoginResult> {
+	forceJsOpaqueBackend();
 	const client = new OpaqueClient({
 		serverId: opts.serverId,
 		clientId: opts.clientId

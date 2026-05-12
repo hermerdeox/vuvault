@@ -9,7 +9,7 @@ test.describe('vault flows · sync', () => {
 
 	test('onboard → save → reload → re-unlock pulls remote blob', async ({ page }) => {
 		await clearStorage(page);
-		const secretKey = await completeM3Onboarding(page);
+		await completeM3Onboarding(page);
 
 		await page.getByRole('button', { name: 'Add item' }).click();
 		await page.getByRole('button', { name: /^Login$/ }).click();
@@ -24,8 +24,7 @@ test.describe('vault flows · sync', () => {
 
 		await page.getByRole('button', { name: 'Lock vault' }).click();
 		await expect(page).toHaveURL(/\/unlock/);
-		await page.locator('#secret-key').fill(secretKey);
-		await page.getByRole('button', { name: /Touch ID \+ Unlock/ }).click();
+		await page.getByRole('button', { name: 'Touch ID quick unlock' }).click();
 		await expect(page).toHaveURL(/\/vault/);
 		await expect(
 			page.getByRole('button', { name: 'm3-sync-test-item sync-user' })

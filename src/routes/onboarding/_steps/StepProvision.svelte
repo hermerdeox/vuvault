@@ -279,14 +279,8 @@
 				} catch (err) {
 					setStep('opaque', 'error');
 					const msg = err instanceof Error ? err.message : 'OPAQUE registration failed';
-					audit.push(
-						'warn',
-						'OPAQUE registration failed — continuing in local-only mode',
-						{ message: msg }
-					);
-					// Best effort, don't block the user. We continue to
-					// zeroize and finish provisioning. The user can opt
-					// in to sync later via vault settings.
+					audit.push('danger', 'OPAQUE registration failed', { message: msg });
+					throw new Error(`OPAQUE registration failed: ${msg}`, { cause: err });
 				}
 			} else {
 				setStep('opaque', 'skipped');
