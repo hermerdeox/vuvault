@@ -11,6 +11,9 @@
 
 export type AppStatus = 'available' | 'shipping-next' | 'concept';
 
+/** Apps that ship with a renderable inline mockup on the detail view. */
+export type MockupKind = 'vault' | 'blink' | 'journal' | 'tunnel' | 'ledger';
+
 export type EcosystemApp = {
 	/** Public-facing app name, e.g. `VuVault`. */
 	name: string;
@@ -20,6 +23,8 @@ export type EcosystemApp = {
 	promise: string;
 	/** Lifecycle stage — controls the badge on the card and detail page. */
 	status: AppStatus;
+	/** If present, the detail view shows an Enable button + inline mockup. */
+	mockup?: MockupKind;
 };
 
 export type EcosystemCategory = {
@@ -29,6 +34,19 @@ export type EcosystemCategory = {
 	label: string;
 	/** One-line group description. */
 	description: string;
+	/** Single short-form glyph (one emoji-free char or 2-letter code). */
+	glyph: string;
+	/** Per-category accent colors — drive cards, strip chips, and detail glow. */
+	color: {
+		/** Solid accent for borders, dots, badges. */
+		accent: string;
+		/** Gradient `from` color for card backgrounds. */
+		from: string;
+		/** Gradient `to` color for card backgrounds. */
+		to: string;
+		/** Soft halo used as a card hover shadow / detail glow. */
+		halo: string;
+	};
 	apps: EcosystemApp[];
 };
 
@@ -37,6 +55,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'productivity',
 		label: 'Productivity',
 		description: 'Personal workflow tools that keep your day off the cloud.',
+		glyph: 'Pr',
+		color: {
+			accent: '#7dd3fc',
+			from: 'rgba(125, 211, 252, 0.18)',
+			to: 'rgba(59, 130, 246, 0.04)',
+			halo: 'rgba(125, 211, 252, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuNotes',
@@ -80,6 +105,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'communication',
 		label: 'Communication',
 		description: 'End-to-end conversations and shares with zero server visibility.',
+		glyph: 'Co',
+		color: {
+			accent: '#c4b5fd',
+			from: 'rgba(196, 181, 253, 0.18)',
+			to: 'rgba(139, 92, 246, 0.04)',
+			halo: 'rgba(167, 139, 250, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuChat',
@@ -123,6 +155,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'finance',
 		label: 'Finance',
 		description: 'Money tracking without a bank, exchange, or broker holding your ledger.',
+		glyph: 'Fi',
+		color: {
+			accent: '#86efac',
+			from: 'rgba(134, 239, 172, 0.18)',
+			to: 'rgba(16, 185, 129, 0.04)',
+			halo: 'rgba(134, 239, 172, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuWallet',
@@ -160,6 +199,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'health',
 		label: 'Health',
 		description: 'Personal health data that stays personal, including from us.',
+		glyph: 'He',
+		color: {
+			accent: '#fda4af',
+			from: 'rgba(253, 164, 175, 0.18)',
+			to: 'rgba(244, 63, 94, 0.04)',
+			halo: 'rgba(253, 164, 175, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuHealth',
@@ -197,6 +243,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'creative',
 		label: 'Creative',
 		description: 'Drafts and works-in-progress that nobody else gets to mine.',
+		glyph: 'Cr',
+		color: {
+			accent: '#fcd34d',
+			from: 'rgba(252, 211, 77, 0.18)',
+			to: 'rgba(245, 158, 11, 0.04)',
+			halo: 'rgba(252, 211, 77, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuPhoto',
@@ -228,6 +281,13 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'learning',
 		label: 'Learning',
 		description: 'Knowledge work and reference tools that stay between you and the page.',
+		glyph: 'Le',
+		color: {
+			accent: '#67e8f9',
+			from: 'rgba(103, 232, 249, 0.18)',
+			to: 'rgba(6, 182, 212, 0.04)',
+			halo: 'rgba(103, 232, 249, 0.35)'
+		},
 		apps: [
 			{
 				name: 'VuLearn',
@@ -259,13 +319,21 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'utility',
 		label: 'Utility',
 		description: 'Day-to-day power tools wired to the same Vu Level 0 trust floor.',
+		glyph: 'Ut',
+		color: {
+			accent: '#00d4ff',
+			from: 'rgba(0, 212, 255, 0.22)',
+			to: 'rgba(14, 165, 233, 0.04)',
+			halo: 'rgba(0, 212, 255, 0.45)'
+		},
 		apps: [
 			{
 				name: 'VuVault',
 				tagline: 'Password vault',
 				promise:
 					'Post-quantum password and document vault. Available today at vuvault.app — the rest of the suite layers on top.',
-				status: 'available'
+				status: 'available',
+				mockup: 'vault'
 			},
 			{
 				name: 'VuScan',
@@ -285,30 +353,41 @@ const CATEGORIES: EcosystemCategory[] = [
 		id: 'shipping-next',
 		label: 'Shipping Next',
 		description: 'The next wave in active design — these graduate to their own categories at launch.',
+		glyph: 'Nx',
+		color: {
+			accent: '#f0abfc',
+			from: 'rgba(240, 171, 252, 0.20)',
+			to: 'rgba(217, 70, 239, 0.04)',
+			halo: 'rgba(240, 171, 252, 0.40)'
+		},
 		apps: [
 			{
 				name: 'VuBlink',
 				tagline: 'Ephemeral photos',
 				promise: 'Short-lived photo shares with cryptographic expiry. Recipients cannot persist them.',
-				status: 'shipping-next'
+				status: 'shipping-next',
+				mockup: 'blink'
 			},
 			{
 				name: 'VuJournal',
 				tagline: 'Private diary',
 				promise: 'Daily journaling with per-entry keys. Even export needs your local keys to unlock.',
-				status: 'shipping-next'
+				status: 'shipping-next',
+				mockup: 'journal'
 			},
 			{
 				name: 'VuTunnel',
 				tagline: 'Private tunneling',
 				promise: 'On-demand encrypted tunnels for your other apps. No connection logs by design.',
-				status: 'shipping-next'
+				status: 'shipping-next',
+				mockup: 'tunnel'
 			},
 			{
 				name: 'VuLedger',
 				tagline: 'Encrypted ledger',
 				promise: 'Double-entry accounting with encrypted books. Reports decrypt only on your device.',
-				status: 'shipping-next'
+				status: 'shipping-next',
+				mockup: 'ledger'
 			}
 		]
 	}
@@ -323,6 +402,15 @@ export function findAppByName(name: string): EcosystemApp | undefined {
 		if (match) return match;
 	}
 	return undefined;
+}
+
+/**
+ * Reverse-lookup for the category an app belongs to. Used by the
+ * launcher to drive per-card gradients without forcing the consumer
+ * to plumb the parent category alongside every render of a card.
+ */
+export function findCategoryOf(name: string): EcosystemCategory | undefined {
+	return CATEGORIES.find((cat) => cat.apps.some((a) => a.name === name));
 }
 
 /** Human-readable label for a status badge. */
