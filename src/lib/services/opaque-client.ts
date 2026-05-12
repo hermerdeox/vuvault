@@ -229,7 +229,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
  * Production fetch-backed transport. Talks to the four
  * `/api/opaque/...` endpoints declared in `functions/api/opaque/`.
  *
- * `origin` is a base URL (e.g. `'https://vuvault.app'`). We pass paths
+ * `origin` is a base URL (for example, the current app origin). We pass paths
  * relative to it so the implementation is same-origin in production
  * and configurable in dev/tests.
  */
