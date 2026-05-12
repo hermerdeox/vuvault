@@ -69,7 +69,14 @@
 
 	<div class="final-foot">
 		<div class="brand">
-			<span class="v-mark">V</span>
+			<img
+				class="v-mark"
+				src="/icons/icon-48.png"
+				srcset="/icons/icon-48.png 1x, /icons/icon-96.png 2x, /icons/icon-128.png 3x"
+				alt="VuVault"
+				width="28"
+				height="28"
+			/>
 			<span>VuVault</span>
 		</div>
 		<div class="final-foot-links">
@@ -149,14 +156,8 @@
 	.v-mark {
 		width: 28px;
 		height: 28px;
-		display: grid;
-		place-items: center;
-		background: var(--surface-hover);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		font-weight: 800;
-		font-size: 14px;
-		color: var(--brand);
+		border-radius: 6px;
+		object-fit: contain;
 	}
 	.final-foot-links {
 		display: flex;

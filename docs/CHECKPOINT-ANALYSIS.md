@@ -1,12 +1,12 @@
 # VuVault Checkpoint Analysis
 
-> Updated **2026-05-08** after the *Close-the-Gap* remediation pass landed (§ 8 actions 1–10). The original 2026-05-08 audit prose is preserved verbatim below for re-review value; **closure notes are inlined per finding** and the verdict-summary table at the end of § 3 has been re-keyed.
+> Updated **2026-05-12** after the M3 production-readiness and full-workflow passes. The original 2026-05-08 audit prose is preserved below for re-review value; **closure notes are inlined per finding** and the current privacy-level source of truth is `docs/PRIVACY-LEVEL.md`.
 >
-> Net result: the one true Level-0 privacy breach (B0 — Google Fonts) is closed; all six honesty-class breaches are closed by either a code wire-up or a copy edit; remaining items are explicit Tier-2 dependencies on the M3 sync server.
+> Net result: the one true Level-0 privacy breach (B0 — Google Fonts) is closed; M3 D1/R2 sync, OPAQUE login token minting, per-document encrypted blob storage, reproducible builds, and Sigstore/Rekor release publishing are now implemented. Remaining larger items are Tier-2+ features: CRDT field sync, MLS sharing, AKD/device transparency, and third-party security audit.
 
 **Date of original analysis:** 2026-05-08, immediately after the Milestone 2 (crypto wiring) gate landed.
 **Date of remediation pass:** 2026-05-08 (same day, follow-up sweep).
-**Scope:** the live `main` branch. M1 (vault foundation) and M2 (crypto wiring) are merged; M3 (server-side stack) has not started.
+**Scope:** originally the live `main` branch after M2; current notes reflect the M3 implementation and quick-win hardening pass.
 **Method:** every original finding below remains line-cited from the source it was written against so any reviewer can re-check independently. Closure notes (`✅ Closed:` / `🟡 Partial:` / `🔵 Tier 2:`) cite the remediation commit's source.
 
 The structure follows the same nine sections the plan called for, in order.
@@ -27,13 +27,13 @@ Held against the live code, today, the verdict is:
 
 - **The vault-at-rest crypto holds the VU 0 promise.** Real `@noble/post-quantum/ml-kem`, hybrid X25519 + ML-KEM-1024 envelope with header-bound AAD, AES-256-GCM, FIPS 203 KAT-locked under `npm run test:fips`, no plaintext on disk, lock-time zeroization keyed off a per-kind secret-fields map. This is the part of the architecture that actually delivers what the marketing claims.
 
-- **The server promises are vacuously true.** Both *"server never sees your password"* (C1, OPAQUE RFC 9807) and *"cannot be coerced by anyone"* are technically held — there is no server. [functions/api/[[catchall]].ts](../functions/api/[[catchall]].ts) returns HTTP 501 for every route; [src/lib/services/sync-client.ts](../src/lib/services/sync-client.ts) is a typed `NOT_WIRED` stub. They become falsifiable claims only when the M3 Cloudflare Worker ships.
+- **The server promises are now falsifiable rather than vacuous.** The original audit was written before M3, when every API route returned 501 and the sync client was local-only. M3 now ships SvelteKit/Cloudflare API routes for OPAQUE registration/login, whole-vault blob upload/latest fetch, and per-document encrypted blob storage. The current claim is narrower and test-backed: server-side D1/R2 stores only OPAQUE protocol records, bearer sessions, sequence clocks, and opaque ciphertext; vault/document plaintext and password material remain client-side.
 
-- **The release-integrity promises are NOT delivered.** The verifier in [src/lib/utils/env.ts](../src/lib/utils/env.ts) is real and refuses unlock on mismatch, but production builds bake the literal placeholder hash `9f4c7d2e8b16a4f122e0d5c83a7e91b4`, so `verifyBundleIntegrity()` always returns `state: 'placeholder'` in production exactly as it does in dev. The verifier is alive; its input is dead. There is no Sigstore, no Rekor publishing, no cosign step in CI.
+- **The release-integrity promises are now mechanically backed.** CI/release perform the two-pass bundle hash flow, verify convergence, sign the digest with keyless cosign, publish/attach Rekor metadata, and gate release deploys on the M3 D1/R2 E2E artifact plus `scripts/verify-production-runtime.mjs`.
 
-- **The landing copy makes claims the code does not back today.** Hard-coded "VERIFIED" badges, "0 bytes transmitted" measurements that read from a `$state(0)` that nobody increments, multi-device sync, family/team vaults, encrypted CRDT operations, Ed25519-signed documents, FROST recovery, reproducible builds. These are roadmap futures presented as present-tense facts.
+- **Remaining roadmap claims are explicitly future-scoped.** Sync/recovery/sharing copy was corrected to mark shipped M3 ciphertext sync separately from Tier-2+ CRDT sync, MLS sharing, AKD/device logs, FROST recovery, and future signing workflows.
 
-**Net: VU Level 0 is mathematically defensible for vault contents at rest, marketing-ahead-of-code for everything else, and currently undermined at the page-load layer by Google Fonts.** The brand line "Mathematical, not promised" is currently true for the L02/L03 layers and aspirational for L01/L04/L05/L06+.
+**Net: the current honest rating is Vu Level 1.** Vault and document plaintext are encrypted client-side, M3 sync stores opaque bytes, releases are reproducible/signed, and rate-limit configuration is verified. Vu Level 2 remains pending on CRDT sync, MLS sharing, AKD/device transparency, and external audit.
 
 > ✅ **Post-remediation update (2026-05-08):** The Google Fonts breach is closed by self-hosting the three font families under `static/fonts/` with self-hosted `@font-face` registrations in `src/lib/styles/fonts.css`, dropping the three Google Fonts `<link>` tags from `src/app.html`, and tightening the CSP in `svelte.config.js` to `style-src 'self' 'unsafe-inline'` and `font-src 'self'`. A new CI guard (`Third-party URL guard` in `.github/workflows/ci.yml`) refuses to merge any PR that reintroduces a third-party `https://` host into shipped source, so this breach cannot silently return. Marketing-ahead-of-code copy is corrected per § 8 actions 7-10; remaining marketing-tier claims explicitly carry `Tier 2 · 2027` / `Tier 3 · 2028` badges.
 
@@ -69,11 +69,15 @@ A "Hold" verdict means the invariant holds today against the live code. "Vacuous
 
 ### I2 — No plaintext vault content on the wire: **Vacuous Hold**
 
-[src/lib/services/sync-client.ts](../src/lib/services/sync-client.ts) returns `NOT_WIRED` for every method. No `fetch()` call anywhere in `src/` carries vault material. The two whitelisted same-origin fetches — [src/lib/utils/env.ts](../src/lib/utils/env.ts) line 155 (manifest) and [src/lib/crypto/argon2.ts](../src/lib/crypto/argon2.ts) lines 114-119 (WASM) — request public static assets. The CI Network-call guard at [.github/workflows/ci.yml](../.github/workflows/ci.yml) lines 120-138 enforces the whitelist on every PR.
+The original M2 finding was vacuous because [src/lib/services/sync-client.ts](../src/lib/services/sync-client.ts) returned `NOT_WIRED` for every method and no `fetch()` call carried vault material. The current M3 path is no longer vacuous: `sync-client.ts` is the single client-side network surface for OPAQUE and ciphertext sync, and CI still guards against stray fetch call sites.
+
+> ✅ **M3 update (2026-05-12):** `sync-client.ts` now issues same-origin calls when `PUBLIC_SYNC_ORIGIN` is configured, but the payloads are OPAQUE protocol messages or AES-GCM ciphertext fragments. Whole-vault and document uploads are covered by `tests/integration/api-routes.spec.ts`, `tests/e2e/sync.spec.ts`, and `tests/e2e/full-workflow.spec.ts`, including IndexedDB/plaintext-leak assertions and R2 opaque-ciphertext round trips.
 
 ### I3 — Server cannot decrypt: **Vacuous Hold**
 
-There is no live server. [functions/api/[[catchall]].ts](../functions/api/[[catchall]].ts) returns 501 for every route and deliberately does not even destructure `context` (lines 22-36) so there is no shape of side-channel that secretly logs plaintext during the buildout. Becomes a falsifiable claim only when the M3 Worker ships.
+The original M2 finding was vacuous because there was no live server. The current M3 implementation ships concrete API routes under `src/routes/api/**`, making the claim falsifiable through handler tests and the live D1/R2 E2E path.
+
+> ✅ **M3 update (2026-05-12):** The M3 Worker/API surface has shipped under `src/routes/api/**`. D1 stores OPAQUE account/session metadata and durable sequence clocks; R2 stores opaque whole-vault/document ciphertext. The latest-blob route now filters exact `vaults/<accountId>/<sequence>.bin` keys and paginates R2 listings; document endpoints require UUIDv4 blob IDs and pre-decode base64 caps.
 
 ### I4 — Server cannot recover password: **Client-only Hold**
 
@@ -129,14 +133,14 @@ No `cosign`, no Sigstore, no Rekor publishing step in CI. The Rekor URL `https:/
 | Invariant | Verdict | Severity | Notes |
 | --- | --- | --- | --- |
 | I1 No plaintext on disk | Hold | — | Unchanged. |
-| I2 No plaintext on the wire | Vacuous Hold | low | Becomes real on M3 ship. |
-| I3 Server cannot decrypt | Vacuous Hold | low | Becomes architectural on M3 ship. |
-| I4 Server cannot recover password | Client-only Hold | low | OPAQUE round-trip exercised against `MockOpaqueServer`. |
+| I2 No plaintext on the wire | Hold | low | M3 same-origin sync sends OPAQUE protocol bytes and AES-GCM ciphertext only. |
+| I3 Server cannot decrypt | Hold | low | D1/R2 API routes persist opaque OPAQUE records, sessions, sequence clocks, and ciphertext. |
+| I4 Server cannot recover password | Hold | low | OPAQUE round-trip exercised against D1/R2 E2E and `MockOpaqueServer`. |
 | I5 Post-quantum at rest | Hold | — | KAT-locked under `npm run test:fips`. |
-| I6 Refuse tampered bundle | Risk | medium | Mechanism is alive; placeholder hash still baked. Closes with M3 release tooling. |
+| I6 Refuse tampered bundle | Hold | medium | Two-pass build, convergence guard, and release hash injection now ship. |
 | I7 No third-party / no telemetry | **Hold** | low | ✅ Closed: B0 self-hosted fonts; new CI Third-party URL guard. |
 | I8 Demo cannot ship to production | Hold | low | + Tier-1 disclaimer added to landing tech-audience view. |
-| I9 Verifiable via independent log | Broken | medium | Sigstore Rekor publishing is the M3 release-tooling deliverable. |
+| I9 Verifiable via independent log | Hold | medium | Release workflow signs `.bundle-digest` with keyless cosign and publishes Rekor metadata. |
 
 ---
 
@@ -204,7 +208,7 @@ Multiple call sites — all read from `audit.bytesSent` at [src/lib/stores/audit
 - [src/routes/(landing)/_panels/Hero.svelte](../src/routes/(landing)/_panels/Hero.svelte) lines 63-66 — "0 servers contacted to load this page · 0 third-party scripts".
 - [src/routes/unlock/+page.svelte](../src/routes/unlock/+page.svelte) line 334 — "All decryption is local · zero bytes transmitted".
 
-The literal "0 bytes" claim is currently false at the page-load layer (B0 above) and at the same-origin-fetch layer (`/argon2id/*.wasm`, `/_app/immutable/bundle-manifest.json` are fetched on every visit). The *strong* form ("we have not exfiltrated your vault") is true today only because the sync stub is `NOT_WIRED`.
+The literal "0 bytes" claim was false at the page-load layer (B0 above) and at the same-origin-fetch layer (`/argon2id/*.wasm`, `/_app/immutable/bundle-manifest.json` are fetched on every visit). The current copy avoids that phrasing; the strong form ("we have not exfiltrated your vault") is now tested against the M3 ciphertext-only sync path rather than relying on a missing server.
 
 Severity: medium. This is the one that visually anchors the entire VU 0 brand line. Fixing B0 makes part of this defensible; the rest needs copy edits or a real fetch-interception measurement.
 

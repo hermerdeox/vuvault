@@ -28,27 +28,27 @@
 			<div>
 				<div class="docs-intro">
 					<span data-show="user" data-vp-show="desktop"
-						>Tier 2 design: your property deed, car title, contracts, medical
-						records — the documents you actually can't afford to lose
-						<span class="italic-serif">or have leaked.</span> All sealed under the
-						same ML-KEM-1024 envelope as your passwords. Today the vault holds
-						document <em>metadata</em>; cross-origin storage and signing arrive
-						with the Tier 2 sync server.</span
+						>Property deeds, car titles, contracts, medical records — the
+						documents you actually can't afford to lose
+						<span class="italic-serif">or have leaked.</span> Each file is sealed
+						in your browser with the active vault key before it ever touches
+						local storage or the sync server. Padding to bucketed sizes lands
+						with the Tier 2 CRDT sync server.</span
 					>
 					<span data-show="user" data-vp-show="mobile"
-						>Tier 2: deeds, titles, contracts, records — sealed under the same
-						envelope as your passwords. Today metadata-only.</span
+						>Deeds, titles, contracts, records — sealed in your browser, server
+						holds opaque ciphertext only.</span
 					>
 					<span data-show="tech" data-vp-show="desktop"
-						>Tier 2 design: documents chunked, padded to a fixed-bucket spectrum,
-						and encrypted under per-item hybrid X25519 + ML-KEM-1024 envelopes.
-						Server holds opaque ciphertext blobs only — it cannot tell a 2-page
-						lease from a 200-page contract. Padding lives in the Tier 2 spec, not
-						yet in <code>vault-codec.ts</code>.</span
+						>Per-document AES-256-GCM under the active session AES key with a
+						document-scoped AAD (<code>vuvault-doc-aad-v1</code>) bound to the
+						document UUID, device salt, and credential id. Encrypted bytes
+						persist to a separate Dexie table; sync uploads opaque ciphertext to
+						<code>vaults/&lt;accountId&gt;/documents/&lt;blobId&gt;.bin</code> in
+						R2. Bucketed padding ships with Tier 2 CRDT sync.</span
 					>
 					<span data-show="tech" data-vp-show="mobile"
-						>Chunked · padded · per-item hybrid envelope. Server holds opaque
-						blobs only.</span
+						>Per-doc AES-GCM · document-scoped AAD · opaque ciphertext server-side.</span
 					>
 				</div>
 
@@ -67,17 +67,18 @@
 							</div>
 							<div class="docs-callout-body">
 								<span data-show="user"
-									>Tier 2 design: cloud storage providers promise they won't look
-									at your files. We will ship something stronger — a system where
-									we mathematically cannot. Today the vault is local-only and the
-									cross-origin server is an HTTP 501 stub on purpose.</span
+									>Cloud storage providers promise they won't look at your files.
+									We've shipped something stronger — a system where we
+									mathematically cannot. Encrypted document storage is wired
+									through the same M3 ciphertext sync path that powers password
+									sync.</span
 								>
 								<span data-show="tech"
-									>Tier 2 design: documents encrypted client-side before upload;
-									server holds opaque blobs; subpoenaing the future server yields
-									ciphertext nobody can decrypt — including us. The
-									<code>functions/api/[[catchall]].ts</code> stub returns 501 today
-									and refuses to read its own request body.</span
+									>Documents encrypted client-side before upload; the server
+									holds opaque blobs and subpoenaing the M3 sync storage yields
+									ciphertext nobody can decrypt — including us. The handlers
+									live in <code>src/routes/api/documents/[blobId]/+server.ts</code>
+									and refuse anything but base64-encoded sealed bytes.</span
 								>
 							</div>
 						</div>
@@ -258,7 +259,7 @@
 		font-size: 13px;
 		color: var(--text);
 	}
-	.docs-intro em {
+	.docs-intro :global(em) {
 		font-family: var(--font-serif);
 		font-style: italic;
 	}
@@ -358,7 +359,6 @@
 		overflow: hidden;
 		position: relative;
 	}
-	.ipad-screen svg,
 	.ipad-screen img {
 		display: block;
 		width: 100%;

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { clearStorage, completeDemoOnboarding } from './helpers';
 
 /**
  * End-to-end coverage for the full vault workflow described in the
@@ -30,41 +31,6 @@ const CARD_CVC = '123';
 const CARD_EXPIRY = '12/29';
 const DOCUMENT_TEXT =
 	'CONFIDENTIAL LEASE AGREEMENT — Greenville office. 24 months. Confidential.';
-
-async function clearStorage(page: Page): Promise<void> {
-	await page.goto('/');
-	await page.evaluate(async () => {
-		try {
-			localStorage.clear();
-			sessionStorage.clear();
-			const dbs = await indexedDB.databases?.();
-			for (const db of dbs ?? []) {
-				if (db.name) indexedDB.deleteDatabase(db.name);
-			}
-		} catch {
-			// best-effort
-		}
-	});
-}
-
-async function completeDemoOnboarding(page: Page): Promise<void> {
-	await page.goto('/onboarding');
-	await page.getByRole('button', { name: 'Begin setup' }).click();
-	await page.locator('input[type="text"]').first().fill('E2E Workflow');
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	await page.locator('input[type="checkbox"]').first().check();
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	await page.getByRole('button', { name: 'Use demo mode' }).click();
-	await page.getByRole('button', { name: 'Continue in demo mode' }).click();
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	await page.getByRole('button', { name: 'Looks right, continue' }).click();
-	await page.getByRole('button', { name: /Continue with/ }).click();
-	await expect(
-		page.getByRole('button', { name: 'Enter your vault' })
-	).toBeEnabled({ timeout: 30_000 });
-	await page.getByRole('button', { name: 'Enter your vault' }).click();
-	await expect(page).toHaveURL(/\/vault/);
-}
 
 async function selectListItem(page: Page, title: string): Promise<void> {
 	await page
@@ -142,7 +108,7 @@ test.describe('full vault workflow', () => {
 	test('account → login → card → document → reveal → download → lock', async ({
 		page
 	}) => {
-		await completeDemoOnboarding(page);
+		await completeDemoOnboarding(page, 'E2E Workflow');
 
 		// --- Step 1: add and verify the login item -------------------
 		await page.getByRole('button', { name: 'Add item' }).click();

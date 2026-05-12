@@ -27,8 +27,15 @@ export async function authenticate(
 	const token = match[1]!;
 	const row = await db
 		.prepare(
-			`SELECT token, account_id, device_id, expires_at, sequence_clock
-			 FROM sessions WHERE token = ?`
+			`SELECT
+				s.token,
+				s.account_id,
+				s.device_id,
+				s.expires_at,
+				MAX(s.sequence_clock, COALESCE(a.sequence_clock, 0)) AS sequence_clock
+			 FROM sessions s
+			 JOIN accounts a ON a.account_id = s.account_id
+			 WHERE s.token = ?`
 		)
 		.bind(token)
 		.first<{
@@ -59,9 +66,25 @@ export async function advanceSequenceClock(
 	db: D1Database,
 	token: string,
 	newClock: number
-): Promise<void> {
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			`UPDATE accounts
+			 SET sequence_clock = ?
+			 WHERE account_id = (SELECT account_id FROM sessions WHERE token = ?)
+			   AND sequence_clock < ?`
+		)
+		.bind(newClock, token, newClock)
+		.run();
+	const accountChanged = result.meta?.changes ?? 0;
+	if (accountChanged === 0) return false;
 	await db
-		.prepare('UPDATE sessions SET sequence_clock = ? WHERE token = ?')
+		.prepare(
+			`UPDATE sessions
+			 SET sequence_clock = MAX(sequence_clock, ?)
+			 WHERE token = ?`
+		)
 		.bind(newClock, token)
 		.run();
+	return true;
 }

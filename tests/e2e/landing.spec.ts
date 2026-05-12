@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { waitForHydration } from './_helpers';
 
 const PANEL_IDS = [
 	'hero',
@@ -20,6 +21,7 @@ async function readDocAttr(page: Page, attr: string): Promise<string | null> {
 }
 
 async function waitForLandingHydration(page: Page): Promise<void> {
+	await waitForHydration(page);
 	await expect(page.locator('main.stage')).toHaveAttribute('data-hydrated', 'true');
 	await expect(page.locator('section#hero')).toHaveAttribute('aria-hidden', 'false');
 }
@@ -39,6 +41,7 @@ async function pressLandingShortcut(page: Page, key: string): Promise<void> {
 test.describe('landing page · render', () => {
 	test('renders the canonical $25.60/year price and never $2.56', async ({ page }) => {
 		await page.goto('/');
+		await waitForHydration(page);
 		await expect(page.locator('main')).toContainText('VuVault');
 		await expect(page.locator('main')).toContainText('25.60');
 		await expect(page.locator('main')).not.toContainText('$2.56');
@@ -46,6 +49,7 @@ test.describe('landing page · render', () => {
 
 	test('all 12 panels are present in the DOM with the expected ids', async ({ page }) => {
 		await page.goto('/');
+		await waitForHydration(page);
 		for (const id of PANEL_IDS) {
 			await expect(page.locator(`section#${id}`)).toBeAttached();
 		}
@@ -53,6 +57,7 @@ test.describe('landing page · render', () => {
 
 	test('only the active panel is interactive (inert on the rest)', async ({ page }) => {
 		await page.goto('/');
+		await waitForHydration(page);
 		const hero = page.locator('section#hero');
 		await expect(hero).toHaveAttribute('aria-hidden', 'false');
 		const others = page.locator('section[aria-hidden="true"]');
@@ -112,9 +117,10 @@ test.describe('landing page · audience toggle', () => {
 	test('the tab UI also flips audience', async ({ page }) => {
 		await page.goto('/');
 		await waitForLandingHydration(page);
-		await page.getByRole('tab', { name: 'Show me the proof' }).click();
+		const audienceGroup = page.getByRole('group', { name: 'Audience' });
+		await audienceGroup.getByRole('button', { name: 'Show me the proof' }).click();
 		await expect.poll(async () => readDocAttr(page, 'data-audience')).toBe('tech');
-		await page.getByRole('tab', { name: 'I just want it safe' }).click();
+		await audienceGroup.getByRole('button', { name: 'I just want it safe' }).click();
 		await expect.poll(async () => readDocAttr(page, 'data-audience')).toBe('user');
 	});
 });
@@ -147,6 +153,7 @@ test.describe('landing page · theme parity', () => {
 test.describe('landing page · cardinal rule', () => {
 	test('html and body never page-scroll', async ({ page }) => {
 		await page.goto('/');
+		await waitForHydration(page);
 		const overflow = await page.evaluate(() => {
 			const html = window.getComputedStyle(document.documentElement);
 			const body = window.getComputedStyle(document.body);

@@ -71,6 +71,23 @@ describe('parseVuKeyFile', () => {
 		expect(parseVuKeyFile(payload)).toBe(enc);
 	});
 
+	it('extracts secretKey.value from a vukey/v2 JSON with recovery metadata', () => {
+		const k = generateSecretKey();
+		const enc = encodeBase32(k);
+		const payload = JSON.stringify({
+			format: 'vukey/v2',
+			secretKey: { value: enc },
+			recoveryEnvelope: {
+				version: 1,
+				salt: 'AA==',
+				params: { memoryKiB: 1024, iterations: 2, parallelism: 1, tagLength: 32 },
+				nonce: 'AA==',
+				ciphertext: 'AA=='
+			}
+		});
+		expect(parseVuKeyFile(payload)).toBe(enc);
+	});
+
 	it('rejects unknown formats', () => {
 		const payload = JSON.stringify({ format: 'vukey/v9', secretKey: { value: 'x' } });
 		expect(() => parseVuKeyFile(payload)).toThrow(/Unsupported .vukey format/);

@@ -63,8 +63,9 @@ Build:  v${PUBLIC_VAULT_VERSION}
 Secret Key (256 bits, Base32-Crockford):
 ${groupChars(onboarding.secretKeyEncoded, 4).join(' ')}
 
-Without this Secret Key AND access to a paired device,
-your vault cannot be recovered. Print this. Keep it offline.
+Recovery requires this Secret Key plus either the original paired device
+or the Recovery Password you set in the next step. Print this. Keep it offline.
+Do NOT write the Recovery Password on this sheet.
 
 Bundle SHA-384 (verify against the published GitHub release):
 ${bundleGroupedString}
@@ -81,7 +82,7 @@ ${bundleGroupedString}
 	function downloadVuKey() {
 		if (!onboarding.secretKeyEncoded) return;
 		const payload = {
-			format: 'vukey/v1',
+			format: 'vukey/v2',
 			issued: new Date().toISOString(),
 			device: onboarding.deviceLabel || null,
 			secretKey: {
@@ -90,6 +91,7 @@ ${bundleGroupedString}
 				groups: groupChars(onboarding.secretKeyEncoded, 4),
 				value: onboarding.secretKeyEncoded
 			},
+			recoveryEnvelope: null,
 			build: {
 				version: PUBLIC_VAULT_VERSION,
 				bundleHash: PUBLIC_BUNDLE_HASH,
@@ -194,8 +196,8 @@ ${bundleGroupedString}
 			/>
 			<div class="confirm-text">
 				<strong>I've saved my Secret Key.</strong> I understand that without it, plus access to a
-				paired device or the Emergency Kit, my vault is permanently inaccessible. VuVault cannot
-				recover it for me — that's the whole point.
+				paired device or my Recovery Password, my vault is permanently inaccessible. VuVault
+				cannot recover it for me — that's the whole point.
 			</div>
 		</label>
 

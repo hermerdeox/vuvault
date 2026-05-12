@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -16,12 +17,14 @@
 
 	import {
 		decodeSecretKey,
-		parseVuKeyFile,
+		parseVuKeyFileDetailed,
 		SECRET_KEY_BASE32_LEN
 	} from '$lib/crypto/secret-key';
 	import { hasAccount, clearAll, getAccount } from '$lib/utils/storage';
 	import { audit } from '$lib/stores/audit.svelte';
+	import { vault } from '$lib/stores/vault.svelte';
 	import { postTabMessage } from '$lib/services/tab-sync';
+	import type { RecoveryEnvelopeSerializable } from '$lib/crypto/recovery-envelope';
 
 	type Scenario = 'menu' | 'lost-passkey' | 'fresh-start';
 
@@ -32,6 +35,9 @@
 	let authMode = $state<'production' | 'demo' | null>(null);
 
 	let secretKeyInput = $state('');
+	let recoveryPasswordInput = $state('');
+	let exportedRecoveryEnvelope = $state<RecoveryEnvelopeSerializable | null>(null);
+	let recoveryStage = $state<'input' | 'passkey' | 'done'>('input');
 	let confirmFreshStart = $state(false);
 	let busy = $state(false);
 	let errorMessage = $state<string | null>(null);
@@ -44,6 +50,15 @@
 			return false;
 		}
 	});
+	const recoverySecretStatusId = 'rec-secret-status';
+	const recoveryPasswordHintId = 'rec-password-hint';
+	const recoveryErrorId = 'recover-error';
+	const recoverySecretDescribedBy = $derived(
+		[recoverySecretStatusId, errorMessage ? recoveryErrorId : undefined].filter(Boolean).join(' ')
+	);
+	const recoveryPasswordDescribedBy = $derived(
+		[recoveryPasswordHintId, errorMessage ? recoveryErrorId : undefined].filter(Boolean).join(' ')
+	);
 
 	onMount(async () => {
 		accountExists = await hasAccount();
@@ -61,7 +76,9 @@
 		if (!file) return;
 		try {
 			const text = await file.text();
-			secretKeyInput = parseVuKeyFile(text);
+			const parsed = parseVuKeyFileDetailed(text);
+			secretKeyInput = parsed.secretKey;
+			exportedRecoveryEnvelope = parsed.recoveryEnvelope ?? null;
 			errorMessage = null;
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Could not parse file';
@@ -73,13 +90,63 @@
 	}
 
 	async function rewirePasskey() {
-		// Tier 2+ placeholder: re-registering a new passkey + re-sealing
-		// the vault under a new PRF derivation requires re-entering the
-		// onboarding flow so the new credentialId is bound to a fresh
-		// device salt and the existing items are re-encrypted. The full
-		// in-place flow is not shipped yet.
-		errorMessage =
-			'In-place passkey rebind is not shipped yet. For now, unlock with your Secret Key first, export, then start fresh and re-import.';
+		if (busy) return;
+		busy = true;
+		errorMessage = null;
+		let secretKey: Uint8Array | null = null;
+		let prfOutput: Uint8Array | null = null;
+		try {
+			secretKey = decodeSecretKey(secretKeyInput);
+			const { openWithRecovery, enableRecoveryEnvelope } = await import(
+				'$lib/services/recovery-envelope'
+			);
+			const { rebindRecoveredVault, generateDeviceSalt } = await import(
+				'$lib/services/vault-session'
+			);
+			const { registerPasskey } = await import('$lib/crypto/webauthn-prf');
+			const items = await openWithRecovery({
+				secretKey,
+				recoveryPassword: recoveryPasswordInput,
+				exportedEnvelope: exportedRecoveryEnvelope
+			});
+			vault.loadFromDecrypted(items);
+			recoveryStage = 'passkey';
+			const deviceSalt = generateDeviceSalt();
+			const outcome = await registerPasskey({
+				deviceLabel: deviceLabel || 'Recovered device',
+				prfSalt: deviceSalt
+			});
+			if (!outcome.ok) {
+				throw new Error('Passkey registration failed. Try recovery again when ready.');
+			}
+			if (!outcome.result.prfSupported || !outcome.result.prfOutput) {
+				throw new Error('The new passkey did not return a PRF output.');
+			}
+			prfOutput = outcome.result.prfOutput;
+			await rebindRecoveredVault({
+				secretKey,
+				credentialId: outcome.result.credentialId,
+				credentialPublicKey: outcome.result.publicKey,
+				authMode: 'production',
+				prfOutput,
+				deviceSalt
+			});
+			await enableRecoveryEnvelope({
+				secretKey,
+				recoveryPassword: recoveryPasswordInput
+			});
+			recoveryStage = 'done';
+			audit.push('success', 'Vault recovered and passkey re-bound');
+			goto(resolve('/vault'));
+		} catch (err) {
+			errorMessage = err instanceof Error ? err.message : 'Recovery failed';
+			audit.push('danger', `Recovery failed: ${errorMessage}`);
+			recoveryStage = 'input';
+		} finally {
+			if (secretKey) secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
+			busy = false;
+		}
 	}
 
 	async function startFresh() {
@@ -94,7 +161,7 @@
 			// will route to /onboarding on next render.
 			postTabMessage('wiped');
 			audit.push('warn', 'Local data cleared via /recover');
-			goto('/onboarding');
+			goto(resolve('/onboarding'));
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Failed to clear local data';
 			busy = false;
@@ -208,9 +275,11 @@
 						autocomplete="off"
 						autocapitalize="off"
 						rows="3"
+						aria-invalid={secretKeyInput.length > 0 && !validKey}
+						aria-describedby={recoverySecretDescribedBy}
 					></textarea>
 				</div>
-				<div class="field-hint">
+				<div class="field-hint" id={recoverySecretStatusId}>
 					{#if validKey}
 						<span class="ok">Secret Key parsed</span>
 					{:else if secretKeyInput.length > 0}
@@ -221,8 +290,31 @@
 				</div>
 			</div>
 
+			<div class="field">
+				<label for="rec-password">Recovery Password</label>
+				<div class="input-zone">
+					<IconKey size={16} stroke={1.6} />
+					<input
+						id="rec-password"
+						type="password"
+						bind:value={recoveryPasswordInput}
+						placeholder="Type the Recovery Password you saved separately"
+						autocomplete="current-password"
+						aria-invalid={Boolean(errorMessage && !recoveryPasswordInput)}
+						aria-describedby={recoveryPasswordDescribedBy}
+					/>
+				</div>
+				<div class="field-hint" id={recoveryPasswordHintId}>
+					<span class="muted">
+						{exportedRecoveryEnvelope
+							? 'Using Recovery Envelope from .vukey file'
+							: 'Using local Recovery Envelope on this device'}
+					</span>
+				</div>
+			</div>
+
 			{#if errorMessage}
-				<div class="err">
+				<div class="err" id={recoveryErrorId} role="alert">
 					<IconWarning size={14} stroke={2} />
 					{errorMessage}
 				</div>
@@ -235,7 +327,13 @@
 				</Button>
 				<Button onclick={rewirePasskey} disabled={!validKey}>
 					<IconRefresh size={14} stroke={1.8} />
-					Re-bind passkey
+					{#if busy && recoveryStage === 'passkey'}
+						Registering passkey…
+					{:else if busy}
+						Recovering…
+					{:else}
+						Recover + re-bind passkey
+					{/if}
 				</Button>
 			</div>
 		</section>
@@ -262,7 +360,7 @@
 			</label>
 
 			{#if errorMessage}
-				<div class="err">
+				<div class="err" id={recoveryErrorId} role="alert">
 					<IconWarning size={14} stroke={2} />
 					{errorMessage}
 				</div>
@@ -456,19 +554,23 @@
 		background: var(--accent-faint);
 		color: var(--accent);
 	}
-	.input-zone textarea {
+	.input-zone textarea,
+	.input-zone input {
 		font-family: var(--font-mono);
 		font-size: 13px;
 		color: var(--text);
 		letter-spacing: 0.02em;
-		resize: none;
 		width: 100%;
-		min-height: 60px;
 		background: transparent;
 		border: none;
 		outline: none;
 	}
-	.input-zone textarea::placeholder {
+	.input-zone textarea {
+		resize: none;
+		min-height: 60px;
+	}
+	.input-zone textarea::placeholder,
+	.input-zone input::placeholder {
 		color: var(--text-3);
 	}
 	.field-hint {

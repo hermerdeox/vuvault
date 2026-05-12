@@ -3,6 +3,7 @@
 	import { audit } from '$lib/stores/audit.svelte';
 	import { generateTOTP, parseTotpSeed } from '$lib/crypto/totp';
 	import { safeHref } from '$lib/utils/sanitize';
+	import { copySecretToClipboard } from '$lib/services/secure-clipboard';
 	import { IconEye, IconEyeOff, IconCopy, IconClock, IconWarning } from '$lib/icons';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -22,17 +23,19 @@
 
 	const REVEAL_TTL_MS = 30_000;
 
-	// When the palette toggles vault.revealedField for the current item,
-	// reflect that into local reveal state so the secret-bearing fields
-	// (password, cardNumber, cardCvc, sshKeyBody, seedPhrase, noteBody)
-	// all flip in lockstep.
+	// When the palette toggles vault.revealedField, reveal only the
+	// primary secret field for the current item. Field-scoped reveal
+	// keeps the blast radius smaller than revealing every secret at once.
 	$effect(() => {
 		const flag = vault.revealedField;
 		const id = itemId;
-		if (flag && id && flag === id) {
-			const all = ['password', 'cardNumber', 'cardCvc', 'sshKeyBody', 'seedPhrase', 'noteBody'];
-			for (const key of all) reveal(key, /*silent*/ true);
-		}
+		const current = item;
+		if (!flag || !id || flag !== id || !current) return;
+		reveal(primarySecretField(current), /*silent*/ true);
+	});
+
+	$effect(() => {
+		if (vault.status !== 'unlocked') hideAll();
 	});
 
 	// Reset local reveal state when selection changes.
@@ -75,29 +78,37 @@
 		if (vault.revealedField === itemId) vault.revealedField = null;
 	}
 
+	function hideAll() {
+		for (const k of Object.keys(revealTimers)) {
+			clearTimeout(revealTimers[k]);
+		}
+		revealedFields = {};
+		revealTimers = {};
+		vault.revealedField = null;
+	}
+
+	function primarySecretField(target: VaultItem): string {
+		switch (target.kind) {
+			case 'card':
+				return 'cardNumber';
+			case 'note':
+				return 'noteBody';
+			case 'ssh':
+				return target.sshKeyBody ? 'sshKeyBody' : 'password';
+			case 'crypto-seed':
+				return 'seedPhrase';
+			default:
+				return 'password';
+		}
+	}
+
 	function toggle(fieldKey: string) {
 		if (revealedFields[fieldKey]) hide(fieldKey);
 		else reveal(fieldKey);
 	}
 
 	async function copyValue(fieldKey: string, value: string | undefined) {
-		if (!value) return;
-		try {
-			await navigator.clipboard.writeText(value);
-			audit.push('success', `Copied ${fieldKey}`, { clears: '60s' });
-			// Unconditional clear at 60s. Firefox + many Chrome configs
-			// deny `clipboard-read` permission, so the previous
-			// readText-and-compare path silently left secrets on the
-			// clipboard forever. An occasional clobber of an unrelated
-			// later copy is preferable to leaking credentials.
-			setTimeout(() => {
-				navigator.clipboard.writeText('').catch(() => {
-					audit.push('warn', `Auto-clear of clipboard was rejected for ${fieldKey}`);
-				});
-			}, 60_000);
-		} catch {
-			audit.push('warn', `Clipboard write rejected`);
-		}
+		await copySecretToClipboard(fieldKey, value);
 	}
 
 	// Health snapshot for the currently selected item. The health

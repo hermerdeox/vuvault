@@ -11,7 +11,7 @@
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
-import { checkRateLimit } from '$lib/server/api/env';
+import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { jsonError, jsonOk, readJson, b64decode } from '$lib/server/api/http';
 import { authenticate, advanceSequenceClock } from '$lib/server/api/auth-token';
 
@@ -25,13 +25,19 @@ type Body = {
 const MAX_HEADER_BYTES = 4096;
 const MAX_NONCE_BYTES = 64;
 const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
+const BASE64_OVERHEAD = 4 / 3;
+const BASE64_SLACK_BYTES = 8;
+
+function exceedsEncodedCap(value: string, maxDecodedBytes: number): boolean {
+	return value.length > Math.ceil(maxDecodedBytes * BASE64_OVERHEAD) + BASE64_SLACK_BYTES;
+}
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
-	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
@@ -49,6 +55,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	if (body.sequenceClock <= session.sequenceClock) {
 		return jsonError(409, 'sequence clock not monotonic');
+	}
+	if (
+		exceedsEncodedCap(body.header, MAX_HEADER_BYTES) ||
+		exceedsEncodedCap(body.nonce, MAX_NONCE_BYTES) ||
+		exceedsEncodedCap(body.ciphertext, MAX_CIPHERTEXT_BYTES)
+	) {
+		return jsonError(400, 'encoded blob size out of range');
 	}
 
 	let header: Uint8Array;
@@ -99,7 +112,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return jsonError(503, 'blob storage unavailable');
 	}
 
-	await advanceSequenceClock(env.AUTH_DB, session.token, body.sequenceClock);
+	const advanced = await advanceSequenceClock(env.AUTH_DB, session.token, body.sequenceClock);
+	if (!advanced) {
+		return jsonError(409, 'sequence clock not monotonic');
+	}
 
 	return jsonOk({
 		updatedAt: Date.now(),

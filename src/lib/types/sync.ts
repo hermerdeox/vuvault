@@ -2,8 +2,8 @@
  * Sync + account protocol types — wire format for the Cloudflare Worker
  * that backs OPAQUE registration/login and encrypted blob sync.
  *
- * Milestone 1 shipped these types as a contract; the Worker stub at
- * `functions/api/[[catchall]].ts` returns 501 for every endpoint.
+ * Milestone 1 shipped these types as a contract; Milestone 3 now maps
+ * them to SvelteKit/Cloudflare API routes under `src/routes/api/**`.
  *
  * Milestone 2 reshapes the OPAQUE vocabulary to match RFC 9807
  * exactly — `RegistrationRequest`, `RegistrationResponse`,
@@ -11,9 +11,8 @@
  * for transcript binding. The DeviceId / SequenceClock additions from
  * Milestone 1 hardening are preserved.
  *
- * The Worker server itself ships in Milestone 3 (Cloudflare Workers +
- * D1 OPAQUE record storage). Until then `src/lib/services/mock-opaque-server.ts`
- * implements the matching server side in-process for tests and dev.
+ * `src/lib/services/mock-opaque-server.ts` remains as an in-process
+ * test/dev implementation of the same OPAQUE server-side contract.
  */
 
 export type AccountId = string; // server-assigned UUID
@@ -84,6 +83,7 @@ export type OpaqueLoginKE2 = {
 
 export type OpaqueLoginKE3 = {
 	op: 'opaque-login-ke3';
+	clientId: ClientIdentifier;
 	requestId: string;
 	/** Base64-encoded KE3 = client_mac. Server verifies and emits accountId on success. */
 	ke3: string;

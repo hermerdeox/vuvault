@@ -76,7 +76,7 @@
 											><line x1="5" y1="12" x2="19" y2="12" /></svg
 										>
 									{:else if cell === 'tier-2'}
-										<span class="tier-pill" title="Architectural design today, ships in Tier 2 (M3 sync server, target 2027)">
+										<span class="tier-pill" title="Architectural design today, ships in Tier 2 (field-level sync, sharing, and device transparency)">
 											Tier&nbsp;2
 										</span>
 									{:else if cell === 'tier-3'}
@@ -101,11 +101,11 @@
 			prices verified May 2026 · sources: vendor pricing pages
 		</div>
 		<div class="tier-footnote">
-			<strong>Tier 2</strong> capabilities are designed and exercised by mock
-			fixtures today; the cross-origin component ships with the M3 sync server
-			(target 2027). <strong>Tier 3</strong> capabilities (transparency log,
-			PIR breach check) target 2028. Today the vault is local-only on every
-			cell marked tier-2/tier-3.
+			<strong>Tier 2</strong> capabilities build on the shipped M3 ciphertext
+			sync path but still need field-level CRDT sync, sharing, and device
+			transparency before they are product-ready. <strong>Tier 3</strong>
+			capabilities (threshold recovery and stronger metadata operations)
+			target 2028. Today, cells marked tier-2/tier-3 remain roadmap items.
 		</div>
 	</div>
 </section>

@@ -32,6 +32,7 @@ import {
 	safeAuditLabel
 } from '$lib/types/vault-item';
 import { onTabMessage, postTabMessage } from '$lib/services/tab-sync';
+import { clearClipboard } from '$lib/services/secure-clipboard';
 
 // Re-exported for backward compatibility — older imports of `ItemKind`
 // and `VaultItem` from this module continue to work, but new code
@@ -382,7 +383,7 @@ class VaultState {
 		}
 	}
 
-	async lock(): Promise<void> {
+	async lock(reason = 'manual'): Promise<void> {
 		// Flush any pending writes BEFORE we tear down the session key,
 		// otherwise saveItems() throws "no active vault session" mid-flight
 		// and edits made within the debounce window vanish.
@@ -433,10 +434,11 @@ class VaultState {
 			this.tabUnsubscribe = null;
 		}
 		lockSession();
+		await clearClipboard('lock');
 		// Broadcast AFTER lockSession so any peer tab that immediately
 		// queries `isSessionActive()` sees the new state.
-		postTabMessage('locked');
-		audit.push('info', 'Vault locked');
+		postTabMessage('locked', reason);
+		audit.push('info', reason === 'manual' ? 'Vault locked' : `Vault auto-locked: ${reason}`);
 	}
 
 	select(id: string | null): void {

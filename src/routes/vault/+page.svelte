@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { onMount } from 'svelte';
 
 	import VaultSidebar from './VaultSidebar.svelte';
 	import VaultList from './VaultList.svelte';
@@ -20,6 +21,7 @@
 	const importQuickGenerator = () => import('./QuickGenerator.svelte');
 
 	import BrandMark from '$lib/components/BrandMark.svelte';
+	import SplashScreen from '$lib/components/SplashScreen.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import AuditFooter from '$lib/components/AuditFooter.svelte';
 	import {
@@ -33,6 +35,7 @@
 	} from '$lib/icons';
 
 	import { vault, type ItemKind, type VaultItem } from '$lib/stores/vault.svelte';
+	import { createAutoLockController, type AutoLockReason } from '$lib/services/auto-lock';
 
 	let editorOpen = $state(false);
 	let editorMode = $state<'create' | 'edit'>('create');
@@ -43,7 +46,7 @@
 	let settingsOpen = $state(false);
 	let quickGenOpen = $state(false);
 	let locking = $state(false);
-let editorNonce = $state(0);
+	let editorNonce = $state(0);
 
 	// Mobile overflow popover holds the rare top-bar actions
 	// (Generate / Sync / MP-Settings / Theme) so the right group
@@ -60,22 +63,26 @@ let editorNonce = $state(0);
 		};
 	}
 
-	async function lockVault() {
+	async function lockVault(reason: 'manual' | AutoLockReason = 'manual') {
 		if (locking) return;
 		locking = true;
 		try {
-			await vault.lock();
-		} finally {
+			if (reason === 'manual') {
+				await new Promise<void>((done) => requestAnimationFrame(() => done()));
+			}
+			await vault.lock(reason);
+			await goto(resolve('/unlock'));
+		} catch (error) {
 			locking = false;
+			throw error;
 		}
-		goto(resolve('/unlock'));
 	}
 
 	function openCreateEditor() {
 		editorMode = 'create';
 		editorInitial = null;
 		editorKind = null;
-	editorNonce += 1;
+		editorNonce += 1;
 		editorOpen = true;
 	}
 
@@ -83,7 +90,7 @@ let editorNonce = $state(0);
 		editorMode = 'edit';
 		editorInitial = item;
 		editorKind = item.kind;
-	editorNonce += 1;
+		editorNonce += 1;
 		editorOpen = true;
 	}
 
@@ -110,6 +117,14 @@ let editorNonce = $state(0);
 			paletteOpen = true;
 		}
 	}
+
+	onMount(() => {
+		const controller = createAutoLockController({
+			getStatus: () => vault.status,
+			lock: (reason) => lockVault(reason)
+		});
+		return () => controller.destroy();
+	});
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -117,6 +132,8 @@ let editorNonce = $state(0);
 <svelte:head>
 	<title>Vault — VuVault</title>
 </svelte:head>
+
+<SplashScreen visible={locking} />
 
 <div class="app">
 	<header class="topbar">
@@ -184,7 +201,7 @@ let editorNonce = $state(0);
 			<span class="overflow-target"><ThemeToggle /></span>
 			<button
 				class="lock-btn"
-				onclick={lockVault}
+				onclick={() => lockVault()}
 				disabled={locking}
 				aria-label="Lock vault"
 			>

@@ -2,6 +2,7 @@
 	import { vault, type VaultItem } from '$lib/stores/vault.svelte';
 	import { audit } from '$lib/stores/audit.svelte';
 	import { generateTOTP, parseTotpSeed } from '$lib/crypto/totp';
+	import { copySecretToClipboard } from '$lib/services/secure-clipboard';
 	import { rankItems } from './command-rank';
 	import {
 		IconSearch,
@@ -70,30 +71,7 @@
 	}
 
 	async function copy(label: string, value: string | undefined): Promise<boolean> {
-		if (!value) {
-			audit.push('warn', `No ${label} to copy`);
-			return false;
-		}
-		try {
-			await navigator.clipboard.writeText(value);
-			audit.push('warn', `Copied ${label} via ⌘K`, { clears: '60s' });
-			// Unconditional clear — `clipboard.readText()` requires the
-			// "clipboard-read" permission which Firefox and many Chrome
-			// configs deny silently. Always best-effort overwrite with an
-			// empty string at the timeout. If the user has copied
-			// something else in the meantime we'll occasionally clobber
-			// their clipboard, which is far less bad than letting a
-			// secret persist indefinitely.
-			setTimeout(() => {
-				navigator.clipboard.writeText('').catch(() => {
-					audit.push('warn', `Auto-clear of clipboard was rejected for ${label}`);
-				});
-			}, 60_000);
-			return true;
-		} catch {
-			audit.push('danger', `Clipboard write rejected for ${label}`);
-			return false;
-		}
+		return copySecretToClipboard(`${label} via ⌘K`, value);
 	}
 
 	const sel = $derived(vault.selected);
@@ -153,8 +131,8 @@
 		{
 			kind: 'action',
 			id: 'reveal',
-			title: 'Reveal secrets on selected item',
-			subtitle: sel ? 'auto-hides in 30s' : 'no item selected',
+			title: 'Reveal primary secret on selected item',
+			subtitle: sel ? 'field-scoped; auto-hides in 30s' : 'no item selected',
 			icon: IconEye,
 			disabled: !sel,
 			run: () => {
@@ -328,19 +306,19 @@
 						{@const Icon = row.icon}
 						{@const disabled = row.kind === 'action' && row.disabled}
 						<li
-							role="option"
 							id={row.id}
-							aria-selected={cursor === i}
-							aria-disabled={disabled || undefined}
+							role="presentation"
 						>
 							<button
 								class="row"
 								class:active={cursor === i}
 								class:disabled
 								type="button"
+								role="option"
+								aria-selected={cursor === i}
+								aria-disabled={disabled || undefined}
 								onmouseenter={() => (cursor = i)}
 								onclick={() => exec(row)}
-								aria-disabled={disabled || undefined}
 							>
 								<div class="row-ico">
 									<Icon size={14} stroke={1.6} />

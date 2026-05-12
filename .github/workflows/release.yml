@@ -264,6 +264,40 @@ jobs:
           const origin = process.env.PUBLIC_SYNC_ORIGIN;
           if (!origin) throw new Error('PUBLIC_SYNC_ORIGIN is empty');
 
+          function assertHeader(res, name, expected) {
+            const actual = res.headers.get(name);
+            if (actual !== expected) {
+              throw new Error(`${res.url} missing ${name}; expected "${expected}", got "${actual}"`);
+            }
+          }
+
+          function assertHeaderIncludes(res, name, fragment) {
+            const actual = res.headers.get(name) || '';
+            if (!actual.includes(fragment)) {
+              throw new Error(`${res.url} missing ${name} fragment "${fragment}"; got "${actual}"`);
+            }
+          }
+
+          async function assertSecurityHeaders(path) {
+            const res = await fetch(`${origin}${path}`, { cache: 'no-store' });
+            if (!res.ok && path !== '/api/capabilities') {
+              throw new Error(`${path} returned ${res.status}`);
+            }
+            assertHeader(res, 'strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
+            assertHeader(res, 'x-content-type-options', 'nosniff');
+            assertHeader(res, 'referrer-policy', 'no-referrer');
+            assertHeader(res, 'x-frame-options', 'DENY');
+            assertHeaderIncludes(res, 'permissions-policy', 'camera=()');
+            assertHeaderIncludes(res, 'cross-origin-opener-policy', 'same-origin');
+            assertHeaderIncludes(res, 'cross-origin-resource-policy', 'same-origin');
+            return res;
+          }
+
+          const root = await assertSecurityHeaders('/');
+          assertHeaderIncludes(root, 'content-security-policy', "object-src 'none'");
+          assertHeaderIncludes(root, 'content-security-policy', "frame-src 'none'");
+          assertHeaderIncludes(root, 'content-security-policy', 'upgrade-insecure-requests');
+
           const capabilities = await fetch(`${origin}/api/capabilities`, {
             cache: 'no-store'
           });
@@ -274,16 +308,27 @@ jobs:
           if (caps?.ok !== true || caps?.data?.opaque !== true || caps?.data?.blobSync !== true) {
             throw new Error(`/api/capabilities response mismatch: ${JSON.stringify(caps)}`);
           }
+          await assertSecurityHeaders('/api/capabilities');
 
-          const unauthBlob = await fetch(`${origin}/api/blobs/upload`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: '{}',
-            cache: 'no-store'
-          });
-          if (unauthBlob.status !== 401 && unauthBlob.status !== 503) {
-            throw new Error(`/api/blobs/upload unauth probe returned ${unauthBlob.status}`);
+          async function assertUnauthProbe(path, method = 'POST') {
+            const unauth = await fetch(`${origin}${path}`, {
+              method,
+              headers: { 'content-type': 'application/json' },
+              body: method === 'GET' ? undefined : '{}',
+              cache: 'no-store'
+            });
+            if (unauth.status !== 401 && unauth.status !== 503) {
+              throw new Error(`${path} unauth probe returned ${unauth.status}`);
+            }
+            return unauth.status;
           }
+
+          const blobUploadStatus = await assertUnauthProbe('/api/blobs/upload');
+          const blobLatestStatus = await assertUnauthProbe('/api/blobs/latest', 'GET');
+          const documentStatus = await assertUnauthProbe(
+            '/api/documents/11111111-2222-4333-8444-555555555555',
+            'GET'
+          );
 
           // Burst rate-limit probe: production sets
           // OPAQUE_REGISTER_LIMITER to 10 req / 60 s per IP. Issue 12
@@ -312,5 +357,7 @@ jobs:
               `rate-limit burst probe never returned 429/503; got [${burst.join(',')}]. Verify OPAQUE_REGISTER_LIMITER is wired in the Cloudflare dashboard.`
             );
           }
-          console.log(`post-deploy-smoke: OK (burst statuses ${burst.join(',')})`);
+          console.log(
+            `post-deploy-smoke: OK (blob upload ${blobUploadStatus}, blob latest ${blobLatestStatus}, document ${documentStatus}, register burst ${burst.join(',')})`
+          );
           NODE

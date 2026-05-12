@@ -87,6 +87,7 @@
 		onboarding.publicKey = result.publicKey;
 		onboarding.authenticatorBound = true;
 		onboarding.authMode = 'production';
+		onboarding.quickUnlockEnabled = true;
 		// CRITICAL: bind the captured PRF output to the salt that registered
 		// it. StepProvision MUST persist `onboarding.deviceSalt` unchanged
 		// into the account row so a future unlock re-evaluates PRF with the
@@ -115,6 +116,7 @@
 		onboarding.publicKey = new ArrayBuffer(0);
 		onboarding.authenticatorBound = true;
 		onboarding.authMode = 'demo';
+		onboarding.quickUnlockEnabled = false;
 		onboarding.prfRegistrationOutput = null;
 		phase = 'success';
 		status = '✓ Demo mode active · vault security falls to your Secret Key alone';
@@ -171,6 +173,19 @@
 			</button>
 			<div class="status" class:err={phase === 'error'}>{status}</div>
 		</div>
+
+		{#if phase === 'success' && onboarding.authMode === 'production'}
+			<label class="quick-unlock-opt-in">
+				<input type="checkbox" bind:checked={onboarding.quickUnlockEnabled} />
+				<span>
+					<strong>Enable Touch ID quick unlock on this device</strong>
+					<small>
+						Your Secret Key remains required for recovery and new devices. This only
+						trusts the passkey you just registered on this browser.
+					</small>
+				</span>
+			</label>
+		{/if}
 
 		{#if demoConfirmRequested && demoAuthAllowed}
 			<div class="demo-confirm">
@@ -329,6 +344,37 @@
 	}
 	.status.err {
 		color: var(--danger);
+	}
+
+	.quick-unlock-opt-in {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 12px;
+		align-items: flex-start;
+		margin: 0 0 18px;
+		padding: 14px 16px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+	.quick-unlock-opt-in input {
+		margin-top: 2px;
+		accent-color: var(--accent);
+	}
+	.quick-unlock-opt-in span {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.quick-unlock-opt-in strong {
+		font-size: 13px;
+		color: var(--text);
+	}
+	.quick-unlock-opt-in small {
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-2);
 	}
 
 	.demo-confirm {

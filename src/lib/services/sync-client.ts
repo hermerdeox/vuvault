@@ -49,6 +49,103 @@ const NOT_WIRED: SyncResult<never> = {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object';
+}
+
+function isString(value: unknown): value is string {
+	return typeof value === 'string';
+}
+
+function isNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isBoolean(value: unknown): value is boolean {
+	return typeof value === 'boolean';
+}
+
+function hasString(value: Record<string, unknown>, key: string): boolean {
+	return isString(value[key]);
+}
+
+function hasNumber(value: Record<string, unknown>, key: string): boolean {
+	return isNumber(value[key]);
+}
+
+function isCapabilities(value: unknown): value is SyncCapabilities {
+	return (
+		isRecord(value) &&
+		isBoolean(value.opaque) &&
+		isBoolean(value.blobSync) &&
+		isBoolean(value.deviceEnrollment) &&
+		isBoolean(value.transparencyLog)
+	);
+}
+
+function isOpaqueRegisterResponse(value: unknown): value is { requestId: string; response: string } {
+	return isRecord(value) && hasString(value, 'requestId') && hasString(value, 'response');
+}
+
+function isOpaqueRegisterRecordResponse(value: unknown): value is { accountId: string } {
+	return isRecord(value) && hasString(value, 'accountId');
+}
+
+function isOpaqueLoginKE2Response(value: unknown): value is { requestId: string; ke2: string } {
+	return isRecord(value) && hasString(value, 'requestId') && hasString(value, 'ke2');
+}
+
+function isOpaqueLoginResult(value: unknown): value is OpaqueLoginResult {
+	return (
+		isRecord(value) &&
+		hasString(value, 'accountId') &&
+		(value.token === undefined || isString(value.token)) &&
+		(value.expiresAt === undefined || isNumber(value.expiresAt)) &&
+		(value.sequenceClock === undefined || isNumber(value.sequenceClock))
+	);
+}
+
+function isBlobUploadResponse(
+	value: unknown
+): value is { updatedAt: number; sequenceClock: number } {
+	return isRecord(value) && hasNumber(value, 'updatedAt') && hasNumber(value, 'sequenceClock');
+}
+
+function isBlobLatestResponse(value: unknown): value is {
+	header: string;
+	nonce: string;
+	ciphertext: string;
+	sequenceClock: number;
+	updatedAt: number;
+} {
+	return (
+		isRecord(value) &&
+		hasString(value, 'header') &&
+		hasString(value, 'nonce') &&
+		hasString(value, 'ciphertext') &&
+		hasNumber(value, 'sequenceClock') &&
+		hasNumber(value, 'updatedAt')
+	);
+}
+
+function isDocumentBlobResponse(value: unknown): value is DocumentBlobResponse {
+	return (
+		isRecord(value) &&
+		hasString(value, 'blobId') &&
+		hasString(value, 'nonce') &&
+		hasString(value, 'ciphertext') &&
+		hasNumber(value, 'updatedAt')
+	);
+}
+
+function isDocumentUploadResponse(value: unknown): value is { blobId: string; updatedAt: number } {
+	return isRecord(value) && hasString(value, 'blobId') && hasNumber(value, 'updatedAt');
+}
+
+function isDocumentDeleteResponse(value: unknown): value is { blobId: string; deletedAt: number } {
+	return isRecord(value) && hasString(value, 'blobId') && hasNumber(value, 'deletedAt');
+}
+
 /**
  * Session bearer token issued by the Worker on successful KE3.
  * Caller stashes it (sessionStorage in the SPA, never localStorage)
@@ -132,7 +229,7 @@ async function call<T>(
 // --- Capability discovery ------------------------------------------
 
 export async function getCapabilities(): Promise<SyncResult<SyncCapabilities>> {
-	return call<SyncCapabilities>('/api/capabilities', { method: 'GET' });
+	return call<SyncCapabilities>('/api/capabilities', { method: 'GET' }, isCapabilities);
 }
 
 // --- OPAQUE wire-format wrappers -----------------------------------
@@ -149,7 +246,8 @@ export async function opaqueRegisterRequest(
 		{
 			method: 'POST',
 			body: JSON.stringify({ clientId: req.clientId, request: req.request })
-		}
+		},
+		isOpaqueRegisterResponse
 	);
 	if (!inner.ok) return inner;
 	return {
@@ -165,14 +263,18 @@ export async function opaqueRegisterRequest(
 export async function opaqueRegisterRecord(
 	req: OpaqueRegistrationRecord
 ): Promise<SyncResult<{ accountId: string }>> {
-	return call<{ accountId: string }>('/api/opaque/register/record', {
-		method: 'POST',
-		body: JSON.stringify({
-			clientId: req.clientId,
-			requestId: req.requestId,
-			record: req.record
-		})
-	});
+	return call<{ accountId: string }>(
+		'/api/opaque/register/record',
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				clientId: req.clientId,
+				requestId: req.requestId,
+				record: req.record
+			})
+		},
+		isOpaqueRegisterRecordResponse
+	);
 }
 
 export async function opaqueLoginKE1(
@@ -183,7 +285,8 @@ export async function opaqueLoginKE1(
 		{
 			method: 'POST',
 			body: JSON.stringify({ clientId: req.clientId, ke1: req.ke1 })
-		}
+		},
+		isOpaqueLoginKE2Response
 	);
 	if (!inner.ok) return inner;
 	return {
@@ -199,14 +302,18 @@ export async function opaqueLoginKE1(
 export async function opaqueLoginKE3(
 	req: OpaqueLoginKE3
 ): Promise<SyncResult<OpaqueLoginResult>> {
-	return call<OpaqueLoginResult>('/api/opaque/login/ke3', {
-		method: 'POST',
-		body: JSON.stringify({
-			clientId: (req as OpaqueLoginKE3 & { clientId?: string }).clientId,
-			requestId: req.requestId,
-			ke3: req.ke3
-		})
-	});
+	return call<OpaqueLoginResult>(
+		'/api/opaque/login/ke3',
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				clientId: req.clientId,
+				requestId: req.requestId,
+				ke3: req.ke3
+			})
+		},
+		isOpaqueLoginResult
+	);
 }
 
 // --- Blob upload / fetch -------------------------------------------
@@ -224,7 +331,8 @@ export async function uploadBlob(
 				ciphertext: req.ciphertext,
 				sequenceClock: req.sequenceClock
 			})
-		}
+		},
+		isBlobUploadResponse
 	);
 }
 
@@ -237,7 +345,7 @@ export async function fetchBlob(
 		ciphertext: string;
 		sequenceClock: number;
 		updatedAt: number;
-	}>('/api/blobs/latest', { method: 'GET' });
+	}>('/api/blobs/latest', { method: 'GET' }, isBlobLatestResponse);
 	if (!inner.ok) return inner;
 	return {
 		ok: true,
@@ -281,7 +389,8 @@ export async function uploadDocumentBlob(
 		{
 			method: 'PUT',
 			body: JSON.stringify({ nonce: req.nonce, ciphertext: req.ciphertext })
-		}
+		},
+		isDocumentUploadResponse
 	);
 }
 
@@ -290,7 +399,8 @@ export async function fetchDocumentBlob(
 ): Promise<SyncResult<DocumentBlobResponse>> {
 	return call<DocumentBlobResponse>(
 		`/api/documents/${encodeURIComponent(blobId)}`,
-		{ method: 'GET' }
+		{ method: 'GET' },
+		isDocumentBlobResponse
 	);
 }
 
@@ -299,7 +409,8 @@ export async function deleteDocumentBlob(
 ): Promise<SyncResult<{ blobId: string; deletedAt: number }>> {
 	return call<{ blobId: string; deletedAt: number }>(
 		`/api/documents/${encodeURIComponent(blobId)}`,
-		{ method: 'DELETE' }
+		{ method: 'DELETE' },
+		isDocumentDeleteResponse
 	);
 }
 

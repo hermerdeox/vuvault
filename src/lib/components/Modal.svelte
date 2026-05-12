@@ -9,7 +9,6 @@
 </script>
 
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { IconClose } from '$lib/icons';
 
@@ -18,11 +17,12 @@
 		title?: string;
 		onClose: () => void;
 		size?: 'sm' | 'md' | 'lg';
+		ariaLabel?: string;
 		children: Snippet;
 		footer?: Snippet;
 	};
 
-	let { open, title, onClose, size = 'md', children, footer }: Props = $props();
+	let { open, title, onClose, size = 'md', ariaLabel, children, footer }: Props = $props();
 
 	let dialogEl = $state<HTMLDivElement | null>(null);
 	let prevActive: Element | null = null;
@@ -75,10 +75,6 @@
 	function onBackdrop(e: MouseEvent) {
 		if (e.target === e.currentTarget) onClose();
 	}
-
-	onMount(() => {
-		// no-op — effect handles focus restore
-	});
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -91,6 +87,7 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby={title ? titleId : undefined}
+			aria-label={!title ? (ariaLabel ?? 'Dialog') : undefined}
 			tabindex="-1"
 		>
 			{#if title}
@@ -170,8 +167,8 @@
 		color: var(--text-3);
 		transition: var(--transition);
 	}
-	html[data-vp~='mobile'] .close,
-	html[data-vp~='tablet'] .close {
+	:global(html[data-vp~='mobile']) .close,
+	:global(html[data-vp~='tablet']) .close {
 		width: 44px;
 		height: 44px;
 	}

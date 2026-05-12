@@ -17,7 +17,8 @@ import {
 	setSessionToken,
 	hasSession,
 	uploadBlob,
-	fetchBlob
+	fetchBlob,
+	opaqueLoginKE3
 } from './sync-client';
 
 const env = await import('$lib/utils/env');
@@ -76,6 +77,52 @@ describe('sync-client', () => {
 		if (result.ok) {
 			expect(result.value.opaque).toBe(true);
 		}
+	});
+
+	it('rejects malformed successful responses', async () => {
+		mockFetchOnce(
+			jsonResponse({
+				ok: true,
+				data: {
+					opaque: true,
+					blobSync: true
+				}
+			})
+		);
+		const result = await getCapabilities();
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.reason).toBe('server');
+			expect(result.message).toBe('response shape mismatch');
+		}
+	});
+
+	it('sends clientId on OPAQUE KE3 without unsafe casts', async () => {
+		const captured: { body?: string } = {};
+		globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
+			captured.body = init?.body as string;
+			return jsonResponse({
+				ok: true,
+				data: {
+					accountId: 'acct-1',
+					token: 'a'.repeat(64),
+					expiresAt: 1,
+					sequenceClock: 0
+				}
+			});
+		}) as unknown as typeof fetch;
+		const result = await opaqueLoginKE3({
+			op: 'opaque-login-ke3',
+			clientId: 'client-1',
+			requestId: 'req-1',
+			ke3: 'AA=='
+		});
+		expect(result.ok).toBe(true);
+		expect(JSON.parse(captured.body ?? '{}')).toMatchObject({
+			clientId: 'client-1',
+			requestId: 'req-1',
+			ke3: 'AA=='
+		});
 	});
 
 	it('decodes server errors into ok:false with reason=server', async () => {

@@ -10,7 +10,8 @@
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
-import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { getServerId } from '$lib/server/api/env';
+import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
 import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
 import { b64decode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
@@ -20,7 +21,7 @@ type Body = { clientId?: string; requestId?: string; record?: string };
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	const rateLimit = await checkRateLimit(env.OPAQUE_REGISTER_LIMITER, `ip:${ip}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.OPAQUE_REGISTER, `ip:${ip}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);

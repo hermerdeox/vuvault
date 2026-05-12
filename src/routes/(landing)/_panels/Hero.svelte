@@ -69,16 +69,20 @@
 		</div>
 
 		<div class="hero-status">
-			<span class="status-pill" data-vp-show="desktop"
-				><span class="dot"></span>Same-origin only · no third-party hosts</span
-			>
-			<span class="status-pill" data-vp-show="desktop"
-				><span class="dot"></span>No analytics tags shipped</span
-			>
+			<span class="status-pill"
+				><span class="dot"></span>
+				<span data-vp-show="desktop">Same-origin only · no third-party hosts</span>
+				<span data-vp-show="mobile">Same-origin only</span>
+			</span>
+			<span class="status-pill"
+				><span class="dot"></span>
+				<span data-vp-show="desktop">No analytics tags shipped</span>
+				<span data-vp-show="mobile">Zero analytics</span>
+			</span>
 			<span class="status-pill accent"
 				><span class="dot"></span>
 				<span data-vp-show="desktop">Crypto runs in your browser, not ours</span>
-				<span data-vp-show="mobile">Local-only · zero analytics</span>
+				<span data-vp-show="mobile">Local-only crypto</span>
 			</span>
 		</div>
 
@@ -95,6 +99,20 @@
 		<svg
 			width="14"
 			height="14"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			><path d="M12 5v14M5 12l7 7 7-7" /></svg
+		>
+	</div>
+
+	<div class="hero-swipe" data-vp-show="mobile">
+		<svg
+			width="12"
+			height="12"
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"
@@ -141,21 +159,41 @@
 		flex-wrap: wrap;
 	}
 	@media (max-width: 30em) {
+		.hero {
+			justify-content: center;
+			padding-top: var(--top-bar-h, 56px);
+			padding-bottom: var(--top-bar-h, 56px);
+		}
 		.hero-headline {
 			margin-bottom: 18px;
 		}
 		.hero-sub {
-			margin-bottom: 24px;
+			margin-bottom: 34px;
 		}
 		.hero-ctas {
-			margin-bottom: 24px;
-			gap: 8px;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 10px;
+			margin-bottom: 22px;
+			margin-inline: auto;
+			max-width: 340px;
 			width: 100%;
 		}
 		.hero-ctas :global(.lbtn) {
 			flex: 1 1 auto;
+			width: 100%;
 			min-width: 0;
 			justify-content: center;
+		}
+		.hero-ctas :global(.lbtn.primary) {
+			min-height: 56px;
+			font-weight: 700;
+			box-shadow: 0 14px 34px color-mix(in srgb, var(--brand) 28%, transparent);
+			transform: translateY(-1px);
+		}
+		.hero-ctas :global(.lbtn:not(.primary)) {
+			min-height: 46px;
+			opacity: 0.82;
 		}
 		.hero-status {
 			gap: 6px;
@@ -198,6 +236,8 @@
 
 	.hero-disclaimer {
 		margin-top: 18px;
+		margin-inline: auto;
+		text-align: center;
 		font-family: var(--font-mono);
 		font-size: 11px;
 		color: var(--text-3);
@@ -228,6 +268,15 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		animation: bob 2.6s ease-in-out infinite;
+	}
+	.hero-swipe {
+		margin-top: auto;
+		padding-top: 16px;
+		display: flex;
+		justify-content: center;
+		color: var(--text-3);
+		opacity: 0.5;
 		animation: bob 2.6s ease-in-out infinite;
 	}
 	@keyframes bob {

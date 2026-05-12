@@ -5,10 +5,11 @@
  *   1. welcome     - claim & 3 cards
  *   2. identity    - device label
  *   3. secret      - generate 256-bit Secret Key
- *   4. touch       - bind WebAuthn passkey with PRF extension
- *   5. verify      - bundle hash + verification cards
- *   6. pricing     - free vs $25.60/year
- *   7. provision   - run real crypto operations to seal the vault
+ *   4. recovery    - set local Recovery Password
+ *   5. touch       - bind WebAuthn passkey with PRF extension
+ *   6. verify      - bundle hash + verification cards
+ *   7. pricing     - free vs $25.60/year
+ *   8. provision   - run real crypto operations to seal the vault
  *   (then transitions to the vault route)
  *
  * Each step has a canAdvance() predicate. Keyboard nav (arrows, PageUp/Down)
@@ -19,13 +20,23 @@
  */
 
 import { audit } from './audit.svelte';
+import { validateRecoveryPassword } from '$lib/security/recovery-password-policy';
 import type { AuthMode } from '$lib/utils/storage';
 
-export type StepId = 'welcome' | 'identity' | 'secret' | 'touch' | 'verify' | 'pricing' | 'provision';
+export type StepId =
+	| 'welcome'
+	| 'identity'
+	| 'secret'
+	| 'recovery'
+	| 'touch'
+	| 'verify'
+	| 'pricing'
+	| 'provision';
 export const STEPS: StepId[] = [
 	'welcome',
 	'identity',
 	'secret',
+	'recovery',
 	'touch',
 	'verify',
 	'pricing',
@@ -40,8 +51,11 @@ class OnboardingState {
 	secretKey = $state<Uint8Array | null>(null);
 	secretKeyEncoded = $state<string | null>(null);
 	secretConfirmed = $state<boolean>(false);
+	recoveryPassword = $state<string>('');
+	recoveryConfirmed = $state<boolean>(false);
 	authenticatorBound = $state<boolean>(false);
 	authMode = $state<AuthMode | null>(null); // 'production' once a real PRF passkey is bound; 'demo' on explicit fallback opt-in
+	quickUnlockEnabled = $state<boolean>(true);
 	/**
 	 * 16-byte salt that is the SINGLE source of truth for both PRF
 	 * registration and HKDF derivation. Generated once before passkey
@@ -65,6 +79,12 @@ class OnboardingState {
 				return this.deviceLabel.trim().length >= 2;
 			case 'secret':
 				return this.secretConfirmed;
+			case 'recovery':
+				return (
+					validateRecoveryPassword(this.recoveryPassword, {
+						secretKey: this.secretKey
+					}).ok && this.recoveryConfirmed
+				);
 			case 'touch':
 				return this.authenticatorBound && this.authMode !== null;
 			case 'verify':
@@ -136,8 +156,11 @@ class OnboardingState {
 		this.secretKey = null;
 		this.secretKeyEncoded = null;
 		this.secretConfirmed = false;
+		this.recoveryPassword = '';
+		this.recoveryConfirmed = false;
 		this.authenticatorBound = false;
 		this.authMode = null;
+		this.quickUnlockEnabled = true;
 		if (this.deviceSalt) this.deviceSalt.fill(0);
 		this.deviceSalt = null;
 		if (this.prfRegistrationOutput) this.prfRegistrationOutput.fill(0);
@@ -156,6 +179,7 @@ class OnboardingState {
 	zeroizeSecrets(): void {
 		if (this.secretKey) this.secretKey.fill(0);
 		this.secretKey = null;
+		this.recoveryPassword = '';
 		if (this.prfRegistrationOutput) this.prfRegistrationOutput.fill(0);
 		this.prfRegistrationOutput = null;
 		// deviceSalt is not a secret (it's persisted in plaintext on disk),

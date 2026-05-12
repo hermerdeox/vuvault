@@ -14,7 +14,8 @@
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
-import { getServerId, checkRateLimit } from '$lib/server/api/env';
+import { getServerId } from '$lib/server/api/env';
+import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
 import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
 import { b64decode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
@@ -32,7 +33,7 @@ function newToken(): string {
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	const rateLimit = await checkRateLimit(env.OPAQUE_LOGIN_LIMITER, `ip:${ip}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.OPAQUE_LOGIN, `ip:${ip}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
@@ -72,14 +73,19 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const expiresAt = Date.now() + SESSION_TTL_MS;
 		const lastClock = await env.AUTH_DB
 			.prepare(
-				`SELECT COALESCE(MAX(sequence_clock), 0) AS clock
-				 FROM sessions WHERE account_id = ?`
+				`SELECT
+					MAX(
+						COALESCE(accounts.sequence_clock, 0),
+						COALESCE((SELECT MAX(sequence_clock) FROM sessions WHERE account_id = accounts.account_id), 0)
+					) AS clock
+				 FROM accounts
+				 WHERE account_id = ?`
 			)
 			.bind(accountId)
 			.first<{ clock: number }>();
-		// New session inherits the highest sequence_clock observed for
-		// this account across all sessions, so cross-session monotonicity
-		// survives token rotation.
+		// New sessions inherit the durable account high-water mark. The
+		// sessions fallback keeps local/dev databases created before the
+		// additive migration safe during rollout.
 		const sequenceClock = lastClock?.clock ?? 0;
 
 		await env.AUTH_DB

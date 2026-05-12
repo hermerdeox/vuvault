@@ -23,18 +23,26 @@
 	 */
 	import Modal from '$lib/components/Modal.svelte';
 	import Button from '$lib/components/Button.svelte';
-	import { IconLock, IconWarning, IconCheck } from '$lib/icons';
+	import { IconLock, IconWarning, IconCheck, IconKey } from '$lib/icons';
 	import {
 		decodeSecretKey,
+		groupChars,
 		SECRET_KEY_BASE32_LEN
 	} from '$lib/crypto/secret-key';
+	import { PUBLIC_BUNDLE_HASH, PUBLIC_VAULT_VERSION, BUNDLE_HASH_SHORT } from '$lib/utils/env';
 	import { evaluatePRF } from '$lib/crypto/webauthn-prf';
+	import { validateRecoveryPassword } from '$lib/security/recovery-password-policy';
 	import {
 		deriveMasterPasswordKey,
 		generateMasterPasswordSalt,
 		VAULT_HIGH_PARAMS
 	} from '$lib/crypto/argon2';
 	import { rotateAuth, loadAccount } from '$lib/services/vault-session';
+	import {
+		disableQuickUnlock,
+		enableQuickUnlock,
+		hasQuickUnlock
+	} from '$lib/services/quick-unlock';
 	import { audit } from '$lib/stores/audit.svelte';
 
 	type Props = {
@@ -59,6 +67,21 @@
 	let busy = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let successMessage = $state<string | null>(null);
+	let quickUnlockEnabled = $state(false);
+	let quickUnlockBusy = $state(false);
+	let recoveryEnabled = $state(false);
+	let recoveryPassword1 = $state('');
+	let recoveryPassword2 = $state('');
+	let recoveryBusy = $state(false);
+
+	async function refreshQuickUnlockStatus() {
+		quickUnlockEnabled = await hasQuickUnlock();
+	}
+
+	async function refreshRecoveryStatus() {
+		const { hasRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+		recoveryEnabled = await hasRecoveryEnvelope();
+	}
 
 	$effect(() => {
 		if (open) {
@@ -68,17 +91,18 @@
 			password1 = '';
 			password2 = '';
 			secretKeyInput = '';
-			loadAccount()
+			Promise.all([loadAccount(), refreshQuickUnlockStatus(), refreshRecoveryStatus()])
 				.then((acc) => {
-					if (!acc) {
+					const [account] = acc;
+					if (!account) {
 						errorMessage = 'No account loaded; reload the page.';
 						return;
 					}
 					summary = {
-						masterPasswordEnabled: acc.masterPasswordEnabled === true,
-						credentialId: acc.credentialId,
-						deviceSalt: acc.deviceSalt,
-						authMode: acc.authMode
+						masterPasswordEnabled: account.masterPasswordEnabled === true,
+						credentialId: account.credentialId,
+						deviceSalt: account.deviceSalt,
+						authMode: account.authMode
 					};
 					mode = summary.masterPasswordEnabled ? 'disable' : 'enable';
 				})
@@ -104,6 +128,34 @@
 		!busy && validSecretKey && passwordsMatch
 	);
 	const canSubmitDisable = $derived(!busy && validSecretKey);
+	const canRecreateQuickUnlock = $derived(
+		!quickUnlockBusy && validSecretKey && summary?.authMode === 'production'
+	);
+	const recoveryPolicy = $derived.by(() => {
+		let secretKey: Uint8Array | null = null;
+		try {
+			secretKey = validSecretKey ? decodeSecretKey(secretKeyInput) : null;
+			return validateRecoveryPassword(recoveryPassword1, { secretKey });
+		} finally {
+			if (secretKey) secretKey.fill(0);
+		}
+	});
+	const recoveryPasswordsMatch = $derived(
+		recoveryPolicy.ok && recoveryPassword1 === recoveryPassword2
+	);
+	const canRotateRecovery = $derived(
+		!recoveryBusy && validSecretKey && recoveryPasswordsMatch
+	);
+
+	function downloadText(filename: string, content: string, type = 'text/plain') {
+		const blob = new Blob([content], { type });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		setTimeout(() => URL.revokeObjectURL(url), 1000);
+	}
 
 	async function submit() {
 		if (!summary) return;
@@ -179,9 +231,149 @@
 			busy = false;
 		}
 	}
+
+	async function disableTrustedDevice() {
+		quickUnlockBusy = true;
+		errorMessage = null;
+		successMessage = null;
+		try {
+			await disableQuickUnlock();
+			await refreshQuickUnlockStatus();
+			successMessage = 'Touch ID quick unlock disabled on this device.';
+			audit.push('warn', 'Trusted-device quick unlock disabled');
+		} catch (err) {
+			errorMessage =
+				err instanceof Error ? err.message : 'Failed to disable trusted-device quick unlock';
+			audit.push('danger', `Trusted-device quick unlock disable failed: ${errorMessage}`);
+		} finally {
+			quickUnlockBusy = false;
+		}
+	}
+
+	async function recreateTrustedDevice() {
+		if (!summary || summary.authMode !== 'production') return;
+		quickUnlockBusy = true;
+		errorMessage = null;
+		successMessage = null;
+		let secretKey: Uint8Array | null = null;
+		let prfOutput: Uint8Array | null = null;
+		try {
+			secretKey = decodeSecretKey(secretKeyInput);
+			prfOutput = (await evaluatePRF({
+				credentialId: summary.credentialId,
+				salt: summary.deviceSalt
+			})) as Uint8Array | null;
+			if (!prfOutput) {
+				throw new Error(
+					'Authenticator did not return a PRF output. Try again on the same trusted device.'
+				);
+			}
+			await enableQuickUnlock(secretKey, { prfOutput });
+			await refreshQuickUnlockStatus();
+			successMessage = 'Touch ID quick unlock cache recreated on this device.';
+			audit.push('success', 'Trusted-device quick unlock recreated');
+		} catch (err) {
+			errorMessage =
+				err instanceof Error ? err.message : 'Failed to recreate trusted-device quick unlock';
+			audit.push('danger', `Trusted-device quick unlock recreate failed: ${errorMessage}`);
+		} finally {
+			if (secretKey) secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
+			secretKeyInput = '';
+			quickUnlockBusy = false;
+		}
+	}
+
+	async function rotateRecoveryEnvelope() {
+		recoveryBusy = true;
+		errorMessage = null;
+		successMessage = null;
+		let secretKey: Uint8Array | null = null;
+		try {
+			const { enableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+			secretKey = decodeSecretKey(secretKeyInput);
+			await enableRecoveryEnvelope({
+				secretKey,
+				recoveryPassword: recoveryPassword1
+			});
+			await refreshRecoveryStatus();
+			successMessage = recoveryEnabled
+				? 'Recovery Envelope rotated.'
+				: 'Recovery Envelope enabled.';
+			audit.push('success', 'Recovery Envelope updated');
+			recoveryPassword1 = '';
+			recoveryPassword2 = '';
+			secretKeyInput = '';
+		} catch (err) {
+			errorMessage =
+				err instanceof Error ? err.message : 'Failed to update Recovery Envelope';
+			audit.push('danger', `Recovery Envelope update failed: ${errorMessage}`);
+		} finally {
+			if (secretKey) secretKey.fill(0);
+			recoveryBusy = false;
+		}
+	}
+
+	async function exportRecoveryKit() {
+		errorMessage = null;
+		successMessage = null;
+		try {
+			const { exportRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+			const envelope = await exportRecoveryEnvelope();
+			if (!envelope) {
+				throw new Error('Recovery Envelope is not enabled.');
+			}
+			const secretValue = secretKeyInput.trim().replace(/[\s-]+/g, '');
+			decodeSecretKey(secretValue);
+			const payload = {
+				format: 'vukey/v2',
+				issued: new Date().toISOString(),
+				device: summary ? 'recovery-export' : null,
+				secretKey: {
+					encoding: 'base32-crockford',
+					bits: 256,
+					groups: groupChars(secretValue, 4),
+					value: secretValue
+				},
+				recoveryEnvelope: envelope,
+				build: {
+					version: PUBLIC_VAULT_VERSION,
+					bundleHash: PUBLIC_BUNDLE_HASH,
+					bundleHashShort: BUNDLE_HASH_SHORT
+				}
+			};
+			downloadText(
+				`vuvault-recovery-${Date.now()}.vukey`,
+				JSON.stringify(payload, null, 2),
+				'application/json'
+			);
+			successMessage = 'Recovery .vukey exported. Keep it offline and separate from your Recovery Password.';
+			audit.push('success', 'Recovery .vukey exported');
+		} catch (err) {
+			errorMessage = err instanceof Error ? err.message : 'Failed to export Recovery Kit';
+		}
+	}
+
+	async function disableRecovery() {
+		recoveryBusy = true;
+		errorMessage = null;
+		successMessage = null;
+		try {
+			const { disableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+			await disableRecoveryEnvelope();
+			await refreshRecoveryStatus();
+			successMessage = 'Recovery Envelope disabled on this device.';
+			audit.push('warn', 'Recovery Envelope disabled');
+		} catch (err) {
+			errorMessage =
+				err instanceof Error ? err.message : 'Failed to disable Recovery Envelope';
+		} finally {
+			recoveryBusy = false;
+		}
+	}
 </script>
 
-<Modal {open} {onClose} title="Master password" size="md">
+<Modal {open} {onClose} title="Security settings" size="md">
 	{#snippet children()}
 		{#if loading}
 			<p class="lede">Loading account…</p>
@@ -204,6 +396,95 @@
 				Argon2id stretches it locally with VuVault's high preset
 				(256 MiB, 4 passes, p=1; ~2–3s per attempt).
 			</p>
+
+			<div class="trusted-device">
+				<div>
+					<div class="trusted-title">Recovery Envelope</div>
+					<p>
+						Local passkey-loss recovery is
+						<strong>{recoveryEnabled ? 'enabled' : 'disabled'}</strong>.
+					</p>
+				</div>
+				<Button
+					variant="ghost"
+					disabled={!recoveryEnabled || recoveryBusy || !validSecretKey}
+					onclick={exportRecoveryKit}
+				>
+					<IconKey size={14} stroke={1.8} />
+					Export .vukey
+				</Button>
+				<Button
+					variant="ghost"
+					disabled={!recoveryEnabled || recoveryBusy}
+					onclick={disableRecovery}
+				>
+					{recoveryBusy ? 'Working…' : 'Disable'}
+				</Button>
+			</div>
+
+			<div class="form-block">
+				<label for="rec-new" class="lbl">New / rotated Recovery Password</label>
+				<input
+					id="rec-new"
+					type="password"
+					bind:value={recoveryPassword1}
+					minlength="16"
+					autocomplete="new-password"
+					disabled={recoveryBusy}
+				/>
+				<label for="rec-new2" class="lbl">Confirm Recovery Password</label>
+				<input
+					id="rec-new2"
+					type="password"
+					bind:value={recoveryPassword2}
+					minlength="16"
+					autocomplete="new-password"
+					disabled={recoveryBusy}
+				/>
+				<Button
+					variant="ghost"
+					disabled={!canRotateRecovery}
+					onclick={rotateRecoveryEnvelope}
+				>
+					{recoveryBusy ? 'Sealing…' : recoveryEnabled ? 'Rotate recovery' : 'Enable recovery'}
+				</Button>
+				<div class="hint">
+					Use a long passphrase, store it separately from <code>.vukey</code>;
+					VuVault cannot reset it.
+				</div>
+				{#if recoveryPassword1 && !recoveryPolicy.ok}
+					<div class="hint warn">{recoveryPolicy.message}</div>
+				{:else if recoveryPassword1 && recoveryPassword2 && !recoveryPasswordsMatch}
+					<div class="hint warn">Recovery Passwords don't match.</div>
+				{:else if recoveryPasswordsMatch}
+					<div class="hint">Recovery Password ready · ~{Math.round(recoveryPolicy.bits)} bits.</div>
+				{/if}
+			</div>
+
+			<div class="trusted-device">
+				<div>
+					<div class="trusted-title">Trusted device</div>
+					<p>
+						Touch ID quick unlock is
+						<strong>{quickUnlockEnabled ? 'enabled' : 'disabled'}</strong> on this
+						device.
+					</p>
+				</div>
+				<Button
+					variant="ghost"
+					disabled={!quickUnlockEnabled || quickUnlockBusy}
+					onclick={disableTrustedDevice}
+				>
+					{quickUnlockBusy ? 'Disabling…' : 'Disable here'}
+				</Button>
+				<Button
+					variant="ghost"
+					disabled={!canRecreateQuickUnlock}
+					onclick={recreateTrustedDevice}
+				>
+					{quickUnlockBusy ? 'Working…' : 'Recreate cache'}
+				</Button>
+			</div>
 
 			{#if mode === 'enable'}
 				<div class="form-block">
@@ -306,6 +587,35 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		margin-bottom: 14px;
+	}
+	.trusted-device {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		margin-bottom: 14px;
+	}
+	.trusted-title {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		color: var(--text-3);
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		margin-bottom: 4px;
+	}
+	.trusted-device p {
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-2);
+	}
+	.trusted-device strong {
+		color: var(--text);
 	}
 	.form-block {
 		display: flex;

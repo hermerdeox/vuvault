@@ -9,15 +9,20 @@
 
 	const currentIndex = $derived(steps.findIndex((s) => s.id === current));
 	const currentStep = $derived(steps[currentIndex]);
+	const safeCurrentIndex = $derived(currentIndex >= 0 ? currentIndex : 0);
+	const progressText = $derived(
+		`Step ${safeCurrentIndex + 1} of ${steps.length}: ${currentStep?.name ?? 'Unknown step'}`
+	);
 </script>
 
 <nav class="stepper" aria-label="Progress">
+	<span class="sr-only" aria-live="polite">{progressText}</span>
 	<!-- xs viewport: 7 numbered circles + dividers eat ≈280px of header
 	     width, which collides with the BrandMark + Exit button on a
 	     360px phone. Show a compact "N of 7 · Name" pill instead. -->
 	<div class="stepper-compact" aria-hidden="true">
 		<span class="stepper-compact-count"
-			>{currentIndex + 1}<span class="muted">/{steps.length}</span></span
+			>{safeCurrentIndex + 1}<span class="muted">/{steps.length}</span></span
 		>
 		{#if currentStep}
 			<span class="stepper-compact-name">{currentStep.name}</span>
@@ -47,6 +52,17 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
+	}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 	.stepper-full {
 		display: flex;

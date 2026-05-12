@@ -73,6 +73,28 @@ export interface VaultBlob {
 	updatedAt: number;
 }
 
+export interface QuickUnlockRecord {
+	id: 'singleton';
+	version: 1;
+	enabled: boolean;
+	nonce: Uint8Array;
+	ciphertext: Uint8Array;
+	createdAt: number;
+	lastUsedAt?: number;
+}
+
+export interface RecoveryEnvelopeRecord {
+	id: 'singleton';
+	version: 1;
+	enabled: boolean;
+	salt: Uint8Array;
+	params: Argon2idStoredParams;
+	nonce: Uint8Array;
+	ciphertext: Uint8Array;
+	createdAt: number;
+	rotatedAt?: number;
+}
+
 export interface AuditPersisted {
 	id: string;
 	at: number;
@@ -106,6 +128,8 @@ export interface DocumentBlobRecord {
 class VuVaultDB extends Dexie {
 	account!: Table<AccountRecord, 'singleton'>;
 	vault!: Table<VaultBlob, 'singleton'>;
+	quickUnlock!: Table<QuickUnlockRecord, 'singleton'>;
+	recoveryEnvelope!: Table<RecoveryEnvelopeRecord, 'singleton'>;
 	audit!: Table<AuditPersisted, string>;
 	documentBlobs!: Table<DocumentBlobRecord, string>;
 
@@ -149,6 +173,26 @@ class VuVaultDB extends Dexie {
 			audit: 'id, at',
 			documentBlobs: 'id, createdAt'
 		});
+		// v4 — local trusted-device quick unlock cache. Stores only a
+		// Secret-Key ciphertext sealed by WebAuthn PRF; never plaintext.
+		this.version(4).stores({
+			account: 'id',
+			vault: 'id, updatedAt',
+			quickUnlock: 'id, enabled, lastUsedAt',
+			audit: 'id, at',
+			documentBlobs: 'id, createdAt'
+		});
+		// v5 — local-only Recovery Envelope. Stores an encrypted wrap of
+		// the active v2 vault AES key, sealed by Secret Key + Recovery
+		// Password. Existing accounts opt in explicitly while unlocked.
+		this.version(5).stores({
+			account: 'id',
+			vault: 'id, updatedAt',
+			quickUnlock: 'id, enabled, lastUsedAt',
+			recoveryEnvelope: 'id, enabled, createdAt, rotatedAt',
+			audit: 'id, at',
+			documentBlobs: 'id, createdAt'
+		});
 	}
 }
 
@@ -156,6 +200,8 @@ export const db = new VuVaultDB();
 
 const DEVICE_SALT_LEN = 16;
 const AES_NONCE_LEN = 12;
+const QUICK_UNLOCK_VERSION = 1;
+const RECOVERY_ENVELOPE_VERSION = 1;
 /**
  * Format versions this build can decrypt. v1 is the Milestone 1
  * single-AES-key blob (header empty); v2 wraps a fresh AES key under
@@ -278,6 +324,76 @@ export function validateVaultRow(rec: unknown): asserts rec is VaultBlob {
 	}
 }
 
+export function validateQuickUnlockRow(rec: unknown): asserts rec is QuickUnlockRecord {
+	if (!rec || typeof rec !== 'object') {
+		throw new Error('QuickUnlock row is not an object');
+	}
+	const r = rec as Record<string, unknown>;
+	if (r.id !== 'singleton') throw new Error("QuickUnlock row missing id 'singleton'");
+	if (r.version !== QUICK_UNLOCK_VERSION) {
+		throw new Error('QuickUnlock.version is not supported');
+	}
+	if (typeof r.enabled !== 'boolean') {
+		throw new Error('QuickUnlock.enabled must be a boolean');
+	}
+	if (!isUint8Array(r.nonce) || r.nonce.length !== AES_NONCE_LEN) {
+		throw new Error(`QuickUnlock.nonce must be ${AES_NONCE_LEN} bytes`);
+	}
+	if (!isUint8Array(r.ciphertext) || r.ciphertext.length === 0) {
+		throw new Error('QuickUnlock.ciphertext must be a non-empty Uint8Array');
+	}
+	if (typeof r.createdAt !== 'number' || r.createdAt <= 0) {
+		throw new Error('QuickUnlock.createdAt must be a positive timestamp');
+	}
+	if (r.lastUsedAt !== undefined && typeof r.lastUsedAt !== 'number') {
+		throw new Error('QuickUnlock.lastUsedAt must be a number');
+	}
+}
+
+export function validateRecoveryEnvelopeRow(
+	rec: unknown
+): asserts rec is RecoveryEnvelopeRecord {
+	if (!rec || typeof rec !== 'object') {
+		throw new Error('RecoveryEnvelope row is not an object');
+	}
+	const r = rec as Record<string, unknown>;
+	if (r.id !== 'singleton') {
+		throw new Error("RecoveryEnvelope row missing id 'singleton'");
+	}
+	if (r.version !== RECOVERY_ENVELOPE_VERSION) {
+		throw new Error('RecoveryEnvelope.version is not supported');
+	}
+	if (typeof r.enabled !== 'boolean') {
+		throw new Error('RecoveryEnvelope.enabled must be a boolean');
+	}
+	if (!isUint8Array(r.salt) || r.salt.length < 16) {
+		throw new Error('RecoveryEnvelope.salt must be at least 16 bytes');
+	}
+	const params = r.params as Argon2idStoredParams | undefined;
+	if (
+		!params ||
+		typeof params.memoryKiB !== 'number' ||
+		typeof params.iterations !== 'number' ||
+		typeof params.parallelism !== 'number' ||
+		typeof params.tagLength !== 'number' ||
+		params.tagLength !== 32
+	) {
+		throw new Error('RecoveryEnvelope.params must be Argon2id params with tagLength=32');
+	}
+	if (!isUint8Array(r.nonce) || r.nonce.length !== AES_NONCE_LEN) {
+		throw new Error(`RecoveryEnvelope.nonce must be ${AES_NONCE_LEN} bytes`);
+	}
+	if (!isUint8Array(r.ciphertext) || r.ciphertext.length === 0) {
+		throw new Error('RecoveryEnvelope.ciphertext must be a non-empty Uint8Array');
+	}
+	if (typeof r.createdAt !== 'number' || r.createdAt <= 0) {
+		throw new Error('RecoveryEnvelope.createdAt must be a positive timestamp');
+	}
+	if (r.rotatedAt !== undefined && typeof r.rotatedAt !== 'number') {
+		throw new Error('RecoveryEnvelope.rotatedAt must be a number');
+	}
+}
+
 /**
  * Read the singleton account row and validate it. Returns `undefined`
  * only when there is no row at all. Malformed rows throw — callers must
@@ -325,6 +441,43 @@ export async function getVault(): Promise<VaultBlob | undefined> {
 	return row;
 }
 
+export async function getQuickUnlock(): Promise<QuickUnlockRecord | undefined> {
+	const row = await db.quickUnlock.get('singleton');
+	if (!row) return undefined;
+	validateQuickUnlockRow(row);
+	return row;
+}
+
+export async function getRecoveryEnvelope(): Promise<
+	RecoveryEnvelopeRecord | undefined
+> {
+	const row = await db.recoveryEnvelope.get('singleton');
+	if (!row) return undefined;
+	validateRecoveryEnvelopeRow(row);
+	return row;
+}
+
+export async function saveQuickUnlock(
+	rec: Omit<QuickUnlockRecord, 'id'>
+): Promise<void> {
+	await db.quickUnlock.put({ id: 'singleton', ...rec });
+}
+
+export async function saveRecoveryEnvelope(
+	rec: Omit<RecoveryEnvelopeRecord, 'id'>
+): Promise<void> {
+	validateRecoveryEnvelopeRow({ id: 'singleton', ...rec });
+	await db.recoveryEnvelope.put({ id: 'singleton', ...rec });
+}
+
+export async function deleteQuickUnlock(): Promise<void> {
+	await db.quickUnlock.delete('singleton');
+}
+
+export async function deleteRecoveryEnvelope(): Promise<void> {
+	await db.recoveryEnvelope.delete('singleton');
+}
+
 export async function saveVault(blob: Omit<VaultBlob, 'id'>): Promise<void> {
 	await db.vault.put({ id: 'singleton', ...blob });
 }
@@ -357,13 +510,19 @@ export async function saveAccountAndVault(
 export async function clearAll(): Promise<void> {
 	await db.transaction(
 		'rw',
-		db.account,
-		db.vault,
-		db.audit,
-		db.documentBlobs,
+		[
+			db.account,
+			db.vault,
+			db.quickUnlock,
+			db.recoveryEnvelope,
+			db.audit,
+			db.documentBlobs
+		],
 		async () => {
 			await db.account.clear();
 			await db.vault.clear();
+			await db.quickUnlock.clear();
+			await db.recoveryEnvelope.clear();
 			await db.audit.clear();
 			await db.documentBlobs.clear();
 		}

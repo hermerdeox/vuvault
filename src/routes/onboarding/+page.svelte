@@ -7,10 +7,12 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	import BackgroundFx from '$lib/components/BackgroundFx.svelte';
+	import SplashScreen from '$lib/components/SplashScreen.svelte';
 
 	import StepWelcome from './_steps/StepWelcome.svelte';
 	import StepIdentity from './_steps/StepIdentity.svelte';
 	import StepSecret from './_steps/StepSecret.svelte';
+	import StepRecovery from './_steps/StepRecovery.svelte';
 	import StepTouch from './_steps/StepTouch.svelte';
 	import StepVerify from './_steps/StepVerify.svelte';
 	import StepPricing from './_steps/StepPricing.svelte';
@@ -22,10 +24,13 @@
 	import { hasAccount } from '$lib/utils/storage';
 	import { IconClose } from '$lib/icons';
 
+	let initializing = $state(true);
+
 	const stepDefs = [
 		{ id: 'welcome', name: 'Welcome' },
 		{ id: 'identity', name: 'Device' },
 		{ id: 'secret', name: 'Secret Key' },
+		{ id: 'recovery', name: 'Recovery' },
 		{ id: 'touch', name: 'Touch ID' },
 		{ id: 'verify', name: 'Verify' },
 		{ id: 'pricing', name: 'Plan' },
@@ -69,6 +74,7 @@
 		}
 
 		onboarding.reset();
+		initializing = false;
 	}
 
 	onMount(() => {
@@ -81,6 +87,8 @@
 <svelte:head>
 	<title>Set up your vault — VuVault</title>
 </svelte:head>
+
+<SplashScreen visible={initializing} />
 
 <BackgroundFx />
 
@@ -100,6 +108,8 @@
 		<StepIdentity />
 	{:else if onboarding.current === 'secret'}
 		<StepSecret />
+	{:else if onboarding.current === 'recovery'}
+		<StepRecovery />
 	{:else if onboarding.current === 'touch'}
 		<StepTouch />
 	{:else if onboarding.current === 'verify'}

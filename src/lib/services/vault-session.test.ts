@@ -68,6 +68,9 @@ import {
 	generateDeviceSalt,
 	currentFormatVersion,
 	rotateAuth,
+	sealActiveRecoveryEnvelope,
+	openVaultWithRecoveryEnvelope,
+	rebindRecoveredVault,
 	PROVISION_FORMAT_VERSION,
 	sealDocument,
 	openDocument,
@@ -190,6 +193,67 @@ describe('vault-session — production mode', () => {
 		lockSession();
 		await expect(openVault({ secretKey: SECRET_KEY_WRONG })).rejects.toThrow(
 			/decryption failed/i
+		);
+	});
+
+	it('opens with a Recovery Envelope after passkey loss and rebinds a new passkey', async () => {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({
+			credentialId,
+			salt: deviceSalt
+		})) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'test-mac',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+		const item: VaultItem = {
+			id: 'recovery-login',
+			kind: 'login',
+			title: 'Recovered',
+			username: 'user',
+			password: 'survives',
+			createdAt: 1,
+			updatedAt: 1
+		};
+		await saveItems([item]);
+		const envelope = await sealActiveRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword: 'correct horse recovery staple'
+		});
+		lockSession();
+
+		const recovered = await openVaultWithRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword: 'correct horse recovery staple',
+			envelope
+		});
+		expect(recovered[0]?.title).toBe('Recovered');
+
+		const newCredentialId = freshCredentialId();
+		const newDeviceSalt = generateDeviceSalt();
+		const newPrfOutput = (await evaluatePRF({
+			credentialId: newCredentialId,
+			salt: newDeviceSalt
+		})) as Uint8Array;
+		await rebindRecoveredVault({
+			secretKey: SECRET_KEY,
+			credentialId: newCredentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput: newPrfOutput,
+			deviceSalt: newDeviceSalt
+		});
+		lockSession();
+
+		const reopened = await openVault({ secretKey: SECRET_KEY });
+		expect(reopened[0]?.kind === 'login' ? reopened[0].password : null).toBe(
+			'survives'
 		);
 	});
 

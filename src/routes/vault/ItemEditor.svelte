@@ -101,6 +101,7 @@
 	let showSshPassphrase = $state(false);
 	let showSeed = $state(false);
 	let showSshKey = $state(false);
+	let revealTimers: Record<string, number> = {};
 
 	let attemptedSave = $state(false);
 
@@ -185,7 +186,35 @@
 		showSshPassphrase = false;
 		showSeed = false;
 		showSshKey = false;
+		clearRevealTimers();
 		attemptedSave = false;
+	}
+
+	function clearRevealTimers(): void {
+		for (const timer of Object.values(revealTimers)) clearTimeout(timer);
+		revealTimers = {};
+	}
+
+	function revealFor(key: string, setValue: (visible: boolean) => void, current: boolean): void {
+		if (current) {
+			setValue(false);
+			if (revealTimers[key]) clearTimeout(revealTimers[key]);
+			const { [key]: _removed, ...rest } = revealTimers;
+			void _removed;
+			revealTimers = rest;
+			return;
+		}
+		setValue(true);
+		if (revealTimers[key]) clearTimeout(revealTimers[key]);
+		revealTimers = {
+			...revealTimers,
+			[key]: window.setTimeout(() => {
+				setValue(false);
+				const { [key]: _removed, ...rest } = revealTimers;
+				void _removed;
+				revealTimers = rest;
+			}, 30_000)
+		};
 	}
 
 	function hydrateFromInitial(item: VaultItem) {
@@ -415,62 +444,81 @@
 		if (!attemptedSave) return null;
 		return validation.fieldErrors[field] ?? null;
 	}
+
+	function errId(field: string): string {
+		return `ie-error-${field}`;
+	}
+
+	function describedBy(field: string, extra?: string): string | undefined {
+		const ids = [extra, err(field) ? errId(field) : undefined].filter(Boolean);
+		return ids.length > 0 ? ids.join(' ') : undefined;
+	}
+
+	const docFileDescribedBy = $derived(
+		[
+			'ie-doc-file-hint',
+			docError ? 'ie-doc-file-error' : undefined,
+			err('docFile') ? errId('docFile') : undefined
+		]
+			.filter(Boolean)
+			.join(' ')
+	);
 </script>
 
 <Modal {open} title={mode === 'create' ? 'Add to vault' : 'Edit item'} {onClose} size="md">
-	{#snippet children()}
-		{#if !selectedKind}
-			<div class="picker">
-				<div class="picker-label">Choose what you're saving</div>
-				<div class="picker-grid">
-					{#each KIND_OPTIONS as opt (opt.id)}
-						{@const Icon = opt.icon}
-						<button class="picker-item" onclick={() => pickKind(opt.id)}>
-							<Icon size={18} stroke={1.6} />
-							<span>{opt.label}</span>
-						</button>
-					{/each}
-				</div>
-				<p class="picker-note">
-					Files attached to document items are sealed client-side with the
-					active vault key (AES-256-GCM) before they touch local storage or
-					the sync server.
-				</p>
+	{#if !selectedKind}
+		<div class="picker">
+			<div class="picker-label">Choose what you're saving</div>
+			<div class="picker-grid">
+				{#each KIND_OPTIONS as opt (opt.id)}
+					{@const Icon = opt.icon}
+					<button class="picker-item" onclick={() => pickKind(opt.id)}>
+						<Icon size={18} stroke={1.6} />
+						<span>{opt.label}</span>
+					</button>
+				{/each}
 			</div>
-		{:else}
-			<form
-				class="form"
-				onsubmit={(e) => {
-					e.preventDefault();
-					save();
-				}}
-			>
-				<div class="kind-pill">{labelFor(selectedKind)}</div>
+			<p class="picker-note">
+				Files attached to document items are sealed client-side with the
+				active vault key (AES-256-GCM) before they touch local storage or
+				the sync server.
+			</p>
+		</div>
+	{:else}
+		<form
+			class="form"
+			onsubmit={(e) => {
+				e.preventDefault();
+				save();
+			}}
+		>
+			<div class="kind-pill">{labelFor(selectedKind)}</div>
 
-				{#if saveError}
-					<div class="save-error" role="alert">
-						<IconWarning size={14} stroke={2} />
-						<div>{saveError}</div>
-					</div>
-				{/if}
-
-				<div class="field">
-					<label for="ie-title">Title</label>
-					<input
-						id="ie-title"
-						type="text"
-						bind:value={title}
-						placeholder="Display name"
-						autocomplete="off"
-						maxlength="200"
-						aria-invalid={err('title') !== null}
-					/>
-					{#if err('title')}
-						<div class="field-err">{err('title')}</div>
-					{/if}
+			{#if saveError}
+				<div class="save-error" role="alert">
+					<IconWarning size={14} stroke={2} />
+					<div>{saveError}</div>
 				</div>
+			{/if}
 
-				{#if selectedKind === 'login'}
+			<div class="field">
+				<label for="ie-title">Title</label>
+				<input
+					id="ie-title"
+					type="text"
+					bind:value={title}
+					placeholder="Display name"
+					autocomplete="off"
+					maxlength="200"
+					aria-invalid={err('title') !== null}
+					aria-describedby={describedBy('title')}
+				/>
+				{#if err('title')}
+					<div class="field-err" id={errId('title')}>{err('title')}</div>
+				{/if}
+			</div>
+
+			{#if selectedKind === 'login'}
 					<div class="field">
 						<label for="ie-url">Website</label>
 						<input
@@ -480,9 +528,10 @@
 							placeholder="https://example.com"
 							autocomplete="off"
 							aria-invalid={err('url') !== null}
+							aria-describedby={describedBy('url')}
 						/>
 						{#if err('url')}
-							<div class="field-err">{err('url')}</div>
+							<div class="field-err" id={errId('url')}>{err('url')}</div>
 						{/if}
 					</div>
 					<div class="field">
@@ -493,9 +542,10 @@
 							bind:value={username}
 							autocomplete="off"
 							aria-invalid={err('username') !== null}
+							aria-describedby={describedBy('username')}
 						/>
 						{#if err('username')}
-							<div class="field-err">{err('username')}</div>
+							<div class="field-err" id={errId('username')}>{err('username')}</div>
 						{/if}
 					</div>
 					<div class="field">
@@ -506,11 +556,13 @@
 								type={showPassword ? 'text' : 'password'}
 								bind:value={password}
 								autocomplete="new-password"
+								aria-describedby={describedBy('password')}
 							/>
 							<button
 								type="button"
 								class="ico-btn"
-								onclick={() => (showPassword = !showPassword)}
+								onclick={() =>
+									revealFor('password', (visible) => (showPassword = visible), showPassword)}
 								aria-label={showPassword ? 'Hide password' : 'Reveal password'}
 								title={showPassword ? 'Hide password' : 'Reveal password'}
 							>
@@ -547,9 +599,10 @@
 							placeholder="otpauth://… or Base32 secret"
 							autocomplete="off"
 							aria-invalid={err('totpSeed') !== null}
+							aria-describedby={describedBy('totpSeed')}
 						/>
 						{#if err('totpSeed')}
-							<div class="field-err">{err('totpSeed')}</div>
+							<div class="field-err" id={errId('totpSeed')}>{err('totpSeed')}</div>
 						{/if}
 					</div>
 				{:else if selectedKind === 'card'}
@@ -572,9 +625,10 @@
 							autocomplete="off"
 							class="mono"
 							aria-invalid={err('cardNumber') !== null}
+							aria-describedby={describedBy('cardNumber')}
 						/>
 						{#if err('cardNumber')}
-							<div class="field-err">{err('cardNumber')}</div>
+							<div class="field-err" id={errId('cardNumber')}>{err('cardNumber')}</div>
 						{/if}
 					</div>
 					<div class="grid-2">
@@ -588,9 +642,10 @@
 								autocomplete="off"
 								class="mono"
 								aria-invalid={err('cardExpiry') !== null}
+								aria-describedby={describedBy('cardExpiry')}
 							/>
 							{#if err('cardExpiry')}
-								<div class="field-err">{err('cardExpiry')}</div>
+								<div class="field-err" id={errId('cardExpiry')}>{err('cardExpiry')}</div>
 							{/if}
 						</div>
 						<div class="field">
@@ -604,11 +659,12 @@
 									autocomplete="off"
 									class="mono"
 									aria-invalid={err('cardCvc') !== null}
+									aria-describedby={describedBy('cardCvc')}
 								/>
 								<button
 									type="button"
 									class="ico-btn"
-									onclick={() => (showCvc = !showCvc)}
+									onclick={() => revealFor('cardCvc', (visible) => (showCvc = visible), showCvc)}
 									aria-label={showCvc ? 'Hide CVC' : 'Reveal CVC'}
 								>
 									{#if showCvc}
@@ -619,7 +675,7 @@
 								</button>
 							</div>
 							{#if err('cardCvc')}
-								<div class="field-err">{err('cardCvc')}</div>
+								<div class="field-err" id={errId('cardCvc')}>{err('cardCvc')}</div>
 							{/if}
 						</div>
 					</div>
@@ -631,9 +687,10 @@
 							bind:value={noteBody}
 							rows="8"
 							aria-invalid={err('noteBody') !== null}
+							aria-describedby={describedBy('noteBody')}
 						></textarea>
 						{#if err('noteBody')}
-							<div class="field-err">{err('noteBody')}</div>
+							<div class="field-err" id={errId('noteBody')}>{err('noteBody')}</div>
 						{/if}
 					</div>
 				{:else if selectedKind === 'identity'}
@@ -655,9 +712,10 @@
 								bind:value={identityEmail}
 								autocomplete="off"
 								aria-invalid={err('identityEmail') !== null}
+								aria-describedby={describedBy('identityEmail')}
 							/>
 							{#if err('identityEmail')}
-								<div class="field-err">{err('identityEmail')}</div>
+								<div class="field-err" id={errId('identityEmail')}>{err('identityEmail')}</div>
 							{/if}
 						</div>
 						<div class="field">
@@ -668,9 +726,10 @@
 								bind:value={identityPhone}
 								autocomplete="off"
 								aria-invalid={err('identityPhone') !== null}
+								aria-describedby={describedBy('identityPhone')}
 							/>
 							{#if err('identityPhone')}
-								<div class="field-err">{err('identityPhone')}</div>
+								<div class="field-err" id={errId('identityPhone')}>{err('identityPhone')}</div>
 							{/if}
 						</div>
 					</div>
@@ -681,9 +740,10 @@
 							bind:value={identityAddress}
 							rows="3"
 							aria-invalid={err('identityAddress') !== null}
+							aria-describedby={describedBy('identityAddress')}
 						></textarea>
 						{#if err('identityAddress')}
-							<div class="field-err">{err('identityAddress')}</div>
+							<div class="field-err" id={errId('identityAddress')}>{err('identityAddress')}</div>
 						{/if}
 					</div>
 				{:else if selectedKind === 'ssh'}
@@ -698,11 +758,13 @@
 								class:masked={!showSshKey}
 								placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
 								aria-invalid={err('sshKeyBody') !== null}
+								aria-describedby={describedBy('sshKeyBody')}
 							></textarea>
 							<button
 								type="button"
 								class="ico-btn"
-								onclick={() => (showSshKey = !showSshKey)}
+								onclick={() =>
+									revealFor('sshKeyBody', (visible) => (showSshKey = visible), showSshKey)}
 								aria-label={showSshKey ? 'Hide private key' : 'Reveal private key'}
 							>
 								{#if showSshKey}
@@ -713,7 +775,7 @@
 							</button>
 						</div>
 						{#if err('sshKeyBody')}
-							<div class="field-err">
+							<div class="field-err" id={errId('sshKeyBody')}>
 								<IconWarning size={12} stroke={2} /> {err('sshKeyBody')}
 							</div>
 						{/if}
@@ -726,11 +788,17 @@
 								type={showSshPassphrase ? 'text' : 'password'}
 								bind:value={sshPassphrase}
 								autocomplete="new-password"
+								aria-describedby={describedBy('sshPassphrase')}
 							/>
 							<button
 								type="button"
 								class="ico-btn"
-								onclick={() => (showSshPassphrase = !showSshPassphrase)}
+								onclick={() =>
+									revealFor(
+										'sshPassphrase',
+										(visible) => (showSshPassphrase = visible),
+										showSshPassphrase
+									)}
 								aria-label={showSshPassphrase ? 'Hide passphrase' : 'Reveal passphrase'}
 							>
 								{#if showSshPassphrase}
@@ -753,11 +821,12 @@
 								class:masked={!showSeed}
 								placeholder="word word word …"
 								aria-invalid={err('seedPhrase') !== null}
+								aria-describedby={describedBy('seedPhrase')}
 							></textarea>
 							<button
 								type="button"
 								class="ico-btn"
-								onclick={() => (showSeed = !showSeed)}
+								onclick={() => revealFor('seedPhrase', (visible) => (showSeed = visible), showSeed)}
 								aria-label={showSeed ? 'Hide seed phrase' : 'Reveal seed phrase'}
 							>
 								{#if showSeed}
@@ -768,7 +837,7 @@
 							</button>
 						</div>
 						{#if err('seedPhrase')}
-							<div class="field-err">{err('seedPhrase')}</div>
+							<div class="field-err" id={errId('seedPhrase')}>{err('seedPhrase')}</div>
 						{/if}
 					</div>
 				{:else if selectedKind === 'document'}
@@ -791,6 +860,8 @@
 								onchange={onDocumentFileChange}
 								disabled={docAttaching}
 								data-testid="document-file-input"
+								aria-invalid={Boolean(docError || err('docFile'))}
+								aria-describedby={docFileDescribedBy}
 							/>
 							{#if docAttaching}
 								<span class="hint">Encrypting…</span>
@@ -834,14 +905,14 @@
 							</div>
 						{/if}
 						{#if docError}
-							<div class="field-err" role="alert">
+							<div class="field-err" id="ie-doc-file-error" role="alert">
 								<IconWarning size={12} stroke={2} /> {docError}
 							</div>
 						{/if}
 						{#if err('docFile')}
-							<div class="field-err">{err('docFile')}</div>
+							<div class="field-err" id={errId('docFile')}>{err('docFile')}</div>
 						{/if}
-						<div class="hint">
+						<div class="hint" id="ie-doc-file-hint">
 							Maximum {(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB per
 							document.
 						</div>
@@ -854,9 +925,10 @@
 							rows="3"
 							placeholder="What this document is, why it matters…"
 							aria-invalid={err('docDescription') !== null}
+							aria-describedby={describedBy('docDescription')}
 						></textarea>
 						{#if err('docDescription')}
-							<div class="field-err">{err('docDescription')}</div>
+							<div class="field-err" id={errId('docDescription')}>{err('docDescription')}</div>
 						{/if}
 					</div>
 					<div class="field">
@@ -868,15 +940,15 @@
 							placeholder="bucket://archives/lease.pdf or other opaque reference"
 							autocomplete="off"
 							aria-invalid={err('docExternalRef') !== null}
+							aria-describedby={describedBy('docExternalRef')}
 						/>
 						{#if err('docExternalRef')}
-							<div class="field-err">{err('docExternalRef')}</div>
+							<div class="field-err" id={errId('docExternalRef')}>{err('docExternalRef')}</div>
 						{/if}
 					</div>
 				{/if}
 			</form>
 		{/if}
-	{/snippet}
 
 	{#snippet footer()}
 		{#if selectedKind}

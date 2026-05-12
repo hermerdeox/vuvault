@@ -7,12 +7,12 @@
 </script>
 
 <!-- Desktop / tablet: full two-pill segmented control. -->
-<div class="aud-toggle full" role="tablist" aria-label="Audience">
+<div class="aud-toggle full" role="group" aria-label="Audience">
 	<button
 		class="aud-opt"
 		class:active={audience.current === 'user'}
-		role="tab"
-		aria-selected={audience.current === 'user'}
+		type="button"
+		aria-pressed={audience.current === 'user'}
 		onclick={() => pick('user')}
 	>
 		I just want it safe
@@ -20,8 +20,8 @@
 	<button
 		class="aud-opt"
 		class:active={audience.current === 'tech'}
-		role="tab"
-		aria-selected={audience.current === 'tech'}
+		type="button"
+		aria-pressed={audience.current === 'tech'}
 		onclick={() => pick('tech')}
 	>
 		Show me the proof
@@ -35,6 +35,7 @@
 	class="aud-compact"
 	type="button"
 	aria-label={`Audience: ${audience.current === 'user' ? 'plain language' : 'technical proof'} (tap to switch)`}
+	aria-pressed={audience.current === 'tech'}
 	onclick={() => pick(audience.current === 'user' ? 'tech' : 'user')}
 >
 	<span class="aud-compact-icon" aria-hidden="true">

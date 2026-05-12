@@ -96,7 +96,7 @@ export function decodeSecretKey(encoded: string): Uint8Array {
 }
 
 export type VuKeyFile = {
-	format: string; // expected: 'vukey/v1'
+	format: string; // expected: 'vukey/v1' or 'vukey/v2'
 	issued?: string;
 	device?: string | null;
 	secretKey: {
@@ -105,7 +105,26 @@ export type VuKeyFile = {
 		groups?: string[];
 		value: string;
 	};
+	recoveryEnvelope?: {
+		version: 1;
+		salt: string;
+		params: {
+			memoryKiB: number;
+			iterations: number;
+			parallelism: number;
+			tagLength: number;
+		};
+		nonce: string;
+		ciphertext: string;
+		createdAt?: number;
+		rotatedAt?: number;
+	} | null;
 	bundle?: string;
+};
+
+export type ParsedVuKeyFile = {
+	secretKey: string;
+	recoveryEnvelope?: VuKeyFile['recoveryEnvelope'];
 };
 
 /**
@@ -115,6 +134,10 @@ export type VuKeyFile = {
  * a precise error.
  */
 export function parseVuKeyFile(raw: string): string {
+	return parseVuKeyFileDetailed(raw).secretKey;
+}
+
+export function parseVuKeyFileDetailed(raw: string): ParsedVuKeyFile {
 	const trimmed = raw.trim();
 	if (!trimmed) throw new Error('File is empty');
 
@@ -130,14 +153,18 @@ export function parseVuKeyFile(raw: string): string {
 			throw new Error('Expected an object at the top level of the .vukey file');
 		}
 		const obj = parsed as Partial<VuKeyFile>;
-		if (obj.format && obj.format !== 'vukey/v1') {
+		if (obj.format && obj.format !== 'vukey/v1' && obj.format !== 'vukey/v2') {
 			throw new Error(`Unsupported .vukey format: ${obj.format}`);
 		}
 		const value = obj.secretKey?.value;
 		if (typeof value !== 'string') {
 			throw new Error('Missing secretKey.value in .vukey file');
 		}
-		return value;
+		return {
+			secretKey: value,
+			recoveryEnvelope:
+				obj.format === 'vukey/v2' ? obj.recoveryEnvelope : undefined
+		};
 	}
 
 	// Otherwise: try to extract a Base32 line from a plaintext Emergency Kit.
@@ -152,5 +179,5 @@ export function parseVuKeyFile(raw: string): string {
 			'Could not find a Secret Key in the file. Paste the key text or drop a .vukey file.'
 		);
 	}
-	return candidate;
+	return { secretKey: candidate };
 }

@@ -64,18 +64,27 @@ import {
 import {
 	getAccount,
 	getVault,
+	getDocumentBlob,
+	listDocumentBlobIds,
 	saveAccountAndVault,
 	saveVault,
 	saveExistingAccountAndVault,
+	saveDocumentBlob,
 	type AccountRecord,
 	type AuthMode
 } from '$lib/utils/storage';
 import { isDemoAuthEnabled } from '$lib/utils/env';
 import {
+	openRecoveryEnvelope,
+	sealRecoveryEnvelope,
+	type RecoveryEnvelopeSealed
+} from '$lib/crypto/recovery-envelope';
+import {
 	uploadBlob,
 	fetchBlob,
 	hasSession,
-	isSyncWired
+	isSyncWired,
+	setSessionToken
 } from './sync-client';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 
@@ -673,6 +682,12 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 export type OpenInput = {
 	secretKey: Uint8Array;
 	/**
+	 * Optional already-evaluated PRF output. Used by trusted-device quick
+	 * unlock so a single Touch ID ceremony can both unseal the cached
+	 * Secret Key and open the vault.
+	 */
+	prfOutput?: Uint8Array;
+	/**
 	 * Optional OPAQUE export key. Required when re-opening a v2 vault
 	 * that was provisioned with one. Callers without an OPAQUE export
 	 * key for an OPAQUE-enrolled account will get an authenticated
@@ -687,6 +702,21 @@ export type OpenInput = {
 	 * success.
 	 */
 	masterPasswordKey?: Uint8Array;
+};
+
+export type RecoveryOpenInput = {
+	secretKey: Uint8Array;
+	recoveryPassword: string;
+	envelope: RecoveryEnvelopeSealed;
+};
+
+export type RecoveryRebindInput = {
+	secretKey: Uint8Array;
+	credentialId: ArrayBuffer;
+	credentialPublicKey: ArrayBuffer;
+	authMode: AuthMode;
+	prfOutput: Uint8Array | null;
+	deviceSalt: Uint8Array;
 };
 
 /**
@@ -713,11 +743,14 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	const vaultRow = await getVault();
 	if (!vaultRow) throw new Error('No vault found');
 
-	const prfOutput = await resolvePrfOutput(account);
+	const prfOutput = opts.prfOutput ?? (await resolvePrfOutput(account));
+	if (prfOutput.length !== PRF_OUTPUT_LEN) {
+		throw new Error(`PRF output has unexpected length ${prfOutput.length}`);
+	}
 
 	const v = account.formatVersion as 1 | 2;
 	if (account.masterPasswordEnabled && !opts.masterPasswordKey) {
-		zeroize(prfOutput);
+		if (!opts.prfOutput) zeroize(prfOutput);
 		throw new Error(
 			'This vault has a master password — provide it before unlocking.'
 		);
@@ -752,14 +785,14 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	} catch (err) {
 		zeroize(newVaultKey);
 		if (newAesKey) zeroize(newAesKey);
-		zeroize(prfOutput);
+		if (!opts.prfOutput) zeroize(prfOutput);
 		throw new Error(
 			'Vault decryption failed. Check your Secret Key and that you are on the registered device.',
 			{ cause: err }
 		);
 	}
 
-	zeroize(prfOutput);
+	if (!opts.prfOutput) zeroize(prfOutput);
 	vaultKey = newVaultKey;
 	aesKey = newAesKey;
 	activeAuthMode = account.authMode;
@@ -815,6 +848,192 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	return items;
 }
 
+export async function sealActiveRecoveryEnvelope(opts: {
+	secretKey: Uint8Array;
+	recoveryPassword: string;
+}): Promise<RecoveryEnvelopeSealed> {
+	if (!aesKey) {
+		throw new Error('sealActiveRecoveryEnvelope: vault must be unlocked first');
+	}
+	const account = await getAccount();
+	if (!account) throw new Error('sealActiveRecoveryEnvelope: account row missing');
+	return sealRecoveryEnvelope({
+		aesKey,
+		secretKey: opts.secretKey,
+		recoveryPassword: opts.recoveryPassword,
+		context: {
+			deviceSalt: account.deviceSalt,
+			credentialId: account.credentialId,
+			formatVersion: account.formatVersion,
+			authMode: account.authMode
+		}
+	});
+}
+
+export async function openVaultWithRecoveryEnvelope(
+	opts: RecoveryOpenInput
+): Promise<VaultItem[]> {
+	if (opts.secretKey.length !== SECRET_KEY_LEN) {
+		throw new Error(
+			`Secret Key must be ${SECRET_KEY_LEN} bytes (got ${opts.secretKey.length})`
+		);
+	}
+	const account = await getAccount();
+	if (!account) throw new Error('No account found');
+	if (account.formatVersion !== PROVISION_FORMAT_VERSION) {
+		throw new Error('Recovery Envelope requires a formatVersion 2 vault.');
+	}
+	const vaultRow = await getVault();
+	if (!vaultRow) throw new Error('No vault found');
+
+	const recoveredAesKey = await openRecoveryEnvelope({
+		envelope: opts.envelope,
+		secretKey: opts.secretKey,
+		recoveryPassword: opts.recoveryPassword,
+		context: {
+			deviceSalt: account.deviceSalt,
+			credentialId: account.credentialId,
+			formatVersion: account.formatVersion,
+			authMode: account.authMode
+		}
+	});
+
+	const aad = makeAad(
+		account.formatVersion,
+		account.authMode,
+		account.deviceSalt,
+		account.credentialId,
+		vaultRow.header
+	);
+	try {
+		const plaintext = openBlob(recoveredAesKey, vaultRow.nonce, vaultRow.ciphertext, aad);
+		const items = deserializeItems(plaintext);
+		zeroize(vaultKey);
+		zeroize(aesKey);
+		vaultKey = null;
+		aesKey = recoveredAesKey;
+		activeAuthMode = account.authMode;
+		activeFormatVersion = account.formatVersion;
+		sequenceClock = 0;
+		return items;
+	} catch (err) {
+		zeroize(recoveredAesKey);
+		throw new Error('Recovery Envelope opened, but vault decryption failed.', {
+			cause: err
+		});
+	}
+}
+
+export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<void> {
+	if (!aesKey) {
+		throw new Error('rebindRecoveredVault: recovery session must be open first');
+	}
+	if (opts.secretKey.length !== SECRET_KEY_LEN) {
+		throw new Error(`rebindRecoveredVault: secretKey must be ${SECRET_KEY_LEN} bytes`);
+	}
+	if (opts.deviceSalt.length !== DEVICE_SALT_LEN) {
+		throw new Error(`rebindRecoveredVault: deviceSalt must be ${DEVICE_SALT_LEN} bytes`);
+	}
+	const previousAccount = await getAccount();
+	if (!previousAccount) throw new Error('rebindRecoveredVault: account row missing');
+	const vaultRow = await getVault();
+	if (!vaultRow) throw new Error('rebindRecoveredVault: vault row missing');
+	const oldAesKey = aesKey;
+	const oldDocAadInputs = {
+		deviceSalt: previousAccount.deviceSalt,
+		credentialId: previousAccount.credentialId
+	};
+
+	let prf: Uint8Array;
+	if (opts.authMode === 'demo') {
+		prf = deriveDemoPrfOutput(opts.credentialId, opts.deviceSalt);
+	} else {
+		if (!opts.prfOutput || opts.prfOutput.length !== PRF_OUTPUT_LEN) {
+			throw new Error('rebindRecoveredVault: production rebind requires PRF output');
+		}
+		prf = opts.prfOutput;
+	}
+
+	const nextVaultKey = deriveVaultKey({
+		prfOutput: prf,
+		secretKey: opts.secretKey,
+		deviceSalt: opts.deviceSalt,
+		version: 2
+	});
+	const wrapped = wrapAesKey(nextVaultKey, opts.deviceSalt, oldAesKey);
+	const header = serializeWrappedKey(wrapped);
+	const aad = makeAad(
+		PROVISION_FORMAT_VERSION,
+		opts.authMode,
+		opts.deviceSalt,
+		opts.credentialId,
+		header
+	);
+	const plaintext = openBlob(
+		oldAesKey,
+		vaultRow.nonce,
+		vaultRow.ciphertext,
+		makeAad(
+			previousAccount.formatVersion,
+			previousAccount.authMode,
+			previousAccount.deviceSalt,
+			previousAccount.credentialId,
+			vaultRow.header
+		)
+	);
+	const sealed = sealBlob(oldAesKey, plaintext, aad);
+	const now = Date.now();
+	const nextAccount: Omit<AccountRecord, 'id'> = {
+		deviceLabel: previousAccount.deviceLabel,
+		deviceSalt: opts.deviceSalt,
+		credentialId: opts.credentialId,
+		credentialPublicKey: opts.credentialPublicKey,
+		authMode: opts.authMode,
+		formatVersion: PROVISION_FORMAT_VERSION,
+		createdAt: previousAccount.createdAt,
+		plan: previousAccount.plan,
+		masterPasswordEnabled: false,
+		opaqueState: 'none'
+	};
+
+	await saveAccountAndVault(nextAccount, {
+		header,
+		nonce: sealed.nonce,
+		ciphertext: sealed.ciphertext,
+		updatedAt: now
+	});
+
+	const ids = await listDocumentBlobIds();
+	for (const id of ids) {
+		const doc = await getDocumentBlob(id);
+		if (!doc) continue;
+		const plaintextDoc = gcm(
+			oldAesKey,
+			doc.nonce,
+			makeDocAad(id, oldDocAadInputs.deviceSalt, oldDocAadInputs.credentialId)
+		).decrypt(doc.ciphertext);
+		const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
+		const ciphertext = gcm(
+			oldAesKey,
+			nonce,
+			makeDocAad(id, opts.deviceSalt, opts.credentialId)
+		).encrypt(plaintextDoc);
+		await saveDocumentBlob({
+			...doc,
+			nonce,
+			ciphertext
+		});
+		zeroize(plaintextDoc);
+	}
+
+	zeroize(vaultKey);
+	vaultKey = nextVaultKey;
+	aesKey = oldAesKey;
+	activeAuthMode = opts.authMode;
+	activeFormatVersion = PROVISION_FORMAT_VERSION;
+	if (opts.authMode === 'demo') zeroize(prf);
+}
+
 /**
  * Re-seal the items list and persist it. Called by the vault store
  * after every mutation (debounced). Transparent v1 → v2 upgrade
@@ -852,6 +1071,7 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 		header
 	);
 	const sealed = sealBlob(activeAesKey, plaintext, aad);
+	zeroize(plaintext);
 	const writtenBlob: BlobBytes = {
 		header,
 		nonce: sealed.nonce,
@@ -1047,6 +1267,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		newHeader
 	);
 	const sealed = sealBlob(newAesKey, plaintext, newAad);
+	zeroize(plaintext);
 
 	const now = Date.now();
 	void now;
@@ -1123,6 +1344,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 export function lockSession(): void {
 	zeroize(vaultKey);
 	zeroize(aesKey);
+	setSessionToken(null);
 	vaultKey = null;
 	aesKey = null;
 	activeAuthMode = null;

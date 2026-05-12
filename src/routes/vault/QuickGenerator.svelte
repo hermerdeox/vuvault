@@ -25,6 +25,7 @@
 	import { onMount } from 'svelte';
 	import GeneratorPanel from './GeneratorPanel.svelte';
 	import { audit } from '$lib/stores/audit.svelte';
+	import { copySecretToClipboard } from '$lib/services/secure-clipboard';
 	import { IconClose } from '$lib/icons';
 
 	type Props = {
@@ -75,11 +76,10 @@
 
 	async function handleUse(password: string) {
 		if (!password) return;
-		try {
-			await navigator.clipboard.writeText(password);
+		const copied = await copySecretToClipboard('generated password', password);
+		if (copied) {
 			copyStatus = 'copied';
-			audit.push('success', 'Generated password copied to clipboard');
-		} catch {
+		} else {
 			copyStatus = 'failed';
 			audit.push('warn', 'Clipboard write blocked — copy manually');
 		}

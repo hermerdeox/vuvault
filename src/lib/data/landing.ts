@@ -8,8 +8,9 @@
  * Compare-table cell sentinels. Beyond the binary yes/no/partial set,
  * `tier-2` and `tier-3` mark capabilities that are *designed* for the
  * VuVault stack but not yet shipped — they correspond to the roadmap
- * tiers in `docs/ROADMAP.md` (Tier 2 = M3 sync server / 2027, Tier 3 =
- * 2028 transparency log + PIR breach check). Rendering them as
+ * tiers in `docs/ROADMAP.md` (Tier 2 = field-level CRDT sync, MLS
+ * sharing, and device transparency; Tier 3 = threshold recovery and
+ * stronger metadata operations). Rendering them as
  * forward-loaded badges instead of solid green checks closes Breach B4
  * from `docs/CHECKPOINT-ANALYSIS.md` (marketing claims that don't yet
  * substantiate against the codebase).

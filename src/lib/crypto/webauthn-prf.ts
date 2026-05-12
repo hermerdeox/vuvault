@@ -110,8 +110,8 @@ export async function registerPasskey(opts: {
 				challenge: challenge as BufferSource,
 				// `rp.id` MUST be set explicitly — see env.ts. A passkey
 				// registered without an explicit id binds to the
-				// origin's hostname. If we ever moved hosts (vault.vu
-				// → app.vault.vu) without setting rp.id, every
+				// origin's hostname. If we ever moved hosts (vuvault.app
+				// → app.vuvault.app) without setting rp.id, every
 				// existing passkey would be invalidated. Hardcoding
 				// the production rp.id here makes that invariant
 				// auditable in code review.

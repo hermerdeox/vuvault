@@ -49,14 +49,26 @@ const config = {
 				// /fonts/ (see src/lib/styles/fonts.css + static/fonts/), so
 				// fonts.googleapis.com / fonts.gstatic.com must NOT appear here.
 				'default-src': ['self'],
-				'script-src': ['self'],
+				// Argon2id and OPAQUE use WebAssembly. `wasm-unsafe-eval`
+				// permits WASM compilation without permitting arbitrary JS eval.
+				'script-src': [
+					'self',
+					'wasm-unsafe-eval',
+					'sha256-yj1hmv3aSt4fxpyB0GeNuvoyTJdAkCx9xGhCM9+1J/0='
+				],
 				'style-src': ['self', 'unsafe-inline'],
 				'font-src': ['self'],
 				'img-src': ['self', 'data:', 'blob:'],
 				'connect-src': ['self'],
+				'object-src': ['none'],
+				'frame-src': ['none'],
+				'worker-src': ['self'],
+				'manifest-src': ['self'],
+				'media-src': ['self'],
 				'frame-ancestors': ['none'],
 				'base-uri': ['self'],
-				'form-action': ['none']
+				'form-action': ['none'],
+				'upgrade-insecure-requests': true
 			}
 		}
 	},

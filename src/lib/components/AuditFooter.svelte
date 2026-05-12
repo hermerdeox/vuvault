@@ -3,6 +3,7 @@
 	import { vault } from '$lib/stores/vault.svelte';
 	import { PUBLIC_BUNDLE_HASH } from '$lib/utils/env';
 	import { isSyncWired } from '$lib/services/sync-client';
+	import { CURRENT_LEVEL, currentLevel } from '$lib/data/privacy-level';
 
 	type Props = {
 		fallback?: string;
@@ -48,6 +49,9 @@
 					? 'ZK error'
 					: 'Sealed'
 	);
+
+	const privacyLevel = currentLevel();
+	const privacyTitle = `${privacyLevel.short} · ${privacyLevel.headline}. Click for the honest evidence map.`;
 </script>
 
 <footer class="footer">
@@ -76,6 +80,15 @@
 		</div>
 	</div>
 	<div class="suite">
+		<a
+			class="level-badge"
+			href="/privacy"
+			title={privacyTitle}
+			data-testid="privacy-level-badge"
+			aria-label={privacyTitle}
+		>
+			Vu Level {CURRENT_LEVEL}
+		</a>
 		<span class="tag">Your data. Your device. Your control.</span>
 	</div>
 </footer>
@@ -172,13 +185,42 @@
 		color: var(--success);
 	}
 
+	.level-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--accent);
+		background: var(--accent-dim);
+		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+		border-radius: var(--radius-xs);
+		padding: 4px 10px;
+		transition: var(--transition);
+		text-decoration: none;
+	}
+	.level-badge:hover {
+		filter: brightness(1.08);
+		text-decoration: none;
+	}
+	:global(html[data-vp~='mobile']) .level-badge,
+	:global(html[data-vp~='tablet']) .level-badge {
+		min-height: 28px;
+		display: inline-flex;
+		align-items: center;
+	}
+
 	.suite {
 		display: flex;
 		justify-content: flex-end;
 		align-items: center;
+		gap: 12px;
 	}
 	@media (max-width: 45em) {
-		.suite {
+		/* Drop the marketing tag on phones but keep the Vu Level
+		   badge — it's the one affordance that links users to the
+		   honest evidence map. */
+		.suite .tag {
 			display: none;
 		}
 	}

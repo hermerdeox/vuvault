@@ -3,6 +3,7 @@
 	import Eyebrow from '$lib/components/Eyebrow.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { IconArrowLeft } from '$lib/icons';
+	import { resolve } from '$app/paths';
 
 	type Layer = {
 		id: string;
@@ -47,12 +48,14 @@
 			id: 'P1',
 			title: 'Server cannot read user data.',
 			body: 'Mathematical, not policy. The wire only carries opaque ciphertext.',
-			// Vault crypto holds; the cross-origin server doesn't exist
-			// yet (functions/api stub returns 501, sync-client returns
-			// NOT_WIRED), so this is held trivially today and
-			// *architecturally* once the M3 server ships.
-			status: 'partial',
-			statusNote: 'Held trivially (no server today) · architecturally enforced from Tier 2 ship'
+			// M3 ciphertext sync shipped — OPAQUE registration/login + R2
+			// blob upload + per-document blob endpoints all hold
+			// ciphertext only. Production deploy refuses to ship
+			// without the m3-sync-e2e CI artifact. ZK end-to-end is
+			// asserted by tests/e2e/full-workflow.spec.ts (IDB
+			// inspection refuses any plaintext substring leak).
+			status: 'held',
+			statusNote: 'M3 D1/R2 sync shipped · ciphertext-only · E2E IDB inspection asserts no plaintext leak'
 		},
 		{
 			id: 'P2',
@@ -77,9 +80,12 @@
 			title: 'Verifiable by anyone.',
 			body: 'Reproducible builds, transparency log, open source. No trust required.',
 			// SHA-384 manifest + in-page verifier shipped; Sigstore
-			// Rekor publishing lands with M3 release tooling.
-			status: 'partial',
-			statusNote: 'SHA-384 manifest + in-page verifier now · Rekor publishing Tier 2'
+			// Rekor publishing is wired in the release workflow with
+			// pinned cosign installer and OIDC keyless signing on
+			// every published artifact. Third-party audit still
+			// pending — see Vu Level 1 caveats in /privacy.
+			status: 'held',
+			statusNote: 'SHA-384 manifest + in-page verifier · Sigstore + Rekor keyless on every release'
 		},
 		{
 			id: 'P5',
@@ -269,7 +275,7 @@
 
 <div class="page">
 	<header class="topbar">
-		<a class="back" href="/">
+		<a class="back" href={resolve('/')}>
 			<IconArrowLeft size={14} stroke={2} />
 		</a>
 		<BrandMark showPill="Blueprint" />

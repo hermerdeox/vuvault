@@ -32,7 +32,7 @@ export type D1Database = {
 type D1PreparedStatement = {
 	bind(...values: unknown[]): D1PreparedStatement;
 	first<T = unknown>(): Promise<T | null>;
-	run(): Promise<{ success: boolean }>;
+	run(): Promise<{ success: boolean; meta?: { changes?: number } }>;
 };
 
 function bytes(input: unknown): Uint8Array {

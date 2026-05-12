@@ -83,6 +83,7 @@
 	]);
 
 	let provisioning = $state(false);
+	let started = $state(false);
 	let done = $state(false);
 	let errorMessage = $state<string | null>(null);
 
@@ -107,36 +108,38 @@
 	}
 
 	async function runProvision() {
-		if (provisioning) return;
+		if (started || provisioning) return;
+		started = true;
 		provisioning = true;
 
-		if (
-			!onboarding.secretKey ||
-			!onboarding.credentialId ||
-			!onboarding.authMode ||
-			!onboarding.deviceSalt
-		) {
-			errorMessage =
-				'Missing Secret Key, credential, auth mode, or device salt. Please restart onboarding.';
-			provisioning = false;
-			return;
-		}
-
-		// Lazy-load the heavy crypto stack. The chunk fetches happen in
-		// parallel; the pipeline below blocks on them via the awaited
-		// `Promise.all`, which is fine because the user is watching the
-		// "Sealing your vault" progress UI.
-		const [vaultSessionMod, opaqueClientMod, syncClientMod] =
-			await Promise.all([
-				import('$lib/services/vault-session'),
-				import('$lib/services/opaque-client'),
-				import('$lib/services/sync-client')
-			]);
-		const { provisionVault, getVaultByteSize, rotateAuth } = vaultSessionMod;
-		const { register, login, createFetchTransport } = opaqueClientMod;
-		const { setSessionToken } = syncClientMod;
-
 		try {
+			if (
+				!onboarding.secretKey ||
+				!onboarding.credentialId ||
+				!onboarding.authMode ||
+				!onboarding.deviceSalt
+			) {
+				throw new Error(
+					'Missing Secret Key, credential, auth mode, or device salt. Please restart onboarding.'
+				);
+			}
+
+			// Lazy-load the heavy crypto stack. The chunk fetches happen in
+			// parallel; the pipeline below blocks on them via the awaited
+			// `Promise.all`, which is fine because the user is watching the
+			// "Sealing your vault" progress UI.
+			const [vaultSessionMod, opaqueClientMod, syncClientMod] =
+				await Promise.all([
+					import('$lib/services/vault-session'),
+					import('$lib/services/opaque-client'),
+					import('$lib/services/sync-client')
+				]);
+			const { provisionVault, getVaultByteSize, rotateAuth } = vaultSessionMod;
+			const { enableQuickUnlock } = await import('$lib/services/quick-unlock');
+			const { enableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+			const { register, login, createFetchTransport } = opaqueClientMod;
+			const { setSessionToken } = syncClientMod;
+
 			// CRITICAL: reuse the salt generated in StepTouch. The PRF output
 			// captured at registration is bound to that exact salt; future
 			// unlocks re-evaluate PRF with `account.deviceSalt` (which is
@@ -295,6 +298,37 @@
 				);
 			}
 
+			// Step 6: zeroize. Before clearing the Secret Key from onboarding
+			// memory, seal a trusted-device quick-unlock cache so returning
+			// users can unlock with the registered passkey/Touch ID only.
+			try {
+				await enableRecoveryEnvelope({
+					secretKey: onboarding.secretKey!,
+					recoveryPassword: onboarding.recoveryPassword
+				});
+				audit.push('success', 'Local Recovery Envelope enabled');
+			} catch (err) {
+				throw new Error(
+					err instanceof Error
+						? `Recovery Envelope setup failed: ${err.message}`
+						: 'Recovery Envelope setup failed',
+					{ cause: err }
+				);
+			}
+
+			if (onboarding.authMode === 'production' && onboarding.quickUnlockEnabled) {
+				try {
+					await enableQuickUnlock(onboarding.secretKey!, { prfOutput });
+					audit.push('success', 'Trusted-device quick unlock enabled');
+				} catch (err) {
+					audit.push('warn', 'Trusted-device quick unlock unavailable', {
+						message: err instanceof Error ? err.message : 'quick unlock failed'
+					});
+				}
+			} else {
+				audit.push('info', 'Trusted-device quick unlock skipped');
+			}
+
 			// Step 6: zeroize. After this, hydrate the runtime store so the
 			// /vault route guard passes (vault.status === 'unlocked' AND
 			// isSessionActive() === true).
@@ -312,11 +346,13 @@
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Provisioning failed';
 			audit.push('danger', errorMessage);
+		} finally {
+			provisioning = false;
 		}
 	}
 
 	$effect(() => {
-		if (!provisioning) runProvision();
+		void runProvision();
 	});
 
 	function enterVault() {

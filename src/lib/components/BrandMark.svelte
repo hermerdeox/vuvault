@@ -9,7 +9,14 @@
 </script>
 
 <div class="brand" style:--brand-size="{size}px">
-	<span class="v-mark">V</span>
+	<img
+		class="v-mark"
+		src="/icons/icon-48.png"
+		srcset="/icons/icon-48.png 1x, /icons/icon-96.png 2x, /icons/icon-128.png 3x"
+		alt="VuVault"
+		width={size}
+		height={size}
+	/>
 	{#if showWordmark}
 		<span class="wordmark">VuVault</span>
 	{/if}
@@ -30,14 +37,8 @@
 	.v-mark {
 		width: var(--brand-size, 28px);
 		height: var(--brand-size, 28px);
-		display: grid;
-		place-items: center;
-		background: var(--surface-hover);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		font-weight: 800;
-		font-size: calc(var(--brand-size, 28px) * 0.5);
-		color: var(--brand);
+		border-radius: calc(var(--brand-size, 28px) * 0.22);
+		object-fit: contain;
 	}
 	.pill {
 		margin-left: 6px;

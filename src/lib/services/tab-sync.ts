@@ -27,7 +27,7 @@ const CHANNEL_NAME = 'vuvault-tabs-v1';
 
 export type TabMessage =
 	| { type: 'unlocked'; tabId: string; at: number }
-	| { type: 'locked'; tabId: string; at: number }
+	| { type: 'locked'; tabId: string; at: number; reason?: string }
 	| { type: 'persisted'; tabId: string; at: number }
 	| { type: 'wiped'; tabId: string; at: number };
 
@@ -36,6 +36,19 @@ export type TabHandler = (msg: TabMessage) => void;
 let channel: BroadcastChannel | null = null;
 const tabId = crypto.randomUUID();
 const handlers = new Set<TabHandler>();
+const STORAGE_KEY = 'vuvault-tab-sync-v1';
+
+function notify(msg: TabMessage): void {
+	if (!msg || msg.tabId === tabId) return;
+	for (const h of handlers) {
+		try {
+			h(msg);
+		} catch {
+			// Handlers are best-effort. A misbehaving subscriber
+			// shouldn't break the channel for everyone else.
+		}
+	}
+}
 
 function ensureChannel(): BroadcastChannel | null {
 	if (typeof BroadcastChannel === 'undefined') return null;
@@ -43,15 +56,7 @@ function ensureChannel(): BroadcastChannel | null {
 	try {
 		channel = new BroadcastChannel(CHANNEL_NAME);
 		channel.onmessage = (e: MessageEvent<TabMessage>) => {
-			if (!e.data || e.data.tabId === tabId) return;
-			for (const h of handlers) {
-				try {
-					h(e.data);
-				} catch {
-					// Handlers are best-effort. A misbehaving subscriber
-					// shouldn't break the channel for everyone else.
-				}
-			}
+			notify(e.data);
 		};
 	} catch {
 		channel = null;
@@ -63,15 +68,21 @@ function ensureChannel(): BroadcastChannel | null {
  * Post a message to all OTHER tabs. The current tab never sees its own
  * messages.
  */
-export function postTabMessage(type: TabMessage['type']): void {
+export function postTabMessage(type: TabMessage['type'], reason?: string): void {
 	const ch = ensureChannel();
-	if (!ch) return;
-	const msg: TabMessage = { type, tabId, at: Date.now() } as TabMessage;
+	const msg: TabMessage = { type, tabId, at: Date.now(), reason } as TabMessage;
 	try {
-		ch.postMessage(msg);
+		ch?.postMessage(msg);
 	} catch {
 		// Channel was closed; recreate next time.
 		channel = null;
+	}
+	if (typeof localStorage !== 'undefined') {
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(msg));
+		} catch {
+			// localStorage may be unavailable in private/locked-down contexts.
+		}
 	}
 }
 
@@ -83,7 +94,19 @@ export function postTabMessage(type: TabMessage['type']): void {
 export function onTabMessage(handler: TabHandler): () => void {
 	ensureChannel();
 	handlers.add(handler);
+	if (typeof window !== 'undefined') {
+		window.addEventListener('storage', onStorage);
+	}
 	return () => handlers.delete(handler);
+}
+
+function onStorage(event: StorageEvent): void {
+	if (event.key !== STORAGE_KEY || !event.newValue) return;
+	try {
+		notify(JSON.parse(event.newValue) as TabMessage);
+	} catch {
+		// Ignore malformed cross-tab storage messages.
+	}
 }
 
 export function getThisTabId(): string {
@@ -102,6 +125,9 @@ export function disposeTabChannel(): void {
 			// already closed
 		}
 		channel = null;
+	}
+	if (typeof window !== 'undefined') {
+		window.removeEventListener('storage', onStorage);
 	}
 	handlers.clear();
 }

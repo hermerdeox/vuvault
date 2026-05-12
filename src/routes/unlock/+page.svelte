@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import Button from '$lib/components/Button.svelte';
+	import SplashScreen from '$lib/components/SplashScreen.svelte';
 	import Eyebrow from '$lib/components/Eyebrow.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import {
@@ -60,6 +62,9 @@
 	let opaqueState = $state<OpaqueState>('none');
 	let opaqueServerId = $state<string | null>(null);
 	let opaqueClientId = $state<string | null>(null);
+	let quickUnlockAvailable = $state(false);
+	let useEmergencyKey = $state(false);
+	let quickUnlockMessage = $state<string | null>(null);
 
 	const validKey = $derived.by(() => {
 		try {
@@ -70,15 +75,44 @@
 		}
 	});
 	const locked = $derived(attempts >= MAX_ATTEMPTS);
+	const quickUnlockMode = $derived(
+		authMode === 'production' && quickUnlockAvailable && !useEmergencyKey
+	);
+	const canUnlock = $derived(
+		!locked &&
+			!unlocking &&
+			(quickUnlockMode || validKey) &&
+			(!masterPasswordRequired || masterPasswordInput.length > 0)
+	);
+	const secretKeyStatusId = 'secret-key-status';
+	const masterPasswordHintId = 'master-password-hint';
+	const unlockErrorId = 'unlock-error';
+	const secretKeyDescribedBy = $derived(
+		[secretKeyStatusId, errorMessage ? unlockErrorId : undefined].filter(Boolean).join(' ')
+	);
+	const masterPasswordDescribedBy = $derived(
+		[masterPasswordHintId, errorMessage ? unlockErrorId : undefined].filter(Boolean).join(' ')
+	);
+
+	function failedAttemptMessage(message: string) {
+		const remaining = MAX_ATTEMPTS - attempts;
+		return remaining > 0
+			? `${message} ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+			: 'Recovery required.';
+	}
+
+	function isMissingPrfOutput(message: string) {
+		return /Authenticator did not return a PRF output/i.test(message);
+	}
 
 	onMount(async () => {
 		if (!(await hasAccount())) {
-			goto('/onboarding');
+			goto(resolve('/onboarding'));
 			return;
 		}
 		const account = await getAccount();
 		if (!account) {
-			goto('/onboarding');
+			goto(resolve('/onboarding'));
 			return;
 		}
 		deviceLabel = account.deviceLabel;
@@ -91,12 +125,17 @@
 		opaqueState = account.opaqueState ?? 'none';
 		opaqueServerId = account.opaqueServerId ?? null;
 		opaqueClientId = account.opaqueClientId ?? null;
+		const { hasQuickUnlock } = await import('$lib/services/quick-unlock');
+		quickUnlockAvailable = await hasQuickUnlock();
+		useEmergencyKey = !quickUnlockAvailable;
+		quickUnlockMessage = quickUnlockAvailable
+			? 'Touch ID quick unlock is enabled on this trusted device.'
+			: null;
 		integrity = await verifyBundleIntegrity();
 		loading = false;
 	});
 
-	async function unlock() {
-		if (locked || unlocking) return;
+	function passIntegrityGate(): boolean {
 		// Bundle-integrity gate. If the running bundle doesn't match
 		// the build-time manifest we refuse to decrypt — a tampered
 		// bundle could exfiltrate the Secret Key the moment we ran
@@ -114,24 +153,16 @@
 				state: integrity.state,
 				chunk: integrity.mismatchedChunk ?? '(aggregate)'
 			});
-			return;
+			return false;
 		}
-		if (!validKey || !credentialId || !deviceSalt) {
-			errorMessage = 'Provide a 256-bit Secret Key to continue.';
-			return;
-		}
-		unlocking = true;
-		errorMessage = null;
+		return true;
+	}
 
-		let secretKey: Uint8Array;
-		try {
-			secretKey = decodeSecretKey(secretKeyInput);
-		} catch (err) {
-			errorMessage = err instanceof Error ? err.message : 'Invalid Secret Key';
-			unlocking = false;
-			return;
-		}
-
+	async function unlockWithSecretKey(
+		secretKey: Uint8Array,
+		source: 'quick' | 'emergency',
+		prfOutput?: Uint8Array
+	) {
 		// Lazy-load every heavy crypto path now that the user has
 		// clicked. These imports pull the Noble curves chunk,
 		// ML-KEM-1024, OPAQUE, and Argon2id WASM — collectively ~155
@@ -159,6 +190,7 @@
 				if (!masterPasswordInput || !masterPasswordSalt || !masterPasswordParams) {
 					errorMessage = 'Master password is required for this vault.';
 					secretKey.fill(0);
+					if (prfOutput) prfOutput.fill(0);
 					unlocking = false;
 					return;
 				}
@@ -170,6 +202,7 @@
 			}
 		} catch (err) {
 			secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
 			errorMessage =
 				err instanceof Error ? err.message : 'Master-password derivation failed.';
 			unlocking = false;
@@ -216,17 +249,16 @@
 			}
 		} catch (err) {
 			secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
 			if (masterPasswordKey) masterPasswordKey.fill(0);
 			const msg = err instanceof Error ? err.message : 'OPAQUE login failed';
 			// 401 / "MAC" / "auth" → wrong password, count attempt.
 			// Other errors → server unreachable, do NOT count attempt.
 			if (/MAC|auth|wrong|401/i.test(msg)) {
 				attempts += 1;
-				const remaining = MAX_ATTEMPTS - attempts;
-				errorMessage =
-					remaining > 0
-						? `Unlock failed. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
-						: 'Recovery required.';
+				errorMessage = failedAttemptMessage(
+					'Sync authentication failed. The Secret Key may be wrong for this vault, or the server-side sync enrollment may not match this device.'
+				);
 			} else {
 				errorMessage =
 					'Sync server unreachable. Reconnect or use the recovery flow to unlock locally.';
@@ -239,31 +271,108 @@
 		try {
 			const items = await openVault({
 				secretKey,
+				prfOutput,
 				masterPasswordKey,
 				opaqueExportKey
 			});
 			vault.loadFromDecrypted(items);
-			audit.push('success', 'Vault unlocked', { items: items.length });
+			audit.push('success', 'Vault unlocked', { items: items.length, source });
 			secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
 			if (masterPasswordKey) masterPasswordKey.fill(0);
 			if (opaqueExportKey) opaqueExportKey.fill(0);
 			secretKeyInput = '';
 			masterPasswordInput = '';
-			goto('/vault');
+			goto(resolve('/vault'));
 		} catch (err) {
 			secretKey.fill(0);
+			if (prfOutput) prfOutput.fill(0);
 			if (masterPasswordKey) masterPasswordKey.fill(0);
 			if (opaqueExportKey) opaqueExportKey.fill(0);
+			const msg = err instanceof Error ? err.message : 'Unlock failed';
+			if (isMissingPrfOutput(msg)) {
+				if (source === 'quick') {
+					quickUnlockAvailable = false;
+					useEmergencyKey = true;
+					quickUnlockMessage =
+						'Touch ID quick unlock failed. Use your Emergency Key to unlock this device.';
+				}
+				errorMessage =
+					'Your passkey did not return the device PRF needed to unlock this vault. Use the same registered Touch ID/passkey and device from setup, or retry Touch ID if you canceled or it timed out.';
+				audit.push('warn', 'Unlock blocked by missing passkey PRF output', {
+					message: msg,
+					source
+				});
+				return;
+			}
 			attempts += 1;
-			const remaining = MAX_ATTEMPTS - attempts;
-			errorMessage =
-				remaining > 0
-					? `Unlock failed. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
-					: 'Recovery required.';
-			audit.push('warn', 'Unlock attempt failed', { attempts });
+			errorMessage = failedAttemptMessage(
+				/Vault decryption failed/i.test(msg)
+					? 'The uploaded Secret Key is valid, but it does not match this local vault, registered passkey/device, master password, or sync enrollment. Use the exact .vukey/Emergency Kit from setup and the same Touch ID/passkey.'
+					: 'Unlock failed.'
+			);
+			audit.push('warn', 'Unlock attempt failed', { attempts, message: msg, source });
+			if (source === 'quick') {
+				quickUnlockAvailable = false;
+				useEmergencyKey = true;
+				quickUnlockMessage =
+					'Touch ID quick unlock failed. Use your Emergency Key to unlock this device.';
+			}
 		} finally {
 			unlocking = false;
 		}
+	}
+
+	async function unlock() {
+		if (locked || unlocking || !passIntegrityGate()) return;
+		if (!quickUnlockMode && (!validKey || !credentialId || !deviceSalt)) {
+			errorMessage = 'Provide a 256-bit Secret Key to continue.';
+			return;
+		}
+		if (masterPasswordRequired && !masterPasswordInput) {
+			errorMessage = 'Master password is required for this vault.';
+			return;
+		}
+		unlocking = true;
+		errorMessage = null;
+
+		if (quickUnlockMode) {
+			let secretKey: Uint8Array | null = null;
+			let prfOutput: Uint8Array | null = null;
+			try {
+				const { openQuickUnlock } = await import('$lib/services/quick-unlock');
+				const quick = await openQuickUnlock();
+				secretKey = quick.secretKey;
+				prfOutput = quick.prfOutput;
+				await unlockWithSecretKey(secretKey, 'quick', prfOutput);
+			} catch (err) {
+				if (secretKey) secretKey.fill(0);
+				if (prfOutput) prfOutput.fill(0);
+				quickUnlockAvailable = false;
+				useEmergencyKey = true;
+				quickUnlockMessage =
+					'Touch ID quick unlock failed. Use your Emergency Key to unlock this device.';
+				errorMessage =
+					err instanceof Error
+						? `Touch ID quick unlock failed: ${err.message}`
+						: 'Touch ID quick unlock failed. Use your Emergency Key instead.';
+				audit.push('warn', 'Trusted-device quick unlock failed', {
+					message: err instanceof Error ? err.message : 'quick unlock failed'
+				});
+				unlocking = false;
+			}
+			return;
+		}
+
+		let secretKey: Uint8Array;
+		try {
+			secretKey = decodeSecretKey(secretKeyInput);
+		} catch (err) {
+			errorMessage = err instanceof Error ? err.message : 'Invalid Secret Key';
+			unlocking = false;
+			return;
+		}
+		await unlockWithSecretKey(secretKey, 'emergency');
 	}
 
 	function onPaste(e: ClipboardEvent) {
@@ -296,8 +405,23 @@
 		dragOver = false;
 	}
 
+	function showEmergencyKey() {
+		useEmergencyKey = true;
+		errorMessage = null;
+	}
+
+	function showQuickUnlock() {
+		if (!quickUnlockAvailable) return;
+		useEmergencyKey = false;
+		errorMessage = null;
+	}
+
+	function openRekorUrl(url: string) {
+		window.open(url, '_blank', 'noopener,noreferrer');
+	}
+
 	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && validKey && !unlocking) {
+		if (e.key === 'Enter' && canUnlock) {
 			unlock();
 		}
 	}
@@ -315,10 +439,10 @@
 		<ThemeToggle />
 	</header>
 
+	<SplashScreen visible={loading || unlocking} />
+
 	{#if loading}
-		<section class="screen-inner">
-			<div class="loading">Reading account…</div>
-		</section>
+		<!-- Content hidden behind SplashScreen while account loads -->
 	{:else if locked}
 		<section class="screen-inner">
 			<Eyebrow>Recovery required</Eyebrow>
@@ -348,13 +472,28 @@
 				Unlock vault · {deviceLabel}{authMode === 'demo' ? ' · DEMO MODE' : ''}
 			</Eyebrow>
 			<h1 class="h1">
-				Welcome back.<br />
+				{quickUnlockMode ? 'Trusted device ready.' : 'Welcome back.'}<br />
 				<span class="italic-serif">
-					{authMode === 'demo' ? 'Secret Key only.' : 'Touch ID + Secret Key.'}
+					{#if authMode === 'demo'}
+						Secret Key only.
+					{:else if quickUnlockMode}
+						Touch ID quick unlock.
+					{:else}
+						Touch ID + Secret Key.
+					{/if}
 				</span>
 			</h1>
 			<p class="lede">
-				{#if authMode === 'demo'}
+				{#if quickUnlockMode}
+					<span data-vp-show="desktop"
+						>Use Touch ID on this trusted device to unlock. Your Emergency Key is still
+						required for recovery and new devices.</span
+					>
+					<span data-vp-show="mobile"
+						>Use Touch ID on this trusted device. Emergency Key stays available for
+						recovery.</span
+					>
+				{:else if authMode === 'demo'}
 					<span data-vp-show="desktop"
 						>This vault was provisioned in demo mode. Security falls to your Secret Key
 						alone plus the original device. Provide the 256-bit Secret Key to continue.</span
@@ -375,39 +514,50 @@
 				{/if}
 			</p>
 
-			<div class="field">
-				<label for="secret-key">Secret Key</label>
-				<div
-					class="input-zone"
-					class:dragging={dragOver}
-					ondrop={onDrop}
-					ondragover={onDragOver}
-					ondragleave={onDragLeave}
-					role="region"
-					aria-label="Secret Key input"
-				>
-					<IconKey size={16} stroke={1.6} />
-					<textarea
-						id="secret-key"
-						bind:value={secretKeyInput}
-						onpaste={onPaste}
-						placeholder="Paste your Crockford-Base32 Secret Key, or drop a .vukey file"
-						spellcheck="false"
-						autocomplete="off"
-						autocapitalize="off"
-						rows="3"
-					></textarea>
+			{#if quickUnlockMessage}
+				<div class="quick-message">
+					<IconFingerprint size={14} stroke={1.8} />
+					{quickUnlockMessage}
 				</div>
-				<div class="field-hint">
-					{#if validKey}
-						<span class="ok">256-bit Secret Key parsed</span>
-					{:else if secretKeyInput.length > 0}
-						<span class="warn">Not a valid 256-bit Secret Key</span>
-					{:else}
-						<span class="muted">{SECRET_KEY_BASE32_LEN} Crockford-Base32 characters · 13 groups of 4</span>
-					{/if}
+			{/if}
+
+			{#if !quickUnlockMode}
+				<div class="field">
+					<label for="secret-key">Secret Key</label>
+					<div
+						class="input-zone"
+						class:dragging={dragOver}
+						ondrop={onDrop}
+						ondragover={onDragOver}
+						ondragleave={onDragLeave}
+						role="region"
+						aria-label="Secret Key input"
+					>
+						<IconKey size={16} stroke={1.6} />
+						<textarea
+							id="secret-key"
+							bind:value={secretKeyInput}
+							onpaste={onPaste}
+							placeholder="Paste your Crockford-Base32 Secret Key, or drop a .vukey file"
+							spellcheck="false"
+							autocomplete="off"
+							autocapitalize="off"
+							rows="3"
+							aria-invalid={secretKeyInput.length > 0 && !validKey}
+							aria-describedby={secretKeyDescribedBy}
+						></textarea>
+					</div>
+					<div class="field-hint" id={secretKeyStatusId}>
+						{#if validKey}
+							<span class="ok">256-bit Secret Key parsed</span>
+						{:else if secretKeyInput.length > 0}
+							<span class="warn">Not a valid 256-bit Secret Key</span>
+						{:else}
+							<span class="muted">{SECRET_KEY_BASE32_LEN} Crockford-Base32 characters · 13 groups of 4</span>
+						{/if}
+					</div>
 				</div>
-			</div>
+			{/if}
 
 			{#if masterPasswordRequired}
 				<div class="key-input-block">
@@ -419,15 +569,17 @@
 						placeholder="Type your master password"
 						autocomplete="current-password"
 						disabled={unlocking}
+						aria-invalid={Boolean(errorMessage && masterPasswordRequired && !masterPasswordInput)}
+						aria-describedby={masterPasswordDescribedBy}
 					/>
-					<div class="field-hint muted">
+					<div class="field-hint muted" id={masterPasswordHintId}>
 						Argon2id stretches this locally · ~1–2s on a modern laptop
 					</div>
 				</div>
 			{/if}
 
 			{#if errorMessage}
-				<div class="err">
+				<div class="err" id={unlockErrorId} role="alert">
 					<IconWarning size={14} stroke={2} />
 					{errorMessage}
 				</div>
@@ -437,19 +589,33 @@
 				<Button
 					variant="primary"
 					size="lg"
-					disabled={!validKey || unlocking || (masterPasswordRequired && !masterPasswordInput)}
+					disabled={!canUnlock}
 					onclick={unlock}
 				>
 					<IconFingerprint size={16} />
-					{unlocking ? 'Unlocking…' : 'Touch ID + Unlock'}
+					{#if unlocking}
+						Unlocking…
+					{:else if quickUnlockMode}
+						Touch ID quick unlock
+					{:else}
+						Touch ID + Unlock
+					{/if}
 					<IconArrowRight size={14} stroke={2.2} />
 				</Button>
+				{#if quickUnlockAvailable}
+					{#if quickUnlockMode}
+						<Button variant="ghost" onclick={showEmergencyKey}>Use Emergency Key instead</Button>
+					{:else}
+						<Button variant="ghost" onclick={showQuickUnlock}>Use Touch ID quick unlock</Button>
+					{/if}
+				{/if}
 				<Button variant="ghost" href="/">Back to landing</Button>
 			</div>
 
 			<div class="footer-line">
 				<IconUnlock size={12} stroke={1.6} />
-				All decryption is local · zero bytes transmitted
+				All decryption is local · zero bytes transmitted ·
+				<a class="privacy-link" href={resolve('/privacy')}>Vu Level 1</a>
 				{#if integrity}
 					<span class="integrity integrity-{integrity.state}">
 						· bundle {integrity.expectedShort}
@@ -464,20 +630,29 @@
 						{/if}
 						{#if integrity.state !== 'placeholder'}
 							·
-							<a
+							<button
+								type="button"
 								class="rekor-link"
-								href={integrity.rekorUrl}
-								target="_blank"
-								rel="noopener noreferrer"
+								onclick={() => openRekorUrl(integrity!.rekorUrl)}
 								title="Open this build's Sigstore/Rekor entry in a new tab"
 							>
 								verify on Rekor
-							</a>
+							</button>
 						{/if}
 					</span>
 				{/if}
 			</div>
 		</section>
+	{/if}
+
+	{#if !loading}
+		<aside class="unlock-art" aria-hidden="true">
+			<img
+				src="/icons/icon-512.png"
+				srcset="/icons/icon-512.png 1x, /icons/icon-1024.png 2x"
+				alt=""
+			/>
+		</aside>
 	{/if}
 </main>
 
@@ -486,9 +661,11 @@
 		height: 100dvh;
 		display: grid;
 		grid-template-rows: var(--header-h) 1fr;
+		grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
 		background: var(--bg);
 	}
 	.topbar {
+		grid-column: 1 / -1;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -501,6 +678,8 @@
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
+		grid-row: 2;
+		grid-column: 1;
 		padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 64px);
 		padding-top: max(clamp(20px, 5vw, 48px), env(safe-area-inset-top));
 		padding-bottom: max(clamp(20px, 5vw, 48px), env(safe-area-inset-bottom));
@@ -518,6 +697,31 @@
 		font-weight: 700;
 		letter-spacing: -0.03em;
 		line-height: 1;
+	}
+	.unlock-art {
+		grid-row: 2;
+		grid-column: 2;
+		align-self: center;
+		justify-self: center;
+		width: min(42vw, 520px);
+		pointer-events: none;
+	}
+	.unlock-art img {
+		display: block;
+		width: clamp(220px, 28vw, 420px);
+		height: auto;
+		margin: 0 auto;
+		opacity: 0.78;
+		filter: drop-shadow(0 24px 52px color-mix(in srgb, var(--accent) 22%, transparent))
+			drop-shadow(0 8px 22px color-mix(in srgb, var(--text) 10%, transparent));
+	}
+	@media (max-width: 48em) {
+		.screen {
+			grid-template-columns: 1fr;
+		}
+		.unlock-art {
+			display: none;
+		}
 	}
 	@media (max-width: 30em) {
 		.topbar {
@@ -626,6 +830,19 @@
 		color: var(--text-3);
 	}
 
+	.quick-message {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 14px;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--accent);
+		background: var(--accent-faint);
+		border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+		border-radius: var(--radius);
+	}
+
 	.err {
 		display: inline-flex;
 		align-items: center;
@@ -669,14 +886,30 @@
 		color: var(--danger);
 	}
 	.rekor-link {
+		appearance: none;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		font: inherit;
 		color: inherit;
 		text-decoration: underline;
 		text-decoration-style: dotted;
 		text-underline-offset: 3px;
+		cursor: pointer;
 	}
 	.rekor-link:hover,
 	.rekor-link:focus-visible {
 		color: var(--accent);
+		text-decoration-style: solid;
+	}
+	.privacy-link {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 3px;
+	}
+	.privacy-link:hover,
+	.privacy-link:focus-visible {
 		text-decoration-style: solid;
 	}
 </style>

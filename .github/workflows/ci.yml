@@ -35,7 +35,9 @@ jobs:
       - name: Audit dependencies (strict, runtime only)
         run: |
           # Strict layer: parse the JSON report and refuse to merge if
-          # ANY runtime-tier vulnerability is moderate-or-above.
+          # any runtime-tier vulnerability is high-or-critical. The
+          # preceding npm audit command still prints moderate findings
+          # for triage, but only high/critical blocks CI today.
           set -euo pipefail
           REPORT=$(npm audit --omit=dev --json || true)
           HIGH=$(echo "$REPORT" | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d||'{}');const m=(j.metadata?.vulnerabilities)||{};console.log((m.high||0)+(m.critical||0));});")

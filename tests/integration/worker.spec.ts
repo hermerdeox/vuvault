@@ -62,8 +62,8 @@ class FakeD1 {
 				return firstFn<T>(this._args);
 			},
 			async run() {
-				runFn(this._args);
-				return { success: true };
+				const changes = runFn(this._args);
+				return { success: true, meta: { changes } };
 			}
 		};
 	}
@@ -88,9 +88,20 @@ class FakeD1 {
 		if (sql.startsWith('SELECT oprf_seed FROM server_identity')) {
 			return this.serverIdentity as T | null;
 		}
-		if (sql.startsWith('SELECT token, account_id, device_id, expires_at, sequence_clock')) {
-			const r = this.sessions.get(args[0] as string);
-			return (r ?? null) as T | null;
+		if (sql.includes('FROM sessions s JOIN accounts a')) {
+			const session = this.sessions.get(args[0] as string);
+			if (!session) return null;
+			const account = this.accounts.get(session.account_id as string);
+			return {
+				token: session.token,
+				account_id: session.account_id,
+				device_id: session.device_id,
+				expires_at: session.expires_at,
+				sequence_clock: Math.max(
+					Number(session.sequence_clock ?? 0),
+					Number(account?.sequence_clock ?? 0)
+				)
+			} as T;
 		}
 		if (sql.startsWith('SELECT COALESCE(MAX(sequence_clock), 0) AS clock')) {
 			let max = 0;
@@ -104,20 +115,21 @@ class FakeD1 {
 		return null;
 	}
 
-	private runImpl(sql: string, args: unknown[]): void {
+	private runImpl(sql: string, args: unknown[]): number {
 		if (sql.startsWith('INSERT INTO accounts')) {
 			this.accounts.set(args[1] as string, {
 				account_id: args[0],
 				client_public_key: args[2],
 				masking_key: args[3],
 				envelope_bytes: args[4],
-				oprf_secret_key: args[5]
+				oprf_secret_key: args[5],
+				sequence_clock: 0
 			});
-			return;
+			return 1;
 		}
 		if (sql.startsWith('DELETE FROM accounts')) {
 			this.accounts.delete(args[0] as string);
-			return;
+			return 1;
 		}
 		if (sql.startsWith('INSERT INTO pending_registrations')) {
 			this.pendingRegs.set(args[0] as string, {
@@ -125,11 +137,11 @@ class FakeD1 {
 				oprf_secret_key: args[2],
 				created_at: Math.floor(Date.now() / 1000)
 			});
-			return;
+			return 1;
 		}
 		if (sql.startsWith('DELETE FROM pending_registrations')) {
 			this.pendingRegs.delete(args[0] as string);
-			return;
+			return 1;
 		}
 		if (sql.startsWith('INSERT INTO pending_logins')) {
 			this.pendingLogins.set(args[0] as string, {
@@ -137,11 +149,11 @@ class FakeD1 {
 				ake_state: args[2],
 				created_at: Math.floor(Date.now() / 1000)
 			});
-			return;
+			return 1;
 		}
 		if (sql.startsWith('DELETE FROM pending_logins')) {
 			this.pendingLogins.delete(args[0] as string);
-			return;
+			return 1;
 		}
 		if (sql.startsWith('INSERT INTO sessions')) {
 			this.sessions.set(args[0] as string, {
@@ -151,18 +163,29 @@ class FakeD1 {
 				expires_at: args[3],
 				sequence_clock: args[4]
 			});
-			return;
+			return 1;
+		}
+		if (sql.startsWith('UPDATE accounts SET sequence_clock')) {
+			const token = args[1] as string;
+			const newClock = Number(args[0]);
+			const session = this.sessions.get(token);
+			if (!session) return 0;
+			const account = this.accounts.get(session.account_id as string);
+			if (!account || Number(account.sequence_clock ?? 0) >= newClock) return 0;
+			account.sequence_clock = newClock;
+			return 1;
 		}
 		if (sql.startsWith('UPDATE sessions SET sequence_clock')) {
 			const s = this.sessions.get(args[1] as string);
-			if (s) s.sequence_clock = args[0];
-			return;
+			if (s) s.sequence_clock = Math.max(Number(s.sequence_clock ?? 0), Number(args[0]));
+			return s ? 1 : 0;
 		}
 		if (sql.startsWith('UPDATE accounts SET last_login_at')) {
 			// No-op for the mock — last_login_at isn't read by anything
 			// downstream of the test surface.
-			return;
+			return 1;
 		}
+		return 0;
 	}
 }
 
@@ -362,6 +385,10 @@ describe('Worker integration · session token + sequence clock', () => {
 		db = new FakeD1();
 		// Seed a session row directly so we can test auth + clock
 		// without a full OPAQUE round-trip.
+		db.accounts.set('acct-1', {
+			account_id: 'acct-1',
+			sequence_clock: 5
+		});
 		db.sessions.set('a'.repeat(64), {
 			token: 'a'.repeat(64),
 			account_id: 'acct-1',
@@ -385,6 +412,10 @@ describe('Worker integration · session token + sequence clock', () => {
 	});
 
 	it('authenticate rejects expired tokens', async () => {
+		db.accounts.set('acct-2', {
+			account_id: 'acct-2',
+			sequence_clock: 0
+		});
 		db.sessions.set('c'.repeat(64), {
 			token: 'c'.repeat(64),
 			account_id: 'acct-2',

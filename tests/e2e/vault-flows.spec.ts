@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { clearStorage, completeDemoOnboarding } from './helpers';
 
 /**
  * End-to-end coverage for the vault user journeys.
@@ -13,48 +14,6 @@ import { expect, test, type Page } from '@playwright/test';
  * isolated, but call clearStorage explicitly as belt-and-suspenders for
  * test runs against `reuseExistingServer: true`.
  */
-
-async function clearStorage(page: Page): Promise<void> {
-	await page.goto('/');
-	await page.evaluate(async () => {
-		try {
-			localStorage.clear();
-			sessionStorage.clear();
-			const dbs = await indexedDB.databases?.();
-			for (const db of dbs ?? []) {
-				if (db.name) indexedDB.deleteDatabase(db.name);
-			}
-		} catch {
-			// best-effort
-		}
-	});
-}
-
-async function completeDemoOnboarding(page: Page, deviceLabel = 'Test Mac'): Promise<void> {
-	await page.goto('/onboarding');
-	// Step 1 — Welcome.
-	await page.getByRole('button', { name: 'Begin setup' }).click();
-	// Step 2 — Identity. Fill the device label.
-	await page.locator('input[type="text"]').first().fill(deviceLabel);
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	// Step 3 — Secret. Acknowledge the checkbox, then continue.
-	await page.locator('input[type="checkbox"]').first().check();
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	// Step 4 — Touch. Pick demo mode (gated behind the dev flag).
-	await page.getByRole('button', { name: 'Use demo mode' }).click();
-	await page.getByRole('button', { name: 'Continue in demo mode' }).click();
-	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	// Step 5 — Verify. Just continue.
-	await page.getByRole('button', { name: 'Looks right, continue' }).click();
-	// Step 6 — Pricing. Continue with Free.
-	await page.getByRole('button', { name: /Continue with/ }).click();
-	// Step 7 — Provision. Wait for the seal pipeline to complete.
-	await expect(page.getByRole('button', { name: 'Enter your vault' })).toBeEnabled({
-		timeout: 30_000
-	});
-	await page.getByRole('button', { name: 'Enter your vault' }).click();
-	await expect(page).toHaveURL(/\/vault/);
-}
 
 test.describe('vault flows · onboarding', () => {
 	test.beforeEach(async ({ page }) => {

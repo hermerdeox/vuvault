@@ -51,6 +51,14 @@
 				Restore from another device instead
 			</Button>
 		</div>
+
+		<p class="trust-line">
+			Don't take our word for it.
+			<a class="trust-link" href="/privacy">
+				See the honest Vu Privacy Level
+			</a>
+			— every claim points to a file path you can read.
+		</p>
 	</div>
 </section>
 
@@ -86,5 +94,22 @@
 		font-size: 12px;
 		color: var(--text-2);
 		line-height: 1.5;
+	}
+	.trust-line {
+		margin-top: 28px;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text-3);
+		line-height: 1.55;
+	}
+	.trust-link {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 3px;
+	}
+	.trust-link:hover,
+	.trust-link:focus-visible {
+		text-decoration-style: solid;
 	}
 </style>

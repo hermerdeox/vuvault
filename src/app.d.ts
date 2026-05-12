@@ -4,11 +4,7 @@
 // shape every /api/* SvelteKit `+server.ts` route consumes via
 // `platform.env`). Keep these in sync.
 
-import type {
-	D1Database,
-	R2Bucket,
-	RateLimit
-} from '$lib/server/api/env';
+import type { D1Database, R2Bucket } from '$lib/server/api/env';
 
 declare global {
 	namespace App {
@@ -26,18 +22,13 @@ declare global {
 				PUBLIC_ENABLE_DEMO_AUTH?: string;
 				PUBLIC_SYNC_ORIGIN?: string;
 				PUBLIC_M3_E2E_AUTH?: string;
-				OPAQUE_RATE_LIMIT_MODE?: string;
 
 				// Cloudflare bindings — see `wrangler.toml`. AUTH_DB
-				// + VAULT_BLOBS are required for /api/* to function;
-				// the three rate-limiters are optional because Pages
-				// dashboard configuration owns them; production runtime
-				// fails closed when they are absent.
+				// + VAULT_BLOBS are required for /api/* to function.
+				// Rate limits are enforced through AUTH_DB by the D1
+				// sliding-window limiter in src/lib/server/api/rate-limit-d1.ts.
 				AUTH_DB: D1Database;
 				VAULT_BLOBS: R2Bucket;
-				OPAQUE_REGISTER_LIMITER?: RateLimit;
-				OPAQUE_LOGIN_LIMITER?: RateLimit;
-				BLOB_LIMITER?: RateLimit;
 				OPAQUE_SERVER_ID?: string;
 			};
 			context: {

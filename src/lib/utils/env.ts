@@ -101,11 +101,11 @@ export function isSyncOriginConfigured(): boolean {
  * hostname so localhost development works, but those passkeys are
  * intentionally non-portable to production.
  *
- * Set `PUBLIC_RP_ID` to override (e.g. for staging at `staging.vault.vu`).
+ * Set `PUBLIC_RP_ID` to override (e.g. for staging at `staging.vuvault.app`).
  * The chosen id MUST be either the page's origin or a registrable
  * suffix of it; the browser rejects anything else.
  */
-const PRODUCTION_RP_ID = 'vault.vu';
+const PRODUCTION_RP_ID = 'vuvault.app';
 
 export function getRpId(): string {
 	const override = (publicEnv.PUBLIC_RP_ID ?? '').trim();
@@ -113,7 +113,7 @@ export function getRpId(): string {
 	if (dev) {
 		// On dev/localhost, return the current hostname so the
 		// browser accepts the registration. We deliberately don't
-		// fall back to PRODUCTION_RP_ID here — using `vault.vu` from
+		// fall back to PRODUCTION_RP_ID here — using `vuvault.app` from
 		// localhost would be rejected as not-an-origin-suffix.
 		if (typeof window !== 'undefined' && window.location?.hostname) {
 			return window.location.hostname;

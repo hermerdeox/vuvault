@@ -47,6 +47,7 @@
     "@noble/post-quantum": "0.4.1",
     "@structured-id/opaque": "1.0.4",
     "argon2id": "1.0.1",
-    "dexie": "^4.0.10"
+    "dexie": "^4.0.10",
+    "lottie-web": "^5.13.0"
   }
 }

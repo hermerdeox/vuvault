@@ -23,7 +23,7 @@
 
 import type { RequestHandler } from './$types';
 import type { Env, R2Object } from '$lib/server/api/env';
-import { checkRateLimit } from '$lib/server/api/env';
+import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { jsonError, jsonOk, readJson, b64decode, b64encode } from '$lib/server/api/http';
 import { authenticate } from '$lib/server/api/auth-token';
 
@@ -34,7 +34,14 @@ type PutBody = {
 
 const MAX_NONCE_BYTES = 64;
 const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
-const BLOB_ID_RE = /^[0-9a-f-]{8,64}$/i;
+const BASE64_OVERHEAD = 4 / 3;
+const BASE64_SLACK_BYTES = 8;
+const BLOB_ID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function exceedsEncodedCap(value: string, maxDecodedBytes: number): boolean {
+	return value.length > Math.ceil(maxDecodedBytes * BASE64_OVERHEAD) + BASE64_SLACK_BYTES;
+}
 
 function objectKey(accountId: string, blobId: string): string {
 	return `vaults/${accountId}/documents/${blobId}.bin`;
@@ -50,12 +57,18 @@ export const PUT: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<PutBody>(request);
 	if (!body || typeof body.nonce !== 'string' || typeof body.ciphertext !== 'string') {
 		return jsonError(400, 'invalid request body');
+	}
+	if (
+		exceedsEncodedCap(body.nonce, MAX_NONCE_BYTES) ||
+		exceedsEncodedCap(body.ciphertext, MAX_CIPHERTEXT_BYTES)
+	) {
+		return jsonError(400, 'encoded blob size out of range');
 	}
 
 	let nonce: Uint8Array;
@@ -107,7 +120,7 @@ export const GET: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	let r2obj: R2Object | null;
@@ -150,7 +163,7 @@ export const DELETE: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await checkRateLimit(env.BLOB_LIMITER, `account:${session.accountId}`, env);
+	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	try {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { generate, entropyBits, type GeneratorOpts } from '$lib/crypto/passgen';
+	import { copySecretToClipboard } from '$lib/services/secure-clipboard';
 	import { IconRefresh, IconCheck, IconCopy } from '$lib/icons';
 
 	type Props = {
@@ -49,7 +50,7 @@
 
 	function copyPassword() {
 		if (!password) return;
-		navigator.clipboard.writeText(password).catch(() => {});
+		void copySecretToClipboard('generated password', password);
 	}
 </script>
 

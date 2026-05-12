@@ -13,6 +13,9 @@ type Row = Record<string, unknown>;
 
 class FakeD1 {
 	sessions = new Map<string, Row>();
+	accounts = new Map<string, Row>();
+	rateLimits = new Map<string, number>();
+	rateLimitsAvailable = true;
 	prepare(query: string) {
 		const sql = query.replace(/\s+/g, ' ').trim();
 		const firstFn = <T>(args: unknown[]) => this.firstImpl<T>(sql, args);
@@ -27,29 +30,68 @@ class FakeD1 {
 				return firstFn<T>(this._args);
 			},
 			async run() {
-				runFn(this._args);
-				return { success: true };
+				const changes = runFn(this._args);
+				return { success: true, meta: { changes } };
 			}
 		};
 	}
 
 	private firstImpl<T>(sql: string, args: unknown[]): T | null {
-		if (sql.startsWith('SELECT token, account_id, device_id, expires_at, sequence_clock')) {
-			return (this.sessions.get(args[0] as string) ?? null) as T | null;
+		if (sql.includes('FROM sessions s JOIN accounts a')) {
+			const session = this.sessions.get(args[0] as string);
+			if (!session) return null;
+			const account = this.accounts.get(session.account_id as string);
+			return {
+				token: session.token,
+				account_id: session.account_id,
+				device_id: session.device_id,
+				expires_at: session.expires_at,
+				sequence_clock: Math.max(
+					Number(session.sequence_clock ?? 0),
+					Number(account?.sequence_clock ?? 0)
+				)
+			} as T;
+		}
+		if (sql.startsWith('SELECT count FROM rate_limits')) {
+			if (!this.rateLimitsAvailable) throw new Error('rate_limits missing');
+			const key = `${args[0] as string}:${args[1] as number}`;
+			return { count: this.rateLimits.get(key) ?? 0 } as T;
 		}
 		return null;
 	}
 
-	private runImpl(sql: string, args: unknown[]): void {
+	private runImpl(sql: string, args: unknown[]): number {
+		if (sql.startsWith('INSERT INTO rate_limits')) {
+			if (!this.rateLimitsAvailable) throw new Error('rate_limits missing');
+			const key = `${args[0] as string}:${args[1] as number}`;
+			this.rateLimits.set(key, (this.rateLimits.get(key) ?? 0) + 1);
+			return 1;
+		}
+		if (sql.startsWith('UPDATE accounts SET sequence_clock')) {
+			const token = args[1] as string;
+			const newClock = Number(args[0]);
+			const session = this.sessions.get(token);
+			if (!session) return 0;
+			const accountId = session.account_id as string;
+			const account = this.accounts.get(accountId);
+			if (account && Number(account.sequence_clock ?? 0) < newClock) {
+				account.sequence_clock = newClock;
+				return 1;
+			}
+			return 0;
+		}
 		if (sql.startsWith('UPDATE sessions SET sequence_clock')) {
 			const session = this.sessions.get(args[1] as string);
-			if (session) session.sequence_clock = args[0];
+			if (session) session.sequence_clock = Math.max(Number(session.sequence_clock ?? 0), Number(args[0]));
+			return session ? 1 : 0;
 		}
+		return 0;
 	}
 }
 
 class MemoryR2 {
 	objects = new Map<string, { bytes: Uint8Array; uploaded: Date; customMetadata?: Record<string, string> }>();
+	pageSize = Number.POSITIVE_INFINITY;
 
 	async get(key: string): Promise<R2Object | null> {
 		const object = this.objects.get(key);
@@ -88,14 +130,20 @@ class MemoryR2 {
 		this.objects.delete(key);
 	}
 
-	async list(options?: { prefix?: string }): Promise<{
+	async list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
 		objects: { key: string; uploaded: Date; size: number }[];
 		truncated: boolean;
+		cursor?: string;
 	}> {
-		const objects = [...this.objects.entries()]
+		const start = options?.cursor ? Number.parseInt(options.cursor, 10) : 0;
+		const pageSize = Math.min(options?.limit ?? this.pageSize, this.pageSize);
+		const all = [...this.objects.entries()]
 			.filter(([key]) => (options?.prefix ? key.startsWith(options.prefix) : true))
+			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([key, object]) => ({ key, uploaded: object.uploaded, size: object.bytes.length }));
-		return { objects, truncated: false };
+		const objects = all.slice(start, start + pageSize);
+		const next = start + objects.length;
+		return { objects, truncated: next < all.length, cursor: next < all.length ? String(next) : undefined };
 	}
 }
 
@@ -146,6 +194,10 @@ async function json(res: Response) {
 }
 
 function seedSession(db: FakeD1, token = 'a'.repeat(64), clock = 0): string {
+	db.accounts.set('acct-1', {
+		account_id: 'acct-1',
+		sequence_clock: Math.max(Number(db.accounts.get('acct-1')?.sequence_clock ?? 0), clock)
+	});
 	db.sessions.set(token, {
 		token,
 		account_id: 'acct-1',
@@ -166,8 +218,10 @@ describe('api route handlers', () => {
 		expect(await json(res)).toMatchObject({ ok: false, error: 'invalid request body' });
 	});
 
-	it('fails closed when a production rate-limit binding is missing', async () => {
-		const testEnv = env({ OPAQUE_RATE_LIMIT_MODE: 'fail-closed' });
+	it('fails closed when the D1 rate-limit table is unavailable', async () => {
+		const db = new FakeD1();
+		db.rateLimitsAvailable = false;
+		const testEnv = env({ AUTH_DB: db });
 		const res = await registerRequest(
 			event(
 				jsonRequest('/api/opaque/register/request', {
@@ -180,7 +234,7 @@ describe('api route handlers', () => {
 		expect(res.status).toBe(503);
 		expect(await json(res)).toMatchObject({
 			ok: false,
-			error: 'rate limiter binding not configured'
+			error: 'rate limiter unavailable'
 		});
 	});
 
@@ -216,6 +270,59 @@ describe('api route handlers', () => {
 		expect(await json(res)).toMatchObject({
 			ok: false,
 			error: 'sequence clock not monotonic'
+		});
+	});
+
+	it('rejects stale uploads against the durable account sequence clock', async () => {
+		const db = new FakeD1();
+		const token = seedSession(db, '0'.repeat(64), 1);
+		db.accounts.get('acct-1')!.sequence_clock = 10;
+		const testEnv = env({ AUTH_DB: db });
+		const res = await blobUpload(
+			event(
+				jsonRequest(
+					'/api/blobs/upload',
+					{
+						header: 'AQ==',
+						nonce: 'Ag==',
+						ciphertext: 'Aw==',
+						sequenceClock: 2
+					},
+					{ headers: { authorization: `Bearer ${token}` } }
+				),
+				testEnv
+			)
+		);
+		expect(res.status).toBe(409);
+		expect(await json(res)).toMatchObject({
+			ok: false,
+			error: 'sequence clock not monotonic'
+		});
+	});
+
+	it('rejects oversized encoded vault payloads before decode', async () => {
+		const db = new FakeD1();
+		const token = seedSession(db, '9'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db });
+		const res = await blobUpload(
+			event(
+				jsonRequest(
+					'/api/blobs/upload',
+					{
+						header: 'A'.repeat(6000),
+						nonce: 'Ag==',
+						ciphertext: 'Aw==',
+						sequenceClock: 1
+					},
+					{ headers: { authorization: `Bearer ${token}` } }
+				),
+				testEnv
+			)
+		);
+		expect(res.status).toBe(400);
+		expect(await json(res)).toMatchObject({
+			ok: false,
+			error: 'encoded blob size out of range'
 		});
 	});
 
@@ -260,13 +367,65 @@ describe('api route handlers', () => {
 		});
 	});
 
+	it('rejects non-v4 document UUIDs', async () => {
+		const db = new FakeD1();
+		const token = seedSession(db, 'f'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db });
+		const blobId = '11111111-2222-3333-4444-555555555555';
+		const res = await documentPut(
+			event(
+				new Request(`http://localhost/api/documents/${blobId}`, {
+					method: 'PUT',
+					headers: {
+						authorization: `Bearer ${token}`,
+						'content-type': 'application/json'
+					},
+					body: JSON.stringify({ nonce: 'AA==', ciphertext: 'AQID' })
+				}),
+				testEnv,
+				{ blobId }
+			)
+		);
+		expect(res.status).toBe(400);
+		expect(await json(res)).toMatchObject({
+			ok: false,
+			error: 'invalid blob id'
+		});
+	});
+
+	it('rejects oversized encoded document payloads before decode', async () => {
+		const db = new FakeD1();
+		const token = seedSession(db, '1'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db });
+		const blobId = '22222222-3333-4444-8555-666666666666';
+		const res = await documentPut(
+			event(
+				new Request(`http://localhost/api/documents/${blobId}`, {
+					method: 'PUT',
+					headers: {
+						authorization: `Bearer ${token}`,
+						'content-type': 'application/json'
+					},
+					body: JSON.stringify({ nonce: 'A'.repeat(100), ciphertext: 'AQID' })
+				}),
+				testEnv,
+				{ blobId }
+			)
+		);
+		expect(res.status).toBe(400);
+		expect(await json(res)).toMatchObject({
+			ok: false,
+			error: 'encoded blob size out of range'
+		});
+	});
+
 	it('round-trips an encrypted document blob through R2', async () => {
 		const db = new FakeD1();
 		const r2 = new MemoryR2();
 		const token = seedSession(db, 'e'.repeat(64), 0);
 		const testEnv = env({ AUTH_DB: db, VAULT_BLOBS: r2 });
 		const auth = { headers: { authorization: `Bearer ${token}` } };
-		const blobId = '11111111-2222-3333-4444-555555555555';
+		const blobId = '11111111-2222-4333-8444-555555555555';
 		const put = await documentPut(
 			event(
 				new Request(`http://localhost/api/documents/${blobId}`, {
@@ -363,6 +522,96 @@ describe('api route handlers', () => {
 				nonce: 'Ag==',
 				ciphertext: 'Aw==',
 				sequenceClock: 1
+			}
+		});
+	});
+
+	it('ignores document and malformed keys when selecting the latest vault blob', async () => {
+		const db = new FakeD1();
+		const r2 = new MemoryR2();
+		const token = seedSession(db, '2'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db, VAULT_BLOBS: r2 });
+		await r2.put('vaults/acct-1/documents/99999999-9999-4999-8999-999999999999.bin', new Uint8Array([1]));
+		await r2.put('vaults/acct-1/not-a-clock.bin', new Uint8Array([1]));
+
+		const upload = await blobUpload(
+			event(
+				jsonRequest(
+					'/api/blobs/upload',
+					{
+						header: 'BA==',
+						nonce: 'BQ==',
+						ciphertext: 'Bg==',
+						sequenceClock: 7
+					},
+					{ headers: { authorization: `Bearer ${token}` } }
+				),
+				testEnv
+			)
+		);
+		expect(upload.status).toBe(200);
+
+		const latest = await blobLatest(
+			event(
+				new Request('http://localhost/api/blobs/latest', {
+					headers: { authorization: `Bearer ${token}` }
+				}),
+				testEnv
+			)
+		);
+		expect(latest.status).toBe(200);
+		expect(await json(latest)).toMatchObject({
+			ok: true,
+			data: {
+				header: 'BA==',
+				nonce: 'BQ==',
+				ciphertext: 'Bg==',
+				sequenceClock: 7
+			}
+		});
+	});
+
+	it('walks truncated R2 listings when selecting the latest vault blob', async () => {
+		const db = new FakeD1();
+		const r2 = new MemoryR2();
+		r2.pageSize = 1;
+		const token = seedSession(db, '3'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db, VAULT_BLOBS: r2 });
+		const auth = { headers: { authorization: `Bearer ${token}` } };
+
+		for (const sequenceClock of [1, 2, 3]) {
+			const upload = await blobUpload(
+				event(
+					jsonRequest(
+						'/api/blobs/upload',
+						{
+							header: btoa(String.fromCharCode(sequenceClock)),
+							nonce: 'Ag==',
+							ciphertext: 'Aw==',
+							sequenceClock
+						},
+						auth
+					),
+					testEnv
+				)
+			);
+			expect(upload.status).toBe(200);
+		}
+
+		const latest = await blobLatest(
+			event(
+				new Request('http://localhost/api/blobs/latest', {
+					headers: auth.headers
+				}),
+				testEnv
+			)
+		);
+		expect(latest.status).toBe(200);
+		expect(await json(latest)).toMatchObject({
+			ok: true,
+			data: {
+				header: btoa(String.fromCharCode(3)),
+				sequenceClock: 3
 			}
 		});
 	});

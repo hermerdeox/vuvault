@@ -145,7 +145,7 @@ function parseEnvInterface(text) {
 const wrangler = parseWranglerBindings(tomlText);
 const env = parseEnvInterface(envText);
 
-// All non-var Env fields are bindings (D1/R2/RateLimit/etc). Vars are
+// All non-var Env fields are bindings (D1/R2/etc). Vars are
 // the PUBLIC_* and OPAQUE_SERVER_ID strings that come out of [vars]
 // blocks rather than [[d1_databases]] / [[r2_buckets]] / [[unsafe.bindings]].
 const VAR_FIELD_NAMES = new Set([
@@ -164,13 +164,9 @@ const envBindings = new Map(
 
 // Rule 1: every REQUIRED Env field MUST exist in wrangler.toml in
 // both the default and production blocks. OPTIONAL Env fields are
-// allowed to be entirely absent from wrangler.toml. Rate-limit
-// bindings are optional here because Cloudflare Pages currently wires
-// them through the dashboard; production is separately gated by
-// scripts/verify-production-runtime.mjs requiring
-// PRODUCTION_RATE_LIMITS_CONFIGURED=true. Optional bindings that ARE
-// wired in only one of the two envs still trigger Rule 3 (parity), so
-// preview/production drift is caught regardless.
+// allowed to be entirely absent from wrangler.toml. Optional bindings
+// that ARE wired in only one of the two envs still trigger Rule 3
+// (parity), so preview/production drift is caught regardless.
 for (const [name, info] of envBindings) {
 	if (info.required) {
 		if (!wrangler.defaults.has(name)) {
@@ -180,8 +176,8 @@ for (const [name, info] of envBindings) {
 			fail(`Env binding '${name}' is required but missing from [env.production] in wrangler.toml`);
 		}
 	}
-	// Optional bindings: silently allowed to be absent. If they appear
-	// in only one of the two envs, Rule 3 (parity) below catches it.
+// Optional bindings: silently allowed to be absent. If they appear
+// in only one of the two envs, Rule 3 (parity) below catches it.
 }
 
 // Rule 2: every wrangler-declared binding exists on Env.

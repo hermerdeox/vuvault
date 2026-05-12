@@ -51,27 +51,14 @@ migrations_dir = "migrations"
 binding = "VAULT_BLOBS"
 bucket_name = "vuvault-blobs-preview"
 
-# Rate-limiting bindings — REMOVED FROM WRANGLER.TOML for Pages compat.
-#
-# Wrangler 4.90 (April 2026) introduced strict validation on
-# `wrangler.toml` for Pages projects and rejects both `[build]` and
-# `[[unsafe.bindings]]` blocks. The Pages config schema does not
-# currently expose a TOML surface for ratelimit bindings — they must
-# be configured via the Cloudflare dashboard:
-#
-#   Cloudflare Pages > vuvault > Settings > Functions > Rate Limiting
-#
-# Configure three rate-limiters with these binding names and limits:
-#   - OPAQUE_REGISTER_LIMITER : 10 req / 60 s, key = client IP
-#   - OPAQUE_LOGIN_LIMITER    : 30 req / 60 s, key = client IP
-#   - BLOB_LIMITER            : 30 req / 60 s, key = accountId
-#
-# The SvelteKit API routes under `src/routes/api/` and the `Env`
-# interface in `src/lib/server/api/env.ts` declare these as OPTIONAL
-# bindings because Wrangler's Pages TOML schema cannot represent them.
-# Runtime behavior is controlled by `OPAQUE_RATE_LIMIT_MODE`: preview
-# fails open for local development, production fails closed until the
-# dashboard bindings exist.
+# Rate limiting is D1-backed for Pages compatibility. Wrangler's Pages
+# schema cannot represent Cloudflare Rate Limiting bindings, so
+# `src/lib/server/api/rate-limit-d1.ts` stores sliding-window counters
+# in AUTH_DB.rate_limits:
+#   - opaque-register : 10 req / 60 s, key = client IP
+#   - opaque-login    : 30 req / 60 s, key = client IP
+#   - blob            : 30 req / 60 s, key = accountId
+# Apply migrations before deploying API routes that call the limiter.
 
 # ============================================================
 # PRODUCTION ENV
@@ -102,9 +89,8 @@ migrations_dir = "migrations"
 binding = "VAULT_BLOBS"
 bucket_name = "vuvault-blobs-production"
 
-# Rate-limiters — see the explanatory comment in the [vars] section
-# above. Configure on the Cloudflare dashboard for the production
-# project; runtime fails closed until they're wired.
+# Rate limits use AUTH_DB.rate_limits; see the explanatory comment in
+# the default binding section above.
 
 # `[build]` block — REMOVED. Wrangler 4.90 Pages-config validation
 # rejects it. The build command for Pages comes from the dashboard
