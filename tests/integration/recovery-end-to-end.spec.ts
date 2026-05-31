@@ -7,9 +7,8 @@
  * implemented."
  *
  * Every recovery method MUST round-trip cleanly through the Vu0
- * crypto stack (v3 padded vault + accountSeed in account row +
- * capability-client cache). This suite exercises each method
- * end-to-end:
+ * crypto stack (v3 padded vault + accountSeed in account row).
+ * This suite exercises each method end-to-end:
  *
  *   1. Provision a v3 vault → save items → lock → unlock by Secret
  *      Key + Passkey (re-derived deterministic PRF).
