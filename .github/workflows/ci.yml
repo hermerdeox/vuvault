@@ -80,6 +80,31 @@ jobs:
         # surfaced on production traffic before this gate.
         run: node scripts/audit-bindings.mjs
 
+      - name: Audit-bindings Rule 4 self-test
+        # `scripts/audit-bindings.test.mjs` writes synthetic
+        # forbidden migrations into `migrations/`, runs audit-bindings,
+        # and asserts the V1-C2 metadata-minimization rule rejects
+        # them with the expected error messages. Catches the case
+        # where a future audit-bindings refactor accidentally
+        # loosens the rule.
+        run: node scripts/audit-bindings.test.mjs
+
+      - name: Generate CycloneDX SBOM
+        # `scripts/build-sbom.mjs` emits `sbom.json` from
+        # `package-lock.json`. The SBOM is uploaded as a build
+        # artifact for M4 audit firms to consume. Deterministic
+        # by design: same lockfile -> byte-identical output, so the
+        # SHA-384 printed in the step log can be cross-checked
+        # against the release-workflow SBOM.
+        run: npm run sbom
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.json
+          if-no-files-found: error
+
       - name: Compute SOURCE_DATE_EPOCH for reproducible build
         # `SOURCE_DATE_EPOCH` is the standard reproducible-build UNIX
         # timestamp env var. We pin it to the HEAD commit's author time
@@ -519,4 +544,135 @@ jobs:
           path: |
             wrangler-pages-dev.log
             playwright-report/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # Vu1 release probe job — runs `scripts/release-probe-vu1.mjs`
+  # against a local wrangler dev instance, mirroring the
+  # m3-sync-e2e pattern. Produces `.vu1-probe-passed-${SHA}`
+  # artifact for the release workflow's level-flip gate to
+  # consume.
+  #
+  # See `docs/verifications/2026-05-22-vu1-phase2.md` and
+  # `scripts/release-probe-vu1.mjs` for what each criterion
+  # measures.
+  #
+  # Expected output post Phase 2 + Phase 4 (the V1 closure set):
+  #   v1_c1 = pass          (Phase 4 §L07b shipped)
+  #   v1_c2 = pass          (Phase 2 §L08 shipped)
+  #   v1_c3 = pass          (Phase 4 §L07b shipped)
+  #   v0_c1 = expected_fail (design-only; L09cap not shipped)
+  #   v0_c2 = expected_fail (padding primitive shipped but
+  #                          saveItems wiring deferred to its
+  #                          own PR — see padding.ts header)
+  #
+  # The job itself succeeds when the artifact is produced; the
+  # gate (every V1-C* === pass) is enforced by the release
+  # workflow, not this job. CI does NOT block on the V1 flip;
+  # only deploys do.
+  vu1-probe-e2e:
+    name: vu1 probe e2e
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Cloudflare bundle for local Pages runtime
+        run: npm run build
+        env:
+          PUBLIC_BUNDLE_HASH: 9f4c7d2e8b16a4f122e0d5c83a7e91b4
+          PUBLIC_VAULT_VERSION: 0.1.0
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+          PUBLIC_M3_E2E_AUTH: 'true'
+          PUBLIC_SYNC_ORIGIN: http://localhost:8788
+
+      - name: Apply local D1 migrations (0001..0005, incl. metadata-min + blob-refs)
+        run: npx wrangler d1 migrations apply AUTH_DB --local
+
+      - name: Seed local OPAQUE identity
+        run: node scripts/seed-opaque-identity.mjs --env=local --rotate=true
+
+      - name: Write local Wrangler vars
+        run: |
+          cat > .dev.vars <<'EOF'
+          PUBLIC_BUNDLE_HASH=9f4c7d2e8b16a4f122e0d5c83a7e91b4
+          PUBLIC_VAULT_VERSION=0.1.0
+          PUBLIC_ENABLE_DEMO_AUTH=false
+          PUBLIC_M3_E2E_AUTH=true
+          PUBLIC_SYNC_ORIGIN=http://localhost:8788
+          OPAQUE_RATE_LIMIT_MODE=fail-open
+          EOF
+
+      - name: Start local Cloudflare Pages API
+        run: |
+          set -euo pipefail
+          npx wrangler pages dev .svelte-kit/cloudflare \
+            --port 8788 \
+            > wrangler-vu1-probe.log 2>&1 &
+          echo $! > wrangler-vu1-probe.pid
+          for i in {1..60}; do
+            if curl -fsS http://localhost:8788/api/capabilities >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::wrangler pages dev did not become ready"
+          sed -n '1,200p' wrangler-vu1-probe.log
+          exit 1
+
+      - name: Run Vu1 release probe
+        # The probe exits 1 when any V1-C* is not pass; that's
+        # the expected state today (Phase 4 not yet shipped).
+        # We tolerate exit 1 here because the artifact itself is
+        # the source of truth — the release workflow inspects
+        # the artifact, not this job's exit code.
+        run: |
+          set +e
+          PUBLIC_SYNC_ORIGIN=http://localhost:8788 \
+          RELEASE_SHA="${GITHUB_SHA}" \
+            node scripts/release-probe-vu1.mjs
+          probe_exit=$?
+          echo "release-probe-vu1 exited with code ${probe_exit}"
+          if [ ! -f .vu1-probe-passed ]; then
+            echo "::error::release-probe-vu1 did not produce .vu1-probe-passed artifact"
+            exit 1
+          fi
+
+      - name: Stop local Pages API
+        if: always()
+        run: |
+          if [ -f wrangler-vu1-probe.pid ]; then
+            kill "$(cat wrangler-vu1-probe.pid)" || true
+          fi
+
+      - name: Tag Vu1 probe artifact with SHA suffix
+        run: |
+          cp .vu1-probe-passed .vu1-probe-passed-${GITHUB_SHA}
+
+      - name: Upload Vu1 probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vu1-probe-passed-${{ github.sha }}
+          path: |
+            .vu1-probe-passed
+            .vu1-probe-passed-${{ github.sha }}
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Upload Vu1 server logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vu1-probe-e2e-logs
+          path: |
+            wrangler-vu1-probe.log
           retention-days: 7

@@ -19,8 +19,9 @@ const CAPS = {
 	opaque: true,
 	blobSync: true,
 	// L08 ECDH device pairing arrives in a follow-up PR within
-	// Tier 2; today the Worker only knows about devices through
-	// the `deviceId` claim attached to login.
+	// Tier 2. Post-0004 the Worker stores no per-device identifier
+	// at all — login mints a session token unbound to any device.
+	// See `docs/VU-LEVEL-MIGRATION-MAP.md` V1-C2.
 	deviceEnrollment: false,
 	// L09 CONIKS / AKD transparency log is Tier 3 (2028).
 	transparencyLog: false

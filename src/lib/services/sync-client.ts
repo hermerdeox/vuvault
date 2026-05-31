@@ -148,8 +148,19 @@ function isDocumentDeleteResponse(value: unknown): value is { blobId: string; de
 
 /**
  * Session bearer token issued by the Worker on successful KE3.
- * Caller stashes it (sessionStorage in the SPA, never localStorage)
- * and threads it through every blob op via `setSessionToken`.
+ *
+ * STORAGE: in-memory module closure ONLY. NOT sessionStorage, NOT
+ * localStorage, NOT IndexedDB. Lifetime is bounded to the JS
+ * execution context of this module — a hard reload drops it and
+ * forces the next OPAQUE login round-trip to re-mint. `lockSession`
+ * in vault-session.ts clears it via `setSessionToken(null)` and
+ * also fire-and-forgets `POST /api/opaque/logout` to invalidate the
+ * row server-side. The token never appears in DOM-accessible
+ * storage and never crosses a tab boundary.
+ *
+ * Threading it through every blob op happens implicitly via the
+ * `call()` helper below, which appends `Authorization: Bearer
+ * <token>` whenever `sessionToken !== null`.
  */
 let sessionToken: string | null = null;
 
@@ -197,6 +208,22 @@ async function call<T>(
 		};
 	}
 	clearTimeout(t);
+
+	// Vu1 / L08 Option (ii) groundwork: if the server emits a
+	// `Next-Token` response header, the previous session token has
+	// just been atomically retired in D1 and the client must switch
+	// to the new one BEFORE the next authenticated request. The
+	// header is 64-char hex (32 bytes) matching `newToken()` on the
+	// server. If the format is wrong, we ignore it — better to keep
+	// the existing token than break authentication on a malformed
+	// header.
+	//
+	// Rotation runs only for routes that opt in (today: /api/v2/*).
+	// v1 routes still operate against a single durable token.
+	const nextToken = res.headers.get('next-token');
+	if (nextToken && /^[0-9a-fA-F]{64}$/.test(nextToken) && sessionToken) {
+		sessionToken = nextToken;
+	}
 
 	let parsed: unknown;
 	try {
@@ -316,6 +343,30 @@ export async function opaqueLoginKE3(
 	);
 }
 
+/**
+ * Server-side revocation of the current session token. The Worker
+ * deletes the matching `sessions` row so an intercepted token stops
+ * working before its 1-hour TTL expires. Fire-and-forget: callers
+ * (notably `lockSession()`) must not block lock on a network round
+ * trip, and the response shape is intentionally trivial so a slow
+ * or failed call never leaves the UI hanging.
+ */
+export async function opaqueLogout(): Promise<SyncResult<{ revoked: boolean }>> {
+	if (!sessionToken) {
+		return { ok: true, value: { revoked: true } };
+	}
+	const result = await call<{ revoked: boolean }>(
+		'/api/opaque/logout',
+		{ method: 'POST', body: '{}' },
+		isLogoutResponse
+	);
+	return result;
+}
+
+function isLogoutResponse(value: unknown): value is { revoked: boolean } {
+	return isRecord(value) && isBoolean(value.revoked);
+}
+
 // --- Blob upload / fetch -------------------------------------------
 
 export async function uploadBlob(
@@ -422,4 +473,180 @@ export async function deleteDocumentBlob(
  */
 export function isSyncWired(): boolean {
 	return isSyncOriginConfigured();
+}
+
+// ---------------------------------------------------------------------
+// Phase 4 / §L07b — V2 blob + inventory client helpers.
+//
+// The v1 routes above (`/api/blobs/upload`, `/api/blobs/latest`,
+// `/api/documents/*`) keep working untouched during the migration
+// window per the dual-read discipline in the plan: "legacy v1 reads
+// via /api/blobs/* continue working during migration; new writes go
+// to v2." The helpers below are the v2 writers/readers; sync-client
+// callers (notably vault-session.ts) opt in by calling these
+// instead of the v1 routes.
+//
+// The privacy invariant: v2 endpoints carry no account binding in
+// the URL, the body, or the response. The server's rate-limit key
+// is derived from the session token (hashed) so even the rate-limit
+// table cannot reveal account identity from request logs.
+// ---------------------------------------------------------------------
+
+type V2BlobUpload = {
+	blobId: string; // UUID v4
+	nonce: string; // base64
+	ciphertext: string; // base64
+};
+
+type V2BlobResponse = {
+	blobId: string;
+	nonce: string;
+	ciphertext: string;
+	updatedAt: number;
+};
+
+function isV2BlobUploadResponse(
+	value: unknown
+): value is { blobId: string; updatedAt: number } {
+	return (
+		isRecord(value) &&
+		hasString(value, 'blobId') &&
+		hasNumber(value, 'updatedAt')
+	);
+}
+
+function isV2BlobResponse(value: unknown): value is V2BlobResponse {
+	return (
+		isRecord(value) &&
+		hasString(value, 'blobId') &&
+		hasString(value, 'nonce') &&
+		hasString(value, 'ciphertext') &&
+		hasNumber(value, 'updatedAt')
+	);
+}
+
+function isV2InvUploadResponse(
+	value: unknown
+): value is { addr: string; updatedAt: number } {
+	return (
+		isRecord(value) && hasString(value, 'addr') && hasNumber(value, 'updatedAt')
+	);
+}
+
+function isV2InvResponse(
+	value: unknown
+): value is { addr: string; nonce: string; ciphertext: string; updatedAt: number } {
+	return (
+		isRecord(value) &&
+		hasString(value, 'addr') &&
+		hasString(value, 'nonce') &&
+		hasString(value, 'ciphertext') &&
+		hasNumber(value, 'updatedAt')
+	);
+}
+
+export async function uploadV2Blob(
+	req: V2BlobUpload
+): Promise<SyncResult<{ blobId: string; updatedAt: number }>> {
+	return call<{ blobId: string; updatedAt: number }>(
+		`/api/v2/blobs/${encodeURIComponent(req.blobId)}`,
+		{
+			method: 'PUT',
+			body: JSON.stringify({ nonce: req.nonce, ciphertext: req.ciphertext })
+		},
+		isV2BlobUploadResponse
+	);
+}
+
+export async function fetchV2Blob(blobId: string): Promise<SyncResult<V2BlobResponse>> {
+	return call<V2BlobResponse>(
+		`/api/v2/blobs/${encodeURIComponent(blobId)}`,
+		{ method: 'GET' },
+		isV2BlobResponse
+	);
+}
+
+export async function deleteV2Blob(
+	blobId: string
+): Promise<SyncResult<{ blobId: string; deletedAt: number }>> {
+	return call<{ blobId: string; deletedAt: number }>(
+		`/api/v2/blobs/${encodeURIComponent(blobId)}`,
+		{ method: 'DELETE' },
+		isDocumentDeleteResponse
+	);
+}
+
+export async function uploadV2Inventory(req: {
+	addr: string;
+	nonce: string;
+	ciphertext: string;
+}): Promise<SyncResult<{ addr: string; updatedAt: number }>> {
+	return call<{ addr: string; updatedAt: number }>(
+		`/api/v2/inv/${encodeURIComponent(req.addr)}`,
+		{
+			method: 'PUT',
+			body: JSON.stringify({ nonce: req.nonce, ciphertext: req.ciphertext })
+		},
+		isV2InvUploadResponse
+	);
+}
+
+export async function fetchV2Inventory(
+	addr: string
+): Promise<SyncResult<{ addr: string; nonce: string; ciphertext: string; updatedAt: number }>> {
+	return call<{ addr: string; nonce: string; ciphertext: string; updatedAt: number }>(
+		`/api/v2/inv/${encodeURIComponent(addr)}`,
+		{ method: 'GET' },
+		isV2InvResponse
+	);
+}
+
+/**
+ * Dual-read shim for blob fetching.
+ *
+ * The migration to §L07b runs over a window measured in days, not
+ * seconds: existing accounts have data at the v1 path
+ * (`vaults/{accountId}/{seq}.bin`) and at the v1 document path
+ * (`vaults/{accountId}/documents/{uuid}.bin`); brand-new accounts
+ * write straight to v2. During the window any client may need to
+ * read either layout transparently.
+ *
+ * Strategy: try v2 first; on 404 fall back to v1. Both reads share
+ * the same auth path (the call() helper attaches the bearer token).
+ * Writes go to v2 only (vault-session.ts is the caller that decides
+ * which write path to use; this shim does not write).
+ *
+ * The legacy v1 `/api/blobs/latest` shape is whole-vault and
+ * fundamentally different from the v2 per-blob shape, so this
+ * helper is for DOCUMENT blob reads only. The whole-vault sync
+ * stays on the v1 path until the CRDT migration in a future phase.
+ */
+export async function fetchDocumentBlobDualRead(
+	blobId: string
+): Promise<SyncResult<DocumentBlobResponse>> {
+	const v2 = await fetchV2Blob(blobId);
+	if (v2.ok) {
+		return {
+			ok: true,
+			value: {
+				blobId: v2.value.blobId,
+				nonce: v2.value.nonce,
+				ciphertext: v2.value.ciphertext,
+				updatedAt: v2.value.updatedAt
+			}
+		};
+	}
+	// Only fall through to v1 on a genuine "not found" (server
+	// class). Any other failure (network, auth, 4xx validation, 5xx
+	// storage) is propagated as-is. We match the literal error
+	// strings the v2 GET handler emits — see
+	// `src/routes/api/v2/blobs/[uuid]/+server.ts`. A broad substring
+	// match would also catch unrelated messages (e.g., a future
+	// 'no <something>' validation error) and silently fall through
+	// to v1, masking real failures.
+	const NOT_FOUND_MESSAGES = new Set(['no blob']);
+	if (v2.reason !== 'server' || !NOT_FOUND_MESSAGES.has(v2.message)) {
+		return v2;
+	}
+	return fetchDocumentBlob(blobId);
 }

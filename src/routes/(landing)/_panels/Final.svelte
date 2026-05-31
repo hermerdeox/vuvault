@@ -28,7 +28,7 @@
 				The password manager 2030 needs. {PRICE}.
 			</span>
 			<span data-show="tech" data-vp-show="desktop"
-				>Read the whitepaper, audit the source, deploy the server. Or just use it — {PRICE}.</span
+				>Read the blueprint, audit the source, deploy the server. Or just use it — {PRICE}.</span
 			>
 			<span data-show="tech" data-vp-show="mobile">
 				Read it, audit it, deploy it. Or use it — {PRICE}.
@@ -81,7 +81,7 @@
 			<span>VuVault</span>
 		</div>
 		<div class="final-foot-links">
-			<a href={resolve('/blueprint')}>Whitepaper</a>
+			<a href={resolve('/blueprint')}>Blueprint</a>
 			<a href={resolve('/blueprint')}>Source model</a>
 			<a href={resolve('/blueprint')}>Architecture</a>
 			<a href={resolve('/recover')}>Recover</a>

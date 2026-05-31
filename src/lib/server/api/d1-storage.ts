@@ -3,9 +3,10 @@
  *
  * Maps the engine's storage interface onto the schema in
  * `migrations/0001_init.sql`. Account records persist; pending
- * registration and login state persist for ~30s and are GC'd by
- * either the next request that touches them or the scheduled
- * cleanup trigger (see `cleanup.ts`).
+ * registration and login state persist for ~30s, are filtered out
+ * by the `created_at` cutoff on read, and are eventually purged by
+ * the opportunistic sweep in [`cleanup.ts`](./cleanup.ts) which
+ * routes invoke via `maybeSweep()`.
  *
  * The `OpaqueStorage` contract uses `Uint8Array` for keys and blob
  * fields. D1 stores raw bytes via the `BLOB` column type, which the
@@ -28,11 +29,19 @@ import { OpaqueServerEngine } from './server-opaque';
 // the matching `D1Database` shape at request time.
 export type D1Database = {
 	prepare(query: string): D1PreparedStatement;
+	// D1's `batch` runs an array of prepared statements as a single
+	// SQLite transaction (all-or-nothing). Used by `rotateToken` in
+	// `auth-token.ts` for atomic mint-and-retire of bearer tokens.
+	// See `docs/TIER2-ARCHITECTURE.md` §L08 session-mint redesign.
+	batch(
+		statements: D1PreparedStatement[]
+	): Promise<Array<{ success: boolean; meta?: { changes?: number } }>>;
 };
 type D1PreparedStatement = {
 	bind(...values: unknown[]): D1PreparedStatement;
 	first<T = unknown>(): Promise<T | null>;
 	run(): Promise<{ success: boolean; meta?: { changes?: number } }>;
+	all<T = unknown>(): Promise<{ results: T[]; success: boolean }>;
 };
 
 function bytes(input: unknown): Uint8Array {

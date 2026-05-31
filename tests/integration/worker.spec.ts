@@ -92,10 +92,11 @@ class FakeD1 {
 			const session = this.sessions.get(args[0] as string);
 			if (!session) return null;
 			const account = this.accounts.get(session.account_id as string);
+			// Post-0004: the SELECT no longer requests `device_id`. The
+			// mock returns only the V1-C2-compliant columns.
 			return {
 				token: session.token,
 				account_id: session.account_id,
-				device_id: session.device_id,
 				expires_at: session.expires_at,
 				sequence_clock: Math.max(
 					Number(session.sequence_clock ?? 0),
@@ -156,12 +157,14 @@ class FakeD1 {
 			return 1;
 		}
 		if (sql.startsWith('INSERT INTO sessions')) {
+			// Post-0004: KE3 binds (token, account_id, expires_at,
+			// sequence_clock). No device_id column anywhere in the
+			// statement.
 			this.sessions.set(args[0] as string, {
 				token: args[0],
 				account_id: args[1],
-				device_id: args[2],
-				expires_at: args[3],
-				sequence_clock: args[4]
+				expires_at: args[2],
+				sequence_clock: args[3]
 			});
 			return 1;
 		}
@@ -180,11 +183,11 @@ class FakeD1 {
 			if (s) s.sequence_clock = Math.max(Number(s.sequence_clock ?? 0), Number(args[0]));
 			return s ? 1 : 0;
 		}
-		if (sql.startsWith('UPDATE accounts SET last_login_at')) {
-			// No-op for the mock — last_login_at isn't read by anything
-			// downstream of the test surface.
-			return 1;
-		}
+		// Post-0004: KE3 no longer issues `UPDATE accounts SET
+		// last_login_at`. If a regression re-introduces it, the
+		// statement will fall through here and return 0, which the
+		// production code path ignores — but the audit-bindings Rule 4
+		// would catch the migration drift first.
 		return 0;
 	}
 }
@@ -392,7 +395,6 @@ describe('Worker integration · session token + sequence clock', () => {
 		db.sessions.set('a'.repeat(64), {
 			token: 'a'.repeat(64),
 			account_id: 'acct-1',
-			device_id: 'device-1',
 			expires_at: Math.floor((Date.now() + 60_000) / 1000),
 			sequence_clock: 5
 		});
@@ -419,7 +421,6 @@ describe('Worker integration · session token + sequence clock', () => {
 		db.sessions.set('c'.repeat(64), {
 			token: 'c'.repeat(64),
 			account_id: 'acct-2',
-			device_id: 'device-2',
 			expires_at: Math.floor((Date.now() - 60_000) / 1000),
 			sequence_clock: 0
 		});

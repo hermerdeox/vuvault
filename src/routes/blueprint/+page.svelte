@@ -83,7 +83,8 @@
 			// Rekor publishing is wired in the release workflow with
 			// pinned cosign installer and OIDC keyless signing on
 			// every published artifact. Third-party audit still
-			// pending — see Vu Level 1 caveats in /privacy.
+			// pending — see Vu Level 2 caveats in /privacy (post the
+			// 2026-05-20 scale inversion: lower number = more private).
 			status: 'held',
 			statusNote: 'SHA-384 manifest + in-page verifier · Sigstore + Rekor keyless on every release'
 		},

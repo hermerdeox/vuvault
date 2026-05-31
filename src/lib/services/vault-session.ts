@@ -55,6 +55,7 @@ import { sha384, sha512 } from '@noble/hashes/sha2';
 import { deriveVaultKey, generateDeviceSalt } from '$lib/crypto/derive';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
 import { serializeItems, deserializeItems } from '$lib/crypto/vault-codec';
+import { padPlaintext, unpadPlaintext } from '$lib/crypto/padding';
 import {
 	wrapAesKey,
 	unwrapAesKey,
@@ -84,14 +85,26 @@ import {
 	fetchBlob,
 	hasSession,
 	isSyncWired,
-	setSessionToken
+	setSessionToken,
+	opaqueLogout
 } from './sync-client';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 
 /** The format version we emit for newly-provisioned vaults. */
-export const PROVISION_FORMAT_VERSION = 2;
+// Format version 3 introduces V0-C2 bucketed padding: every vault
+// blob's plaintext is padded up to the next power-of-two ≥ 256 bytes
+// (per `src/lib/crypto/padding.ts`) before AES-GCM seal. The original
+// length is recovered from a 4-byte BE prefix inside the padded
+// plaintext. The format version itself is in the AAD via `makeAad`,
+// so a v2-formatted envelope opened with v3 padding logic fails at
+// the AAD verification step — never at the unpad step.
+export const PROVISION_FORMAT_VERSION = 3;
 /** All format versions this build can decrypt. */
-export const SUPPORTED_FORMAT_VERSIONS = new Set([1, 2]);
+// Supported formats:
+//   v1 — legacy vaultKey-direct AES-GCM (read-only; upgrade-on-save).
+//   v2 — AES-key wrap under vaultKey + raw plaintext seal.
+//   v3 — AES-key wrap + V0-C2 bucketed-padding seal (this build provisions v3).
+export const SUPPORTED_FORMAT_VERSIONS = new Set([1, 2, 3]);
 
 const PRF_OUTPUT_LEN = 32;
 const SECRET_KEY_LEN = 32;
@@ -284,7 +297,13 @@ export async function syncNow(): Promise<SyncNowResult> {
 		const remoteWrapped = deserializeWrappedKey(remote.header);
 		const remoteAesKey = unwrapAesKey(vaultKey, account.deviceSalt, remoteWrapped);
 		try {
-			const remotePlaintext = openBlob(remoteAesKey, remote.nonce, remote.ciphertext, remoteAad);
+			const remotePlaintext = openBlob(
+				remoteAesKey,
+				remote.nonce,
+				remote.ciphertext,
+				remoteAad,
+				account.formatVersion
+			);
 			const remoteItems = deserializeItems(remotePlaintext);
 			await saveVault({
 				header: remote.header,
@@ -314,6 +333,39 @@ export async function syncNow(): Promise<SyncNowResult> {
 
 function zeroize(buf: Uint8Array | null): void {
 	if (buf) buf.fill(0);
+}
+
+/**
+ * Constant-time byte-equality. Returns true only when both arrays
+ * have the same length AND every corresponding byte is equal. Runs
+ * in time proportional to the longer input regardless of mismatch
+ * position so it cannot be used as a timing oracle on either
+ * length or first-mismatch.
+ */
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+	if (a.length !== b.length) return false;
+	let acc = 0;
+	for (let i = 0; i < a.length; i++) {
+		acc |= a[i]! ^ b[i]!;
+	}
+	return acc === 0;
+}
+
+/**
+ * Thrown by `rotateAuth` when the caller supplies a
+ * `currentMasterPasswordKey` whose derived vault key does NOT match
+ * the active in-memory vault key. UI code should catch this
+ * specifically and surface a "current password incorrect" message
+ * distinct from a generic rotation failure.
+ *
+ * The check is constant-time over the derived key, so no length /
+ * first-mismatch timing oracle leaks.
+ */
+export class CurrentMasterPasswordIncorrect extends Error {
+	constructor(message = 'Current master password is incorrect.') {
+		super(message);
+		this.name = 'CurrentMasterPasswordIncorrect';
+	}
 }
 
 const AAD_DOMAIN = new TextEncoder().encode('vuvault-vault-aad-v1');
@@ -367,10 +419,21 @@ function makeAad(
 function sealBlob(
 	key: Uint8Array,
 	plaintext: Uint8Array,
-	aad: Uint8Array
+	aad: Uint8Array,
+	formatVersion: number
 ): { nonce: Uint8Array; ciphertext: Uint8Array } {
 	const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
-	const ciphertext = gcm(key, nonce, aad).encrypt(plaintext);
+	// V0-C2 padding wiring (Phase A). Format-version v3+ pads the
+	// plaintext to the next power-of-two ≥ 256 bytes before sealing.
+	// Older formats (v1/v2) seal raw plaintext for backward compat.
+	const payload = formatVersion >= 3 ? padPlaintext(plaintext) : plaintext;
+	const ciphertext = gcm(key, nonce, aad).encrypt(payload);
+	if (payload !== plaintext) {
+		// padPlaintext returned a fresh buffer; zeroize it before
+		// dropping the reference so the padded form does not linger
+		// in memory.
+		payload.fill(0);
+	}
 	return { nonce, ciphertext };
 }
 
@@ -378,9 +441,23 @@ function openBlob(
 	key: Uint8Array,
 	nonce: Uint8Array,
 	ciphertext: Uint8Array,
-	aad: Uint8Array
+	aad: Uint8Array,
+	formatVersion: number
 ): Uint8Array {
-	return gcm(key, nonce, aad).decrypt(ciphertext);
+	const decrypted = gcm(key, nonce, aad).decrypt(ciphertext);
+	if (formatVersion < 3) return decrypted;
+	// V0-C2 padding inversion: recover the original plaintext from
+	// the padded buffer. unpadPlaintext returns an INDEPENDENTLY
+	// OWNED copy, so we can zeroize the padded buffer before
+	// returning.
+	try {
+		const out = unpadPlaintext(decrypted);
+		decrypted.fill(0);
+		return out;
+	} catch (err) {
+		decrypted.fill(0);
+		throw err;
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -448,6 +525,21 @@ export type SealedDocument = {
  * SHA-256 of the plaintext for integrity display. Requires the vault
  * to be unlocked — fails closed otherwise.
  */
+// Document blob format — Phase A V0-C2 wiring.
+//
+// Legacy (v0): raw plaintext, AES-GCM sealed. Ciphertext length =
+// plaintext length + GCM tag (16 bytes). The size-on-wire IS the
+// plaintext size up to a constant — a direct V0-C2 leak.
+//
+// V1 (NEW): prepended 1-byte version marker (0x01), then padded to
+// the next power-of-two ≥ 256 bytes via `padPlaintext`. The padded
+// buffer is what gets sealed. Ciphertext length is exactly the
+// bucket size + 16 (GCM tag) — bucketed across all documents.
+//
+// Open path tries v1 first (detected by power-of-two decrypted
+// length + version-byte sniff). Falls back to v0 for legacy reads.
+const DOCUMENT_FORMAT_V1 = 0x01;
+
 export async function sealDocument(
 	plaintext: Uint8Array,
 	opts: { blobId?: string } = {}
@@ -462,10 +554,21 @@ export async function sealDocument(
 	const blobId = opts.blobId ?? crypto.randomUUID();
 	const aad = makeDocAad(blobId, account.deviceSalt, account.credentialId);
 	const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
-	const ciphertext = gcm(aesKey, nonce, aad).encrypt(plaintext);
+	// V0-C2: prepend version marker, then pad the (versioned)
+	// plaintext to the next power-of-two ≥ 256 bytes.
+	const versioned = new Uint8Array(1 + plaintext.length);
+	versioned[0] = DOCUMENT_FORMAT_V1;
+	versioned.set(plaintext, 1);
+	const padded = padPlaintext(versioned);
+	const ciphertext = gcm(aesKey, nonce, aad).encrypt(padded);
 	const digest = sha256(plaintext);
 	let hex = '';
 	for (const b of digest) hex += b.toString(16).padStart(2, '0');
+	// Zeroize the intermediate buffers we own. The original `plaintext`
+	// is the caller's buffer; document-blobs.ts already zeroizes its
+	// copy after this call returns.
+	versioned.fill(0);
+	padded.fill(0);
 	return {
 		blobId,
 		nonce,
@@ -492,7 +595,30 @@ export async function openDocument(input: {
 		throw new Error('openDocument: account row missing');
 	}
 	const aad = makeDocAad(input.blobId, account.deviceSalt, account.credentialId);
-	return gcm(aesKey, input.nonce, aad).decrypt(input.ciphertext);
+	const decrypted = gcm(aesKey, input.nonce, aad).decrypt(input.ciphertext);
+	// V0-C2 unwrap: try the v1 (padded) format first. A v1 ciphertext
+	// decrypts to a power-of-two-length buffer (≥ 256) whose first
+	// post-padding-strip byte equals DOCUMENT_FORMAT_V1. If those
+	// conditions hold, return the unpadded payload (sans version
+	// byte). Otherwise the buffer is legacy v0 raw plaintext.
+	const len = decrypted.length;
+	const isBucket = len >= 256 && (len & (len - 1)) === 0;
+	if (isBucket) {
+		try {
+			const unpadded = unpadPlaintext(decrypted);
+			if (unpadded.length >= 1 && unpadded[0] === DOCUMENT_FORMAT_V1) {
+				const out = new Uint8Array(unpadded.length - 1);
+				out.set(unpadded.subarray(1));
+				unpadded.fill(0);
+				decrypted.fill(0);
+				return out;
+			}
+			unpadded.fill(0);
+		} catch {
+			// fall through to legacy interpretation
+		}
+	}
+	return decrypted;
 }
 
 /** Public hex SHA-256 helper for parity tests / UI integrity hashes. */
@@ -630,7 +756,7 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 			opts.credentialId,
 			header
 		);
-		const sealed = sealBlob(newAesKey, plaintext, aad);
+		const sealed = sealBlob(newAesKey, plaintext, aad, PROVISION_FORMAT_VERSION);
 		nonce = sealed.nonce;
 		ciphertext = sealed.ciphertext;
 	} catch (err) {
@@ -641,6 +767,13 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 		zeroize(prf);
 		throw err;
 	}
+
+	// V0-C1 / §L09cap groundwork: mint a fresh 32-byte accountSeed
+	// at vault provisioning. Persists as part of the account row;
+	// the Recovery Envelope path naturally restores it because the
+	// vault AES key opens the encrypted vault, which contains the
+	// account row.
+	const accountSeed = crypto.getRandomValues(new Uint8Array(32));
 
 	const now = Date.now();
 	try {
@@ -653,7 +786,8 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 				authMode: opts.authMode,
 				formatVersion: PROVISION_FORMAT_VERSION,
 				createdAt: now,
-				plan: opts.plan ?? 'free'
+				plan: opts.plan ?? 'free',
+				accountSeed
 			},
 			{ header, nonce, ciphertext, updatedAt: now }
 		);
@@ -661,6 +795,7 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 		zeroize(newVaultKey);
 		zeroize(newAesKey);
 		zeroize(prf);
+		zeroize(accountSeed);
 		throw err;
 	}
 
@@ -776,11 +911,11 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	let newAesKey: Uint8Array | null = null;
 	try {
 		if (v === 1) {
-			plaintext = openBlob(newVaultKey, vaultRow.nonce, vaultRow.ciphertext, aad);
+			plaintext = openBlob(newVaultKey, vaultRow.nonce, vaultRow.ciphertext, aad, 1);
 		} else {
 			const wrapped = deserializeWrappedKey(vaultRow.header);
 			newAesKey = unwrapAesKey(newVaultKey, account.deviceSalt, wrapped);
-			plaintext = openBlob(newAesKey, vaultRow.nonce, vaultRow.ciphertext, aad);
+			plaintext = openBlob(newAesKey, vaultRow.nonce, vaultRow.ciphertext, aad, v);
 		}
 	} catch (err) {
 		zeroize(newVaultKey);
@@ -821,7 +956,8 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 						newAesKey,
 						remote.nonce,
 						remote.ciphertext,
-						remoteAad
+						remoteAad,
+						account.formatVersion
 					);
 					const remoteItems = deserializeItems(remotePlaintext);
 					await saveVault({
@@ -880,8 +1016,11 @@ export async function openVaultWithRecoveryEnvelope(
 	}
 	const account = await getAccount();
 	if (!account) throw new Error('No account found');
-	if (account.formatVersion !== PROVISION_FORMAT_VERSION) {
-		throw new Error('Recovery Envelope requires a formatVersion 2 vault.');
+	// Recovery Envelope is supported for v2 and v3 vault formats. A
+	// v1 vault has no AES-key wrap (it used the raw vaultKey for
+	// AES-GCM) and therefore can never be recovered with this path.
+	if (account.formatVersion < 2) {
+		throw new Error('Recovery Envelope requires a formatVersion ≥ 2 vault.');
 	}
 	const vaultRow = await getVault();
 	if (!vaultRow) throw new Error('No vault found');
@@ -906,7 +1045,13 @@ export async function openVaultWithRecoveryEnvelope(
 		vaultRow.header
 	);
 	try {
-		const plaintext = openBlob(recoveredAesKey, vaultRow.nonce, vaultRow.ciphertext, aad);
+		const plaintext = openBlob(
+			recoveredAesKey,
+			vaultRow.nonce,
+			vaultRow.ciphertext,
+			aad,
+			account.formatVersion
+		);
 		const items = deserializeItems(plaintext);
 		zeroize(vaultKey);
 		zeroize(aesKey);
@@ -979,9 +1124,10 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 			previousAccount.deviceSalt,
 			previousAccount.credentialId,
 			vaultRow.header
-		)
+		),
+		previousAccount.formatVersion
 	);
-	const sealed = sealBlob(oldAesKey, plaintext, aad);
+	const sealed = sealBlob(oldAesKey, plaintext, aad, PROVISION_FORMAT_VERSION);
 	const now = Date.now();
 	const nextAccount: Omit<AccountRecord, 'id'> = {
 		deviceLabel: previousAccount.deviceLabel,
@@ -993,7 +1139,13 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		createdAt: previousAccount.createdAt,
 		plan: previousAccount.plan,
 		masterPasswordEnabled: false,
-		opaqueState: 'none'
+		opaqueState: 'none',
+		// Vu0 / §L09cap: preserve the long-term accountSeed across
+		// the recovery-rebind. The Recovery Envelope path opens the
+		// vault under the OLD aesKey, re-seals under the NEW vaultKey,
+		// but the accountSeed itself is an account-row field; we
+		// carry it forward verbatim.
+		accountSeed: previousAccount.accountSeed
 	};
 
 	await saveAccountAndVault(nextAccount, {
@@ -1070,18 +1222,28 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 		account.credentialId,
 		header
 	);
-	const sealed = sealBlob(activeAesKey, plaintext, aad);
+	const sealed = sealBlob(activeAesKey, plaintext, aad, PROVISION_FORMAT_VERSION);
 	zeroize(plaintext);
 	const writtenBlob: BlobBytes = {
 		header,
 		nonce: sealed.nonce,
 		ciphertext: sealed.ciphertext
 	};
+	// V0-C1 §L09cap backfill: existing accounts that pre-date the
+	// accountSeed introduction (Phase C) get one minted on first
+	// save after the new build is installed. The mint is one-shot;
+	// subsequent saves keep the existing seed.
+	const seedBackfill =
+		!account.accountSeed || account.accountSeed.length !== 32
+			? crypto.getRandomValues(new Uint8Array(32))
+			: null;
+
 	const updatedAt = Date.now();
-	if (upgrading) {
+	if (upgrading || seedBackfill) {
 		const nextAccount: AccountRecord = {
 			...account,
-			formatVersion: targetVersion
+			formatVersion: targetVersion,
+			accountSeed: seedBackfill ?? account.accountSeed
 		};
 		await saveExistingAccountAndVault(nextAccount, {
 			header,
@@ -1136,6 +1298,29 @@ export type RotateAuthInput = {
 	opaqueAccountId?: string;
 	opaqueServerId?: string;
 	opaqueClientId?: string;
+
+	/**
+	 * Argon2id-derived key from the CURRENT master password. REQUIRED
+	 * when the account currently has a master password enabled AND
+	 * the rotation changes the MP factor (`masterPasswordKey` is
+	 * `null` to disable, or a Uint8Array to replace).
+	 *
+	 * `rotateAuth` verifies it by re-deriving the current vault key
+	 * with all current factors and constant-time comparing against
+	 * the live in-memory vault key. On mismatch it throws
+	 * `CurrentMasterPasswordIncorrect`. This prevents a co-located
+	 * attacker — who has the user's Secret Key and a satisfied PRF
+	 * but does NOT know the master password — from stripping the MP
+	 * factor off an already-unlocked session.
+	 */
+	currentMasterPasswordKey?: Uint8Array;
+	/**
+	 * OPAQUE export key from a CURRENT successful OPAQUE login.
+	 * REQUIRED when the account currently has OPAQUE enrolled AND
+	 * the rotation changes the OPAQUE factor. Same constant-time
+	 * comparison semantics as `currentMasterPasswordKey`.
+	 */
+	currentOpaqueExportKey?: Uint8Array;
 };
 
 /**
@@ -1225,6 +1410,73 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		);
 	}
 
+	// Current-factor verification.
+	//
+	// When the rotation removes or replaces an already-enabled factor
+	// (master password and/or OPAQUE), the caller must prove they
+	// know the CURRENT value of that factor. We verify by deriving
+	// the current vault key with the supplied current factors and
+	// constant-time comparing it against the live in-memory vaultKey.
+	//
+	// The threat this closes: an attacker holding the user's Secret
+	// Key (paper backup, separate exfil) and able to approve one
+	// passkey prompt against an already-unlocked vault could
+	// otherwise pass `masterPasswordKey: null` and permanently strip
+	// MP without ever knowing it — exactly the MP factor's purpose
+	// is to defend against PRF + Secret Key both leaking.
+	const mpFactorChanging =
+		account.masterPasswordEnabled === true && nextMasterPasswordKey !== undefined;
+	const opaqueFactorChanging =
+		account.opaqueState === 'enrolled' && nextOpaqueExportKey !== undefined;
+
+	if (mpFactorChanging && !opts.currentMasterPasswordKey) {
+		throw new CurrentMasterPasswordIncorrect(
+			'rotateAuth: changing master password requires currentMasterPasswordKey'
+		);
+	}
+	if (opaqueFactorChanging && !opts.currentOpaqueExportKey) {
+		throw new Error(
+			'rotateAuth: changing OPAQUE requires currentOpaqueExportKey'
+		);
+	}
+
+	if (mpFactorChanging || opaqueFactorChanging) {
+		// Re-derive the CURRENT vault key with the factors the caller
+		// claims they hold. `account.formatVersion` is used so a v1
+		// account verifies under the v1 derivation rules (no OPAQUE
+		// mix-in even if currentOpaqueExportKey is provided). vaultKey
+		// is non-null here because rotateAuth's first guard rejected
+		// !isSessionActive() and TS would have narrowed `vaultKey` at
+		// `isSessionActive()`, but TS can't see through the function
+		// boundary — assert via the explicit `vaultKey!` below.
+		const candidateCurrentVaultKey = deriveVaultKey({
+			prfOutput: prf,
+			secretKey: opts.secretKey,
+			deviceSalt: account.deviceSalt,
+			masterPasswordKey: account.masterPasswordEnabled
+				? opts.currentMasterPasswordKey
+				: undefined,
+			opaqueExportKey:
+				account.opaqueState === 'enrolled' && account.formatVersion >= 2
+					? opts.currentOpaqueExportKey
+					: undefined,
+			version: account.formatVersion >= 2 ? 2 : 1
+		});
+		const matches = constantTimeEqual(candidateCurrentVaultKey, vaultKey!);
+		zeroize(candidateCurrentVaultKey);
+		if (!matches) {
+			// Order matters: MP mismatch is more user-actionable than
+			// OPAQUE mismatch, so report MP first when both could be
+			// the cause. A non-MP mismatch falls back to a generic
+			// Error to keep the typed surface small and the audit
+			// log unambiguous.
+			if (mpFactorChanging) {
+				throw new CurrentMasterPasswordIncorrect();
+			}
+			throw new Error('rotateAuth: currentOpaqueExportKey did not verify');
+		}
+	}
+
 	const newVaultKey = deriveVaultKey({
 		prfOutput: prf,
 		secretKey: opts.secretKey,
@@ -1254,7 +1506,13 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		account.credentialId,
 		currentRow.header
 	);
-	const plaintext = openBlob(aesKey, currentRow.nonce, currentRow.ciphertext, oldAad);
+	const plaintext = openBlob(
+		aesKey,
+		currentRow.nonce,
+		currentRow.ciphertext,
+		oldAad,
+		account.formatVersion
+	);
 
 	const newAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
 	const wrapped = wrapAesKey(newVaultKey, account.deviceSalt, newAesKey);
@@ -1266,7 +1524,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		account.credentialId,
 		newHeader
 	);
-	const sealed = sealBlob(newAesKey, plaintext, newAad);
+	const sealed = sealBlob(newAesKey, plaintext, newAad, PROVISION_FORMAT_VERSION);
 	zeroize(plaintext);
 
 	const now = Date.now();
@@ -1280,6 +1538,11 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		formatVersion: PROVISION_FORMAT_VERSION,
 		createdAt: account.createdAt,
 		plan: account.plan,
+
+		// Vu0 / §L09cap: preserve the long-term accountSeed across
+		// rotateAuth. The vaultKey changes (new MP / passkey / OPAQUE
+		// factors) but the per-account long-term identity does not.
+		accountSeed: account.accountSeed,
 
 		// Carry-over OR override based on the rotation request.
 		masterPasswordEnabled:
@@ -1342,6 +1605,16 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 }
 
 export function lockSession(): void {
+	// Fire-and-forget server-side revocation BEFORE we drop the
+	// token reference: opaqueLogout reads sessionToken from
+	// sync-client's module scope, so once setSessionToken(null)
+	// runs the network call would have no auth header to revoke
+	// with. We deliberately do not await — lock must be synchronous
+	// from the user's perspective, and an offline / slow logout
+	// must never block UI lock. The token also has a 1h server-side
+	// TTL backstop so a dropped request degrades to the pre-logout
+	// behavior, not a permanent leak.
+	void opaqueLogout().catch(() => undefined);
 	zeroize(vaultKey);
 	zeroize(aesKey);
 	setSessionToken(null);

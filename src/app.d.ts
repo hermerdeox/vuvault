@@ -27,9 +27,18 @@ declare global {
 				// + VAULT_BLOBS are required for /api/* to function.
 				// Rate limits are enforced through AUTH_DB by the D1
 				// sliding-window limiter in src/lib/server/api/rate-limit-d1.ts.
+				// OPAQUE_RATE_LIMIT_MODE controls the limiter's behavior
+				// on infrastructure failure (fail-open in preview,
+				// fail-closed in production).
 				AUTH_DB: D1Database;
 				VAULT_BLOBS: R2Bucket;
 				OPAQUE_SERVER_ID?: string;
+				OPAQUE_RATE_LIMIT_MODE?: 'fail-open' | 'fail-closed';
+
+				// AKD (Vu0 §L09 groundwork) — see env.ts for full docs.
+				AKD_SIGNING_KEY_HEX?: string;
+				AKD_ADMIN_TOKEN?: string;
+				AKD_EPOCH_CADENCE_MS?: string;
 			};
 			context: {
 				waitUntil(promise: Promise<unknown>): void;

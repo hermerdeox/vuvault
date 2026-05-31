@@ -12,6 +12,8 @@
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
 import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
+import { maybeSweep } from '$lib/server/api/cleanup';
+import { maybeGcAccount } from '$lib/server/api/r2-gc';
 import { jsonError, jsonOk, readJson, b64decode } from '$lib/server/api/http';
 import { authenticate, advanceSequenceClock } from '$lib/server/api/auth-token';
 
@@ -37,7 +39,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
@@ -101,10 +103,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	buf.set(ciphertext, off);
 
 	try {
+		// V1-C2: `deviceId` removed from R2 customMetadata. The
+		// `accountId` field remains here for the v1 routes only; v2
+		// routes (Phase 4) drop it. See
+		// `docs/VU-LEVEL-MIGRATION-MAP.md` V1-C1 / V1-C2.
 		await env.VAULT_BLOBS.put(objectKey, buf, {
 			customMetadata: {
 				accountId: session.accountId,
-				deviceId: session.deviceId,
 				sequenceClock: String(body.sequenceClock)
 			}
 		});
@@ -117,6 +122,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return jsonError(409, 'sequence clock not monotonic');
 	}
 
+	void maybeSweep(env.AUTH_DB).catch(() => undefined);
+	// Opportunistic R2 garbage collection. `body.sequenceClock` is
+	// the freshly-advanced high-water mark for this account, so any
+	// earlier vault blob (and any dormant document blob) is eligible
+	// for cleanup. Fire-and-forget: never blocks or fails the upload.
+	void maybeGcAccount(env, session.accountId, body.sequenceClock).catch(() => undefined);
 	return jsonOk({
 		updatedAt: Date.now(),
 		sequenceClock: body.sequenceClock

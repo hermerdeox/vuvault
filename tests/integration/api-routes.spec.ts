@@ -21,6 +21,7 @@ class FakeD1 {
 		const firstFn = <T>(args: unknown[]) => this.firstImpl<T>(sql, args);
 		const runFn = (args: unknown[]) => this.runImpl(sql, args);
 		return {
+			_sql: sql,
 			_args: [] as unknown[],
 			bind(...args: unknown[]) {
 				this._args = args;
@@ -35,16 +36,26 @@ class FakeD1 {
 			}
 		};
 	}
+	// Minimal batch — runs each prepared statement in order. Sufficient
+	// to test `rotateToken` which uses INSERT + DELETE atomically.
+	async batch(statements: Array<{ _sql: string; _args: unknown[] }>) {
+		const results = [];
+		for (const stmt of statements) {
+			const changes = this.runImpl(stmt._sql, stmt._args);
+			results.push({ success: true, meta: { changes } });
+		}
+		return results;
+	}
 
 	private firstImpl<T>(sql: string, args: unknown[]): T | null {
 		if (sql.includes('FROM sessions s JOIN accounts a')) {
 			const session = this.sessions.get(args[0] as string);
 			if (!session) return null;
 			const account = this.accounts.get(session.account_id as string);
+			// Post-0004: the SELECT no longer requests `device_id`.
 			return {
 				token: session.token,
 				account_id: session.account_id,
-				device_id: session.device_id,
 				expires_at: session.expires_at,
 				sequence_clock: Math.max(
 					Number(session.sequence_clock ?? 0),
@@ -84,6 +95,20 @@ class FakeD1 {
 			const session = this.sessions.get(args[1] as string);
 			if (session) session.sequence_clock = Math.max(Number(session.sequence_clock ?? 0), Number(args[0]));
 			return session ? 1 : 0;
+		}
+		// rotateToken: INSERT INTO sessions (token, account_id, expires_at, sequence_clock, created_at)
+		if (sql.startsWith('INSERT INTO sessions')) {
+			this.sessions.set(args[0] as string, {
+				token: args[0],
+				account_id: args[1],
+				expires_at: args[2],
+				sequence_clock: args[3]
+			});
+			return 1;
+		}
+		// rotateToken: DELETE FROM sessions WHERE token = ?
+		if (sql.startsWith('DELETE FROM sessions WHERE token')) {
+			return this.sessions.delete(args[0] as string) ? 1 : 0;
 		}
 		return 0;
 	}
@@ -201,7 +226,6 @@ function seedSession(db: FakeD1, token = 'a'.repeat(64), clock = 0): string {
 	db.sessions.set(token, {
 		token,
 		account_id: 'acct-1',
-		device_id: 'device-1',
 		expires_at: Math.floor((Date.now() + 60_000) / 1000),
 		sequence_clock: clock
 	});
@@ -218,10 +242,14 @@ describe('api route handlers', () => {
 		expect(await json(res)).toMatchObject({ ok: false, error: 'invalid request body' });
 	});
 
-	it('fails closed when the D1 rate-limit table is unavailable', async () => {
+	it('fails closed when the D1 rate-limit table is unavailable (production mode)', async () => {
 		const db = new FakeD1();
 		db.rateLimitsAvailable = false;
-		const testEnv = env({ AUTH_DB: db });
+		// Production mode: rate-limiter outage MUST translate to 503
+		// so an attacker cannot blow past quotas by triggering D1
+		// errors. The default fixture is `fail-open` (preview), so we
+		// override here to assert the production contract.
+		const testEnv = env({ AUTH_DB: db, OPAQUE_RATE_LIMIT_MODE: 'fail-closed' });
 		const res = await registerRequest(
 			event(
 				jsonRequest('/api/opaque/register/request', {
@@ -236,6 +264,30 @@ describe('api route handlers', () => {
 			ok: false,
 			error: 'rate limiter unavailable'
 		});
+	});
+
+	it('fails open when D1 rate-limit table is unavailable in preview mode', async () => {
+		const db = new FakeD1();
+		db.rateLimitsAvailable = false;
+		// Default fixture is `fail-open`. Even with a broken rate
+		// limit table, the request is accepted (it should then fail
+		// for a different reason — invalid body — proving the limiter
+		// did NOT short-circuit with 503).
+		const testEnv = env({ AUTH_DB: db });
+		const res = await registerRequest(
+			event(
+				jsonRequest('/api/opaque/register/request', {
+					clientId: 'alice',
+					request: 'AA=='
+				}),
+				testEnv
+			)
+		);
+		// Either 400 (passed the limiter, fell through to validation)
+		// or 500 (engine attempted to load identity from broken D1).
+		// Anything but 503 is acceptable here — the contract is "do
+		// not block the request because of the limiter".
+		expect(res.status).not.toBe(503);
 	});
 
 	it('requires a valid bearer token for blob upload', async () => {
@@ -614,5 +666,151 @@ describe('api route handlers', () => {
 				sequenceClock: 3
 			}
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// V1-C2 deep assertions: /api/v2/sessions/self
+// ---------------------------------------------------------------------------
+//
+// The release probe (`scripts/release-probe-vu1.mjs`) checks the
+// unauthenticated SHAPE of this endpoint (404→401 transition + no
+// device-correlating leakage in the error body). These tests cover
+// the authenticated invariants the release probe cannot: the
+// response body MUST contain ONLY {expiresAt, sequenceClock} and
+// MUST NOT carry deviceId, accountId, or any pairing/fingerprint
+// field; consecutive calls MUST rotate the bearer token (L08
+// Option ii groundwork); and the rotation MUST atomically retire
+// the old token in D1.
+
+describe('V1-C2 · /api/v2/sessions/self', () => {
+	it('requires authentication (no token → 401)', async () => {
+		const { GET: sessionsSelf } = await import(
+			'../../src/routes/api/v2/sessions/self/+server'
+		);
+		const db = new FakeD1();
+		db.accounts.set('acct-1', { account_id: 'acct-1', sequence_clock: 0 });
+		const testEnv = env({ AUTH_DB: db });
+		const res = await sessionsSelf(
+			event(
+				new Request('http://localhost/api/v2/sessions/self', { method: 'GET' }),
+				testEnv
+			)
+		);
+		expect(res.status).toBe(401);
+		const text = await res.text();
+		// V1-C2 invariant: error body MUST NOT name device-correlating
+		// fields. We treat their mere mention as a leak.
+		expect(text.toLowerCase()).not.toContain('device');
+		expect(text.toLowerCase()).not.toContain('last_login');
+		expect(text.toLowerCase()).not.toContain('paired');
+		expect(text.toLowerCase()).not.toContain('fingerprint');
+	});
+
+	it('returns only {expiresAt, sequenceClock} with a valid token', async () => {
+		const { GET: sessionsSelf } = await import(
+			'../../src/routes/api/v2/sessions/self/+server'
+		);
+		const db = new FakeD1();
+		const token = seedSession(db, 'a'.repeat(64), 42);
+		const testEnv = env({ AUTH_DB: db });
+		const res = await sessionsSelf(
+			event(
+				new Request('http://localhost/api/v2/sessions/self', {
+					method: 'GET',
+					headers: { authorization: `Bearer ${token}` }
+				}),
+				testEnv
+			)
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { ok: boolean; data: Record<string, unknown> };
+		expect(body.ok).toBe(true);
+
+		// EXACT shape assertion: the response data object MUST have
+		// these two keys and ONLY these two keys.
+		const keys = Object.keys(body.data).sort();
+		expect(keys).toEqual(['expiresAt', 'sequenceClock']);
+
+		// Forbidden keys MUST be absent.
+		const forbidden = [
+			'accountId',
+			'account_id',
+			'deviceId',
+			'device_id',
+			'token',
+			'lastLoginAt',
+			'last_login_at',
+			'paired_at',
+			'pairedAt',
+			'fingerprint',
+			'ip',
+			'ipAddress',
+			'userAgent',
+			'user_agent'
+		];
+		for (const k of forbidden) {
+			expect(body.data).not.toHaveProperty(k);
+		}
+
+		expect(typeof body.data.expiresAt).toBe('number');
+		expect(body.data.sequenceClock).toBe(42);
+	});
+
+	it('rotates the bearer token via Next-Token response header', async () => {
+		const { GET: sessionsSelf } = await import(
+			'../../src/routes/api/v2/sessions/self/+server'
+		);
+		const db = new FakeD1();
+		const origToken = seedSession(db, 'a'.repeat(64), 0);
+		const testEnv = env({ AUTH_DB: db });
+
+		// First call: should rotate, emit Next-Token, retire origToken.
+		const res1 = await sessionsSelf(
+			event(
+				new Request('http://localhost/api/v2/sessions/self', {
+					method: 'GET',
+					headers: { authorization: `Bearer ${origToken}` }
+				}),
+				testEnv
+			)
+		);
+		expect(res1.status).toBe(200);
+		const next1 = res1.headers.get('next-token');
+		expect(next1).toMatch(/^[0-9a-f]{64}$/);
+		expect(next1).not.toBe(origToken);
+
+		// The old token MUST be retired (no longer present in sessions).
+		expect(db.sessions.has(origToken)).toBe(false);
+		// The new token MUST be present.
+		expect(db.sessions.has(next1!)).toBe(true);
+
+		// Second call with the old token: MUST 401 (it's been retired).
+		const res2 = await sessionsSelf(
+			event(
+				new Request('http://localhost/api/v2/sessions/self', {
+					method: 'GET',
+					headers: { authorization: `Bearer ${origToken}` }
+				}),
+				testEnv
+			)
+		);
+		expect(res2.status).toBe(401);
+
+		// Second call with the NEW token: MUST 200 and again rotate.
+		const res3 = await sessionsSelf(
+			event(
+				new Request('http://localhost/api/v2/sessions/self', {
+					method: 'GET',
+					headers: { authorization: `Bearer ${next1}` }
+				}),
+				testEnv
+			)
+		);
+		expect(res3.status).toBe(200);
+		const next3 = res3.headers.get('next-token');
+		expect(next3).toMatch(/^[0-9a-f]{64}$/);
+		expect(next3).not.toBe(next1);
+		expect(next3).not.toBe(origToken);
 	});
 });

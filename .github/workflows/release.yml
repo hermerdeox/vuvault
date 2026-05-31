@@ -54,6 +54,38 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Validate required secrets and vars
+        # Fail-loud BEFORE any work happens. The build, signing, and
+        # deploy steps all assume these are set; without this gate a
+        # missing value used to fail several minutes in, after the
+        # two-pass reproducible build had already burned CI minutes.
+        # Production deploys to a real branch — refuse the run rather
+        # than leak partial state.
+        env:
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          MISSING=()
+          if [ -z "${PUBLIC_SYNC_ORIGIN:-}" ]; then
+            MISSING+=("vars.PUBLIC_SYNC_ORIGIN")
+          fi
+          if [ "${{ github.event_name }}" = "release" ]; then
+            if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+              MISSING+=("secrets.CLOUDFLARE_API_TOKEN")
+            fi
+            if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+              MISSING+=("secrets.CLOUDFLARE_ACCOUNT_ID")
+            fi
+          fi
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "::error::Release refused — missing required values: ${MISSING[*]}"
+            echo "::error::Set vars in Settings → Secrets and variables → Actions → Variables; secrets in Actions → Secrets."
+            exit 1
+          fi
+          echo "release-preflight: required vars/secrets present"
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
@@ -120,6 +152,120 @@ jobs:
           if [ ! -f .m3-e2e-passed ]; then
             echo "::error::.m3-e2e-passed artifact was not downloaded"
             exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # Vu1 release probe gate.
+      #
+      # The level-flip from CURRENT_LEVEL=2 to CURRENT_LEVEL=1 is a
+      # security-critical action. The release workflow MUST refuse to
+      # apply that flip unless the SHA being released carries a green
+      # Vu1 probe artifact (every V1-C* === pass).
+      #
+      # This step always runs and always downloads. It then inspects
+      # the artifact for two cases:
+      #
+      #   (case 1) The repo's CURRENT_LEVEL is still 2 today (post
+      #            Phase 2 / pre Phase 6 level-flip). In this case we
+      #            ACCEPT a partial artifact (some V1-C* may be
+      #            expected_fail) because the deploy does NOT change
+      #            the level claim. The artifact is informational.
+      #
+      #   (case 2) The repo's CURRENT_LEVEL is 1 (post level-flip).
+      #            In this case we REJECT the deploy if any V1-C* is
+      #            not exactly `pass`. The flip would be unsupported
+      #            if the probe regressed.
+      #
+      # The CURRENT_LEVEL is read from `src/lib/data/privacy-level.ts`
+      # at deploy time. The level-flip PR will edit that file from 2
+      # to 1; this step will then start enforcing case 2 on the very
+      # first deploy of that PR's merge.
+      - name: Download Vu1 probe artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh run download \
+            --repo "${{ github.repository }}" \
+            --name "vu1-probe-passed-${RELEASE_SHA}" \
+            --dir . || {
+              echo "::warning::vu1-probe-passed-${RELEASE_SHA} artifact not available"
+              echo "VU1_PROBE_AVAILABLE=false" >> "$GITHUB_ENV"
+              exit 0
+            }
+          if [ -f .vu1-probe-passed ]; then
+            echo "VU1_PROBE_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "VU1_PROBE_AVAILABLE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Gate level-flip on Vu1 probe artifact
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Extract CURRENT_LEVEL strictly from the actual `export const`
+          # declaration. Free-form `CURRENT_LEVEL = N` occurrences in
+          # docstring comments are NOT a source of truth — only the
+          # exported constant is. This single-line regex anchors on the
+          # `export const CURRENT_LEVEL` keyword sequence and captures
+          # the integer that follows.
+          CURRENT_LEVEL=$(grep -E 'export[[:space:]]+const[[:space:]]+CURRENT_LEVEL' \
+              src/lib/data/privacy-level.ts \
+            | head -1 \
+            | grep -oE '[0-9]+' \
+            | head -1)
+          if [ -z "${CURRENT_LEVEL:-}" ]; then
+            echo "::error::could not extract CURRENT_LEVEL from src/lib/data/privacy-level.ts"
+            exit 1
+          fi
+          echo "Repo's claimed CURRENT_LEVEL=${CURRENT_LEVEL}"
+
+          if [ "${VU1_PROBE_AVAILABLE}" != "true" ]; then
+            if [ "${CURRENT_LEVEL}" = "1" ] || [ "${CURRENT_LEVEL}" = "0" ]; then
+              echo "::error::CURRENT_LEVEL=${CURRENT_LEVEL} requires a Vu1 probe artifact; none was downloaded for ${RELEASE_SHA}"
+              exit 1
+            fi
+            echo "Pre-flip mode (CURRENT_LEVEL=${CURRENT_LEVEL}); probe artifact is informational only"
+            exit 0
+          fi
+
+          # Inspect every v1_c* AND v0_c* key. If CURRENT_LEVEL ≤ 1,
+          # every V1-C* MUST equal 'pass'. If CURRENT_LEVEL = 0,
+          # every V0-C* MUST ALSO equal 'pass'.
+          v1c1=$(awk -F'=' '/^v1_c1=/{print $2}' .vu1-probe-passed)
+          v1c2=$(awk -F'=' '/^v1_c2=/{print $2}' .vu1-probe-passed)
+          v1c3=$(awk -F'=' '/^v1_c3=/{print $2}' .vu1-probe-passed)
+          v0c1=$(awk -F'=' '/^v0_c1=/{print $2}' .vu1-probe-passed)
+          v0c2=$(awk -F'=' '/^v0_c2=/{print $2}' .vu1-probe-passed)
+          v0c3=$(awk -F'=' '/^v0_c3=/{print $2}' .vu1-probe-passed)
+          echo "Vu probe artifact:"
+          echo "  v1_c1=${v1c1}  v1_c2=${v1c2}  v1_c3=${v1c3}"
+          echo "  v0_c1=${v0c1}  v0_c2=${v0c2}  v0_c3=${v0c3}"
+
+          if [ "${CURRENT_LEVEL}" = "1" ] || [ "${CURRENT_LEVEL}" = "0" ]; then
+            for var in v1c1 v1c2 v1c3; do
+              val=$(eval echo "\${$var}")
+              if [ "${val}" != "pass" ]; then
+                echo "::error::CURRENT_LEVEL=${CURRENT_LEVEL} requires every V1-C criterion = pass; ${var}=${val}"
+                exit 1
+              fi
+            done
+          fi
+          if [ "${CURRENT_LEVEL}" = "0" ]; then
+            for var in v0c1 v0c2 v0c3; do
+              val=$(eval echo "\${$var}")
+              if [ "${val}" != "pass" ]; then
+                echo "::error::CURRENT_LEVEL=0 requires every V0-C criterion = pass; ${var}=${val}"
+                exit 1
+              fi
+            done
+            echo "Vu0 probe artifact green for CURRENT_LEVEL=0"
+          elif [ "${CURRENT_LEVEL}" = "1" ]; then
+            echo "Vu1 probe artifact green for CURRENT_LEVEL=1"
+          else
+            echo "Pre-flip mode (CURRENT_LEVEL=${CURRENT_LEVEL}); probe artifact accepted as informational"
           fi
 
       - name: Verify production runtime configuration
@@ -237,11 +383,49 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/seed-opaque-identity.mjs --env=production --rotate=false
 
+      - name: Verify Pages project production branch is `main`
+        # `wrangler pages deploy --branch=main` only applies the
+        # `[env.production]` bindings if the Pages dashboard's
+        # production branch is configured as `main`. A drift here
+        # would migrate production D1 (the migration step uses
+        # `--env production` explicitly) while binding the deployed
+        # Worker to preview's D1/R2 — silent failure. Refuse the
+        # deploy if the dashboard config doesn't match.
+        if: github.event_name == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # `wrangler pages project list` is the read path Pages
+          # supports across wrangler versions. Filter by project
+          # name and assert the production_branch is `main`.
+          PROJECT_JSON=$(npx wrangler pages project list --json 2>/dev/null || echo '[]')
+          PROD_BRANCH=$(node --input-type=module -e "
+            const list = JSON.parse(process.argv[1] || '[]');
+            const p = Array.isArray(list) ? list.find((x) => x.name === 'vuvault') : null;
+            console.log(p?.production_branch ?? '');
+          " "$PROJECT_JSON")
+          if [ -z "$PROD_BRANCH" ]; then
+            echo "::warning::Could not introspect Pages project production branch (wrangler version may not expose it). Continuing — verify manually that the dashboard's production branch is 'main'."
+          elif [ "$PROD_BRANCH" != "main" ]; then
+            echo "::error::Pages project 'vuvault' production_branch is '$PROD_BRANCH', not 'main'. Deploy aborted — [env.production] bindings would not apply. Fix in Cloudflare dashboard: Pages → vuvault → Settings → Builds & deployments → Production branch."
+            exit 1
+          else
+            echo "pages-project: production_branch=main confirmed"
+          fi
+
       - name: Deploy to Cloudflare Pages
         # The deploy step is gated on `release` (tagged release) — a
         # workflow_dispatch run produces artifacts but does NOT push to
         # production. To dry-run a deploy, target a `--branch=preview`
         # via a separate workflow.
+        #
+        # `wrangler pages deploy` does not accept --env directly;
+        # production binding selection happens via the `--branch=main`
+        # mapping verified in the previous step. Migrations and
+        # OPAQUE-identity seeding above explicitly use
+        # `--env production` to target the right D1 instance.
         if: github.event_name == 'release'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -258,11 +442,14 @@ jobs:
         if: github.event_name == 'release'
         env:
           PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          PUBLIC_BUNDLE_HASH: ${{ env.PUBLIC_BUNDLE_HASH }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const origin = process.env.PUBLIC_SYNC_ORIGIN;
+          const expectedBundleHash = process.env.PUBLIC_BUNDLE_HASH;
           if (!origin) throw new Error('PUBLIC_SYNC_ORIGIN is empty');
+          if (!expectedBundleHash) throw new Error('PUBLIC_BUNDLE_HASH is empty');
 
           function assertHeader(res, name, expected) {
             const actual = res.headers.get(name);
@@ -330,14 +517,44 @@ jobs:
             'GET'
           );
 
+          // Bundle-hash check: fetch the live bundle manifest and
+          // compute its SHA-384. The aggregate digest is the hash of
+          // the manifest text itself (NOT a field inside it) — same
+          // computation `scripts/build-manifest.mjs` performs at build
+          // time and `verifyBundleIntegrity()` performs in-browser at
+          // every unlock. A mismatch means a partial deploy or a CDN
+          // cache miss is serving an older bundle while the manifest
+          // path claims the new hash; in-browser verification would
+          // then refuse to unlock the vault. We'd rather fail the
+          // release than ship a vault nobody can open.
+          const { createHash } = await import('node:crypto');
+          const manifestRes = await fetch(`${origin}/_app/immutable/bundle-manifest.json`, {
+            cache: 'no-store'
+          });
+          if (!manifestRes.ok) {
+            throw new Error(`bundle-manifest.json fetch returned ${manifestRes.status}`);
+          }
+          const manifestBytes = new Uint8Array(await manifestRes.arrayBuffer());
+          const liveAggregate = createHash('sha384').update(manifestBytes).digest('hex');
+          if (liveAggregate !== expectedBundleHash) {
+            throw new Error(
+              `bundle-manifest mismatch — live=${liveAggregate} expected=${expectedBundleHash}. Partial deploy or CDN serving stale bundle.`
+            );
+          }
+          console.log(`post-deploy-smoke: bundle-hash OK (${liveAggregate.slice(0, 16)}\u2026)`);
+
           // Burst rate-limit probe: production sets
-          // OPAQUE_REGISTER_LIMITER to 10 req / 60 s per IP. Issue 12
-          // shape-valid (but cryptographically nonsense) requests in
-          // parallel; at least one MUST come back 429. If the dashboard
-          // limiter is missing, production fail-closed returns 503 —
-          // also acceptable as a positive signal that the gate is wired
+          // OPAQUE_RATE_LIMIT_MODE='fail-closed' in [env.production.vars]
+          // (see wrangler.toml). The D1-backed sliding-window limiter
+          // (migrations/0003_rate_limits.sql +
+          // src/lib/server/api/rate-limit-d1.ts) caps OPAQUE_REGISTER
+          // at 10 req / 60 s per IP. Issue 12 shape-valid (but
+          // cryptographically nonsense) requests in parallel; at
+          // least one MUST come back 429. If the D1 table or migration
+          // is missing, production fail-closed returns 503 — also
+          // acceptable as a positive signal that the gate is wired
           // and refusing traffic. Anything else (e.g. all 400s) means
-          // the limiter binding silently dropped from the dashboard.
+          // the limiter is mis-configured or bypassed.
           const burst = await Promise.all(
             Array.from({ length: 12 }, () =>
               fetch(`${origin}/api/opaque/register/request`, {
@@ -354,10 +571,27 @@ jobs:
           const sawLimited = burst.some((s) => s === 429 || s === 503);
           if (!sawLimited) {
             throw new Error(
-              `rate-limit burst probe never returned 429/503; got [${burst.join(',')}]. Verify OPAQUE_REGISTER_LIMITER is wired in the Cloudflare dashboard.`
+              `rate-limit burst probe never returned 429/503; got [${burst.join(',')}]. Verify (a) migrations/0003_rate_limits.sql was applied to production AUTH_DB, (b) OPAQUE_RATE_LIMIT_MODE='fail-closed' is set in wrangler.toml [env.production.vars], and (c) applyRateLimit(env, ...) is wired in src/routes/api/opaque/register/request/+server.ts.`
             );
           }
           console.log(
-            `post-deploy-smoke: OK (blob upload ${blobUploadStatus}, blob latest ${blobLatestStatus}, document ${documentStatus}, register burst ${burst.join(',')})`
+            `post-deploy-smoke: route gates OK (blob upload ${blobUploadStatus}, blob latest ${blobLatestStatus}, document ${documentStatus}, register burst ${burst.join(',')})`
           );
           NODE
+
+      - name: Post-deploy OPAQUE round-trip probe
+        # Stronger than the rate-limit burst above: actually issues a
+        # real OPRF blinded registration request via
+        # `@structured-id/opaque` and asserts the server returns a
+        # properly-shaped response. Proves D1 reachable, server_identity
+        # seeded, OPAQUE library loaded, and the login route returns
+        # the documented 401 (not 5xx) for unknown clientIds.
+        #
+        # See scripts/release-probe-opaque.mjs for what each probe
+        # asserts and why a full register-then-login round-trip is left
+        # to the gated m3-sync-e2e CI suite.
+        if: github.event_name == 'release'
+        env:
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/release-probe-opaque.mjs

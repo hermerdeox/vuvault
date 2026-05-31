@@ -26,6 +26,19 @@ PUBLIC_M3_E2E_AUTH = "false"
 # Preview/local development cannot receive Pages dashboard rate-limit
 # bindings, so it stays fail-open. Production pins this to fail-closed.
 OPAQUE_RATE_LIMIT_MODE = "fail-open"
+# OPAQUE serverIdentity for AKE transcripts. Preview deliberately uses
+# a distinct value so a preview's OPAQUE records cannot be replayed
+# against production. Production overrides below.
+OPAQUE_SERVER_ID = "preview.vuvault.app"
+# AKD (Auditable Key Directory) epoch cadence in milliseconds.
+# 1 hour for tests/dev so capability rotation is observable in a
+# single test run; production pins it to 24h via the production
+# block below.
+AKD_EPOCH_CADENCE_MS = "3600000"
+# AKD_SIGNING_KEY_HEX and AKD_ADMIN_TOKEN are SECRETS — managed via
+# `wrangler pages secret put` (production) or `.dev.vars` (local).
+# They are NOT declared here; the Env interface marks them optional
+# so local dev with placeholder keys keeps working.
 
 # D1 binding — OPAQUE record storage + sessions + device pairings.
 # Local development uses Wrangler's auto-provisioned local SQLite
@@ -69,6 +82,17 @@ PUBLIC_VAULT_VERSION = "0.1.0"
 PUBLIC_ENABLE_DEMO_AUTH = "false"
 PUBLIC_M3_E2E_AUTH = "false"
 OPAQUE_RATE_LIMIT_MODE = "fail-closed"
+# Pinned production OPAQUE serverIdentity. Must differ from the
+# preview value above so OPAQUE AKE transcripts produced in preview
+# cannot be replayed against production accounts (the suite mixes
+# the server identity into the KE2/KE3 transcript hash). Rotating
+# this value invalidates every existing registration — treat it as
+# part of the long-lived server identity, not a deploy knob.
+OPAQUE_SERVER_ID = "vuvault.app"
+# AKD epoch cadence — production rotates capabilities once per 24h
+# (= 86_400_000 ms). Shorter cadences increase D1 churn; longer
+# cadences widen the window in which a single capability is reusable.
+AKD_EPOCH_CADENCE_MS = "86400000"
 # `PUBLIC_BUNDLE_HASH` and `PUBLIC_SYNC_ORIGIN` are injected at deploy
 # time by `.github/workflows/release.yml`. We deliberately do NOT
 # bake them into this file so a manual `wrangler pages deploy`

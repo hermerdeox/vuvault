@@ -53,6 +53,46 @@ We do **not** use:
 
 ## Threat model
 
+> **2026-05-22 Phase 2 update.** The session-mint redesign that
+> ships with `migrations/0004_metadata_minimization.sql` closes the
+> `V1-C2` criterion in
+> [`docs/VU-LEVEL-MIGRATION-MAP.md`](./VU-LEVEL-MIGRATION-MAP.md):
+> the server no longer stores per-device identifiers
+> (`sessions.device_id`, `accounts.last_login_at`, and the
+> `device_pairings` table are dropped).
+>
+> **2026-05-25 Vu0 full-crypto update.** All three V0-C* criteria
+> close in this build:
+>
+> - **V0-C1** unlinkable routing identifiers — AKD epochs publish
+>   a Merkle root with per-epoch Ed25519-VRF + Ed25519 signature.
+>   §L09cap capability handles derive from `accountSeed` via
+>   RFC 9497 VOPRF (Ristretto255). The `X-Vu0-Capability` header
+>   is accepted on every V2 route alongside legacy Bearer auth.
+>   Different-epoch capabilities for the same accountSeed are
+>   provably unlinkable (see `voprf.test.ts > V0-C1
+>   unlinkability`).
+>
+> - **V0-C2** bucketed blob sizes — vault format version 3 wires
+>   `padPlaintext`/`unpadPlaintext` into seal/open. Document blobs
+>   carry a 1-byte v1 marker inside the AAD-bound plaintext so
+>   legacy unpadded reads still work transparently. Ciphertext
+>   lengths are powers of two ≥ 256 + the AES-GCM tag.
+>
+> - **V0-C3** no account-existence oracle — `/api/opaque/login/ke1`
+>   performs dummy OPRF work on the unknown-clientId path so
+>   response timing closely matches the existing-account path.
+>   Error message is the generic `"invalid login request"` rather
+>   than the legacy `"unknown clientId"` string.
+>
+> **Residual gap:** the OPAQUE handshake protocol still requires
+> a stable per-account identifier to load the envelope. The Vu0
+> claim in this build is: **"after OPAQUE login, the server
+> cannot link a session's subsequent requests to the account
+> that logged in."** Full per-handshake unlinkability requires a
+> Tier-3+ ZK-proof layer. See
+> [`docs/verifications/2026-05-26-vu0-uplift.md`](./verifications/2026-05-26-vu0-uplift.md).
+
 ### Adversaries we defend against
 
 **A1. Passive network observer.** Defeated by TLS 1.3 + HSTS + OPAQUE.

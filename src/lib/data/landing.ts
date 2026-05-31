@@ -39,14 +39,13 @@ export const COMPARE_HEADERS = [
 
 export const COMPARE_ROWS: CompareRow[] = [
 	{
-		// Client-side OPAQUE (RFC 9807) is shipped behind a facade with
-		// a mock in-process server (Milestone 2). The real cross-origin
-		// server lands with the Tier-2 sync ship — the *guarantee* is
-		// architectural today, the deployment that exercises it is
-		// roadmap-bound.
+		// OPAQUE (RFC 9807) shipped end-to-end in M3 — the SvelteKit
+		// Worker stores the registration envelope in D1, never any
+		// password equivalent. The 12-burst rate-limit probe in
+		// release.yml exercises this on every deploy.
 		label: 'Server cannot see master password',
-		sub: 'OPAQUE / aPAKE — Tier 2 deployment',
-		cells: ['tier-2', 'no', 'no', 'no', 'partial']
+		sub: 'OPAQUE / aPAKE · D1-backed · shipped M3',
+		cells: ['yes', 'no', 'no', 'no', 'partial']
 	},
 	{
 		label: 'Post-quantum vault encryption',
@@ -80,12 +79,12 @@ export const COMPARE_ROWS: CompareRow[] = [
 		cells: ['tier-3', 'no', 'no', 'no', 'no']
 	},
 	{
-		// SHA-384 manifest + in-page verifier are shipped today
-		// (`scripts/build-manifest.mjs` + `verifyBundleIntegrity()`).
-		// Sigstore Rekor publishing lands with Tier 2 release tooling.
+		// SHA-384 manifest + in-page verifier + Sigstore Rekor keyless
+		// publishing all shipped in M3. Two-pass reproducible build
+		// asserted in CI (`scripts/verify-reproducible.mjs`).
 		label: 'Reproducible builds + transparency',
-		sub: 'SHA-384 manifest now · Rekor publish Tier 2',
-		cells: ['partial', 'no', 'partial', 'partial', 'no']
+		sub: 'SHA-384 manifest + Sigstore Rekor on every release',
+		cells: ['yes', 'no', 'partial', 'partial', 'no']
 	},
 	{
 		// BYO storage requires the Tier-2 sync server.
@@ -156,8 +155,8 @@ export const STACK_LAYERS_TECH: StackLayer[] = [
 		name: 'OPAQUE',
 		role: 'aPAKE — server never sees password equivalents',
 		prim: 'RFC 9807',
-		tag: 'partial',
-		tagText: 'Client + mock server'
+		tag: 'shipped',
+		tagText: 'Shipped · D1-backed'
 	},
 	{
 		num: 'L02',
@@ -188,8 +187,8 @@ export const STACK_LAYERS_TECH: StackLayer[] = [
 		name: 'Reproducible builds + Sigstore',
 		role: 'SHA-384 manifest verified in-page; Rekor entry per release',
 		prim: 'SLSA L3 · Sigstore',
-		tag: 'partial',
-		tagText: 'Manifest now · Rekor Tier 2'
+		tag: 'shipped',
+		tagText: 'Shipped · Rekor keyless'
 	},
 	{
 		num: 'L06',

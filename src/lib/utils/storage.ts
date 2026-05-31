@@ -63,6 +63,24 @@ export interface AccountRecord {
 	 * so a future cost-tuning never invalidates an existing vault.
 	 */
 	masterPasswordParams?: Argon2idStoredParams;
+
+	/**
+	 * Vu0 / §L09cap groundwork — `accountSeed` is a 32-byte
+	 * cryptographically random secret minted at vault provisioning.
+	 * It is the long-term identity that the per-epoch VOPRF
+	 * capability handles derive from. Crucially:
+	 *
+	 *   - Generated client-side; never sent to the server in clear.
+	 *   - Recoverable via the Recovery Envelope path (the vault
+	 *     AES key opens the encrypted vault, which contains the
+	 *     account row including `accountSeed`).
+	 *   - Zeroized on `lockSession` — see vault-session.ts.
+	 *
+	 * Optional at the type level for backward compatibility with
+	 * pre-Phase-C accounts; those are backfilled on first
+	 * `saveItems` after a Phase C-or-later build is installed.
+	 */
+	accountSeed?: Uint8Array;
 }
 
 export interface VaultBlob {
@@ -208,7 +226,12 @@ const RECOVERY_ENVELOPE_VERSION = 1;
  * the hybrid X25519 + ML-KEM-1024 envelope, with the wrapped bytes
  * living in `VaultBlob.header`.
  */
-const KNOWN_FORMAT_VERSIONS = new Set([1, 2]);
+// v1: legacy vaultKey-direct AES-GCM (deprecated; read-only).
+// v2: AES-key wrap under vaultKey + raw plaintext seal.
+// v3: AES-key wrap under vaultKey + V0-C2 bucketed-padding seal
+//     (`src/lib/crypto/padding.ts` `padPlaintext`/`unpadPlaintext`).
+//     See `PROVISION_FORMAT_VERSION` in `src/lib/services/vault-session.ts`.
+const KNOWN_FORMAT_VERSIONS = new Set([1, 2, 3]);
 
 function isUint8Array(v: unknown): v is Uint8Array {
 	return v instanceof Uint8Array;
@@ -298,6 +321,13 @@ export function validateAccountRow(rec: unknown): asserts rec is AccountRecord {
 			typeof params.tagLength !== 'number'
 		) {
 			throw new Error('Account.masterPasswordParams required when MPK enabled');
+		}
+	}
+
+	// --- Vu0 §L09cap optional field ---
+	if (r.accountSeed !== undefined) {
+		if (!isUint8Array(r.accountSeed) || r.accountSeed.length !== 32) {
+			throw new Error('Account.accountSeed must be a 32-byte Uint8Array');
 		}
 	}
 }

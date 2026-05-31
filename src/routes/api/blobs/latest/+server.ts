@@ -25,7 +25,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
 
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const prefix = `vaults/${session.accountId}/`;

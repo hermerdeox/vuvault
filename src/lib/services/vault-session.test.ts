@@ -74,7 +74,8 @@ import {
 	PROVISION_FORMAT_VERSION,
 	sealDocument,
 	openDocument,
-	sha256Hex
+	sha256Hex,
+	CurrentMasterPasswordIncorrect
 } from './vault-session';
 import {
 	db,
@@ -538,11 +539,13 @@ describe('vault-session — formatVersion 1 → 2 migration', () => {
 		expect(accountRow?.formatVersion).toBe(PROVISION_FORMAT_VERSION);
 		expect(vaultRow?.header.length).toBeGreaterThan(0);
 
-		// Lock and re-open — now via the v2 branch.
+		// Lock and re-open — now via the v3 branch (saveItems
+		// upgrades to PROVISION_FORMAT_VERSION which is v3 post-
+		// Phase-A V0-C2 padding wiring).
 		lockSession();
 		const reopened = await openVault({ secretKey: SECRET_KEY });
 		expect(reopened).toHaveLength(2);
-		expect(currentFormatVersion()).toBe(2);
+		expect(currentFormatVersion()).toBe(PROVISION_FORMAT_VERSION);
 		expect(reopened.map((i) => i.title).sort()).toEqual(['fresh', 'old-login']);
 	});
 
@@ -597,7 +600,7 @@ describe('vault-session — formatVersion 1 → 2 migration', () => {
 		expect(after?.masterPasswordParams?.tagLength).toBe(32);
 	});
 
-	it('a v2-provisioned vault stays v2 across save → lock → unlock', async () => {
+	it('a freshly provisioned vault stays at PROVISION_FORMAT_VERSION across save → lock → unlock', async () => {
 		const credentialId = freshCredentialId();
 		const deviceSalt = generateDeviceSalt();
 		const prfOutput = (await evaluatePRF({
@@ -630,7 +633,7 @@ describe('vault-session — formatVersion 1 → 2 migration', () => {
 		lockSession();
 		const reopened = await openVault({ secretKey: SECRET_KEY });
 		expect(reopened).toHaveLength(1);
-		expect(currentFormatVersion()).toBe(2);
+		expect(currentFormatVersion()).toBe(PROVISION_FORMAT_VERSION);
 	});
 
 	it('rejects an account row with an unknown formatVersion at unlock time', async () => {
@@ -769,7 +772,8 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 		await rotateAuth({
 			prfOutput,
 			secretKey: SECRET_KEY,
-			masterPasswordKey: null
+			masterPasswordKey: null,
+			currentMasterPasswordKey: mpk
 		});
 		const accAfter = await db.account.get('singleton');
 		expect(accAfter?.masterPasswordEnabled).toBe(false);
@@ -788,6 +792,126 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 				secretKey: SECRET_KEY
 			})
 		).rejects.toThrow(/must be unlocked/);
+	});
+
+	it('rejects MP disable when currentMasterPasswordKey is missing', async () => {
+		// Set up an MPK-enabled account exactly the way the "disables a
+		// previously-enabled master password" test above does — then attempt
+		// to disable without supplying the current MPK. The new gate in
+		// rotateAuth must throw CurrentMasterPasswordIncorrect rather than
+		// silently stripping the factor.
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({
+			credentialId,
+			salt: deviceSalt
+		})) as Uint8Array;
+		const mpk = new Uint8Array(32);
+		mpk.fill(0x77);
+		await provisionVault({
+			deviceLabel: 'rotate-disable-missing',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt,
+			masterPasswordKey: mpk
+		});
+		const acc = await db.account.get('singleton');
+		if (acc) {
+			acc.masterPasswordEnabled = true;
+			acc.masterPasswordSalt = new Uint8Array(16).fill(0x88);
+			acc.masterPasswordParams = {
+				memoryKiB: 1024,
+				iterations: 2,
+				parallelism: 1,
+				tagLength: 32
+			};
+			await db.account.put(acc);
+		}
+		await saveItems([
+			{
+				id: 'i1',
+				kind: 'note',
+				title: 'mpk',
+				noteBody: 'protect',
+				createdAt: 1,
+				updatedAt: 1
+			}
+		]);
+
+		await expect(
+			rotateAuth({
+				prfOutput,
+				secretKey: SECRET_KEY,
+				masterPasswordKey: null
+				// currentMasterPasswordKey deliberately omitted
+			})
+		).rejects.toBeInstanceOf(CurrentMasterPasswordIncorrect);
+
+		// Account row must be UNCHANGED — disable never landed.
+		const accAfter = await db.account.get('singleton');
+		expect(accAfter?.masterPasswordEnabled).toBe(true);
+		expect(accAfter?.masterPasswordSalt).toBeDefined();
+	});
+
+	it('rejects MP disable when currentMasterPasswordKey is wrong', async () => {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({
+			credentialId,
+			salt: deviceSalt
+		})) as Uint8Array;
+		const mpk = new Uint8Array(32);
+		mpk.fill(0x99);
+		await provisionVault({
+			deviceLabel: 'rotate-disable-wrong',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt,
+			masterPasswordKey: mpk
+		});
+		const acc = await db.account.get('singleton');
+		if (acc) {
+			acc.masterPasswordEnabled = true;
+			acc.masterPasswordSalt = new Uint8Array(16).fill(0xaa);
+			acc.masterPasswordParams = {
+				memoryKiB: 1024,
+				iterations: 2,
+				parallelism: 1,
+				tagLength: 32
+			};
+			await db.account.put(acc);
+		}
+		await saveItems([
+			{
+				id: 'i1',
+				kind: 'note',
+				title: 'mpk',
+				noteBody: 'protect',
+				createdAt: 1,
+				updatedAt: 1
+			}
+		]);
+
+		const wrongMpk = new Uint8Array(32);
+		wrongMpk.fill(0xee); // not 0x99
+
+		await expect(
+			rotateAuth({
+				prfOutput,
+				secretKey: SECRET_KEY,
+				masterPasswordKey: null,
+				currentMasterPasswordKey: wrongMpk
+			})
+		).rejects.toBeInstanceOf(CurrentMasterPasswordIncorrect);
+
+		const accAfter = await db.account.get('singleton');
+		expect(accAfter?.masterPasswordEnabled).toBe(true);
 	});
 });
 

@@ -57,7 +57,7 @@ export const PUT: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<PutBody>(request);
@@ -96,10 +96,10 @@ export const PUT: RequestHandler = async ({ request, platform, params }) => {
 	buf.set(ciphertext, 4 + nonce.length);
 
 	try {
+		// V1-C2: `deviceId` removed from R2 customMetadata.
 		await env.VAULT_BLOBS.put(objectKey(session.accountId, blobId), buf, {
 			customMetadata: {
 				accountId: session.accountId,
-				deviceId: session.deviceId,
 				docBlobId: blobId
 			}
 		});
@@ -120,7 +120,7 @@ export const GET: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	let r2obj: R2Object | null;
@@ -163,7 +163,7 @@ export const DELETE: RequestHandler = async ({ request, platform, params }) => {
 		return jsonError(400, 'invalid blob id');
 	}
 
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.BLOB, `account:${session.accountId}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, `account:${session.accountId}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	try {

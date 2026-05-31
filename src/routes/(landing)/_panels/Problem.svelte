@@ -63,8 +63,8 @@
 		<p class="problem-bottom">
 			<strong>VuVault is the architecture they have not shipped.</strong>
 			<span data-vp-show="desktop"
-				>Built from primitives standardized in the last 18 months — OPAQUE, ML-KEM,
-				WebAuthn PRF, FROST, AKD.</span
+				>Built from primitives standardized in the last 18 months — OPAQUE,
+				ML-KEM, WebAuthn PRF — with FROST and AKD on the Tier 2/3 roadmap.</span
 			>
 		</p>
 	</div>

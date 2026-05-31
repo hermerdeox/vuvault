@@ -9,17 +9,34 @@
  *   - `tests/e2e/privacy-level.spec.ts`         (regression test that
  *      asserts the UI claim matches this table)
  *
- * NEVER hard-code a privacy level higher than `CURRENT_LEVEL` in any
- * UI string, marketing copy, or documentation. The in-app badge and
- * the `/privacy` page are the only places that quote the level, and
- * both pull from here.
+ * NEVER hard-code a privacy level NUMERICALLY LOWER than `CURRENT_LEVEL`
+ * in any UI string, marketing copy, or documentation — under the
+ * inverted scale a lower number is a STRONGER claim. The in-app badge
+ * and the `/privacy` page are the only places that quote the level,
+ * and both pull from here.
+ *
+ * --- Scale direction (post-2026-05-20 inversion) ---
+ *
+ * The numeric scale is INVERTED from the legacy in-app ladder. The
+ * canonical taxonomy (PRIVACY_AUDIT.md §15) is directional:
+ *
+ *     Vu Level 0  =  MOST private  (zero-knowledge, no server-visible
+ *                                   account/session correlation)
+ *     Vu Level 5  =  LEAST private (policy privacy, "we promise" —
+ *                                   REFUSED in this ecosystem)
+ *
+ * `CURRENT_LEVEL = 2` reflects the verdict in PRIVACY_AUDIT.md: vault
+ * and document bytes are E2E ciphertext, but the server retains
+ * stable account / session / device / blob metadata in D1 + R2, which
+ * caps the project at canonical Vu2 until that metadata plane is
+ * redesigned (Tier 2+).
  *
  * The mirror at [docs/PRIVACY-LEVEL.md](../../../docs/PRIVACY-LEVEL.md)
  * is the human-readable expansion of this data. When you change the
  * shipped level here, update that document in the same commit.
  */
 
-export type PrivacyLevelId = 0 | 1 | 2 | 3 | 4;
+export type PrivacyLevelId = 0 | 1 | 2 | 3 | 4 | 5;
 export type Status = 'shipped' | 'partial' | 'pending';
 
 export type PrivacyLevel = {
@@ -30,56 +47,76 @@ export type PrivacyLevel = {
 	summary: string;
 };
 
+/**
+ * Ordered from MOST private (id 0) to LEAST private (id 5).
+ * Inverted on 2026-05-20 to match the canonical taxonomy in
+ * PRIVACY_AUDIT.md §15. The list order intentionally mirrors the
+ * numeric order so the UI can render `PRIVACY_LEVELS` top-down
+ * without needing an extra sort.
+ */
 export const PRIVACY_LEVELS: readonly PrivacyLevel[] = [
 	{
 		id: 0,
 		short: 'Vu Level 0',
-		headline: 'Policy privacy',
-		when: 'Never — not a level we ship',
+		headline: 'Zero-knowledge',
+		when: 'Aspirational — Tier 2+ redesign target',
 		summary:
-			'TLS + same-origin sync + a "we promise not to look" privacy policy. This is the baseline most password managers ship and the floor VuVault refuses to occupy.'
+			'Server cannot correlate accounts, sessions, devices, or blob inventories. Routing identifiers are unlinkable; blob sizes are bucketed; metadata is minimized to what the protocol strictly needs to deliver bytes. Vu Level 0 is the canonical zero-knowledge tier — what a server compromise reveals is, by construction, useless. VuVault reaches this tier when the metadata plane (D1 accounts, sessions, sequence clocks) is redesigned around unlinkable identifiers and blinded routing, gated by the L09 AKD log + L07 CRDT padding work in docs/TIER2-ARCHITECTURE.md.'
 	},
 	{
 		id: 1,
 		short: 'Vu Level 1',
-		headline: 'Architectural privacy for vault + documents',
-		when: 'Today',
+		headline: 'End-to-end + minimal relay metadata',
+		when: 'Tier 2 (2027)',
 		summary:
-			'Vault items and document file bytes are end-to-end encrypted under a per-vault AES-256-GCM key wrapped in an X25519 + ML-KEM-1024 hybrid envelope. OPAQUE (RFC 9807) authenticates without a password-equivalent hitting the server. Local Recovery Envelope supports passkey-loss recovery without server-held key material. Reproducible builds, SHA-384 manifest verified at every unlock, fail-closed production rate-limit gates, Sigstore + Rekor on every release. No third-party audit yet.'
+			'Vault and document bytes are end-to-end encrypted, AND server-visible metadata is reduced to only what is strictly necessary for delivery (no per-user blob inventories, no persistent device set, no sequence-clock correlation across accounts). Tier 2 brings field-level CRDT sync with HPKE + ML-KEM-768, bucketed-padding deltas, MLS sharing, AKD-anchored device pairing, and PIR breach checks.'
 	},
 	{
 		id: 2,
 		short: 'Vu Level 2',
-		headline: 'Sync, sharing, breach checks',
-		when: 'Tier 2 — 2027',
+		headline: 'Architectural privacy for vault + documents',
+		when: 'Today (M3, post this pass)',
 		summary:
-			'Level 1 plus field-level encrypted CRDT sync (HPKE + ML-KEM-768), MLS sharing for family / team vaults, CONIKS-derived auditable key directory anchored to a transparency log, and PIR-based breach checks (HIBP without leakage).'
+			'Vault items and document file bytes are end-to-end encrypted under a per-vault AES-256-GCM key wrapped in an X25519 + ML-KEM-1024 hybrid envelope. OPAQUE (RFC 9807) authenticates without a password-equivalent hitting the server. Local Recovery Envelope supports passkey-loss recovery without server-held key material. Reproducible builds, SHA-384 manifest verified at every unlock, fail-closed production rate-limit gates, Sigstore + Rekor on every release. Server still retains persistent account / session / device / blob metadata in D1 + R2 — that is what holds the project at Vu Level 2 vs. Vu Level 1. The level is defined by cryptographic capability — third-party audit status is tracked separately in docs/AUDIT-CHECKLIST.md.'
 	},
 	{
 		id: 3,
 		short: 'Vu Level 3',
-		headline: 'Recovery, TEE, agentic autofill',
-		when: 'Tier 3 — 2028',
+		headline: 'Partial E2E with recoverable metadata',
+		when: 'Common at incumbent password managers',
 		summary:
-			'Level 2 plus FROST t-of-n threshold recovery, TEE-attested server-side operations on ciphertext-only metadata, agentic autofill over Noise IK channels, and FN-DSA compact post-quantum signatures.'
+			'Content is encrypted client-side, but the server can correlate or partially decrypt some metadata, holds recovery material, or operates a key-escrow path. Common shape for managers that offer "account recovery" without explicitly storing only ciphertext-only recovery envelopes. VuVault never operates at this level.'
 	},
 	{
 		id: 4,
 		short: 'Vu Level 4',
-		headline: 'Frontier crypto',
-		when: 'Tier 4 — 2029-2030',
+		headline: 'Weakened or legacy cryptography',
+		when: 'Refused — only listed for comparison',
 		summary:
-			'Level 3 plus zkSNARK selective disclosure, drand timelock encryption for inheritance / dead-man releases, threshold stateful hash-based signatures, and pure-post-quantum threshold recovery.'
+			'End-to-end labels are claimed, but cipher choices or key management are weak enough to be brute-forceable in practice, or the server retains a key-recovery path under "operational" cover. This is below the floor we will accept from any system in our ecosystem.'
+	},
+	{
+		id: 5,
+		short: 'Vu Level 5',
+		headline: 'Policy privacy — REFUSED',
+		when: 'NOT ALLOWED in our ecosystem',
+		summary:
+			'TLS + same-origin sync + a "we promise not to look" privacy policy. The server holds plaintext or session keys; privacy is policy, not architecture. This is the baseline most password managers ship and the floor VuVault — and any system in the Vu ecosystem — refuses to occupy. SubZero from the PRIVACY_AUDIT.md taxonomy is the inverse of this floor: an above-Vu-Level-0 honorary tier reserved for systems with provably-enforced CSP, public third-party review, and formal-verification-grade evidence of the cryptographic boundary.'
 	}
 ];
 
 /**
- * The level currently held by the shipped code. Changing this value
- * requires moving every entry in `EVIDENCE` to a higher status AND
- * updating `docs/PRIVACY-LEVEL.md` in the same commit. CI's privacy
- * regression test refuses to pass otherwise.
+ * The level currently held by the shipped code.
+ *
+ * Under the inverted scale a LOWER value is a STRONGER claim. Moving
+ * `CURRENT_LEVEL` from 2 to 1 requires redesigning the D1/R2
+ * metadata plane (see PRIVACY_AUDIT.md F-003); to 0 requires that
+ * plus unlinkable routing identifiers. Both moves must update every
+ * entry in `EVIDENCE` to a higher status AND `docs/PRIVACY-LEVEL.md`
+ * in the same commit. CI's privacy regression test refuses to pass
+ * otherwise.
  */
-export const CURRENT_LEVEL: PrivacyLevelId = 1;
+export const CURRENT_LEVEL: PrivacyLevelId = 2;
 
 export function currentLevel(): PrivacyLevel {
 	const found = PRIVACY_LEVELS.find((l) => l.id === CURRENT_LEVEL);
@@ -198,12 +235,6 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 		claim: 'PIR breach checks (HIBP without leakage)',
 		status: 'pending',
 		evidence: 'Tier 2 — L10 PIR + unbalanced PSI'
-	},
-	{
-		id: 'E15',
-		claim: 'Third-party crypto audit',
-		status: 'pending',
-		evidence: 'Tier 1 launch gate — firm TBD; claims today rest on standards + KATs'
 	}
 ];
 
@@ -271,7 +302,7 @@ export const THREATS: readonly ThreatRow[] = [
 		id: 'T09',
 		threat: 'Implementation bugs in our own code',
 		defended: false,
-		how: 'Defended by audits + fuzzing + KAT vectors, not by architecture — third-party audit pending'
+		how: 'Defended by reviews, fuzzing, and FIPS-locked KAT vectors — not by architecture. Audit status is a separate evidence concern (see docs/AUDIT-CHECKLIST.md).'
 	},
 	{
 		id: 'T10',

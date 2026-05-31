@@ -216,7 +216,7 @@
 						transmitted.</span
 					>
 				</div>
-				<div class="promise-spec">webauthn-prf · hkdf-sha512 · ed25519 auth</div>
+				<div class="promise-spec">webauthn-prf · hkdf-sha512 · x25519 + ml-kem-1024 · aes-256-gcm</div>
 			</div>
 		</div>
 	</div>

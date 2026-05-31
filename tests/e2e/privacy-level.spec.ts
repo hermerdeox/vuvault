@@ -11,7 +11,7 @@ import { expect, test } from '@playwright/test';
  *      defended threat and at least one explicit "out of scope"
  *      threat (honest disclosure of limits)
  *   4. The audit-footer badge on the landing page links to /privacy
- *      and reads "Vu Level 1"
+ *      and reads "Vu Level 2" (post-2026-05-20 inversion)
  *   5. The onboarding StepWelcome surfaces the same link
  *   6. The unlock-screen footer surfaces the same link
  */
@@ -23,9 +23,11 @@ test.describe('Vu Privacy Level — in-app affordances', () => {
 		await page.goto('/privacy');
 		await expect(page).toHaveTitle(/Privacy level — VuVault/);
 
-		// Current level appears prominently (Vu Level 1 in this build).
+		// Current level appears prominently. Under the inverted scale
+		// (lower-number = stronger), today's shipped state is Vu Level 2
+		// per docs/PRIVACY-LEVEL.md TL;DR and PRIVACY_AUDIT.md verdict.
 		await expect(page.getByTestId('privacy-level-current')).toHaveText(
-			'Vu Level 1'
+			'Vu Level 2'
 		);
 
 		// Ladder, evidence, and threat sections are present. The exact ladder
@@ -57,10 +59,10 @@ test.describe('Vu Privacy Level — in-app affordances', () => {
 		const badge = page.getByTestId('privacy-level-badge');
 		// At least one badge should be present — the landing has the
 		// audit footer in some viewports. If the badge is hidden by
-		// breakpoint we accept that; otherwise it must read Vu Level 1.
+		// breakpoint we accept that; otherwise it must read Vu Level 2.
 		const count = await badge.count();
 		if (count > 0) {
-			await expect(badge.first()).toHaveText(/Vu Level 1/);
+			await expect(badge.first()).toHaveText(/Vu Level 2/);
 			await expect(badge.first()).toHaveAttribute('href', '/privacy');
 		}
 	});
@@ -69,7 +71,7 @@ test.describe('Vu Privacy Level — in-app affordances', () => {
 		page
 	}) => {
 		await page.goto('/unlock');
-		const link = page.getByRole('link', { name: 'Vu Level 1' }).first();
+		const link = page.getByRole('link', { name: 'Vu Level 2' }).first();
 		await expect(link).toBeVisible();
 		await expect(link).toHaveAttribute('href', '/privacy');
 	});

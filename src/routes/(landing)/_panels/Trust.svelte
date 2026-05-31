@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { PUBLIC_BUNDLE_HASH, PUBLIC_VAULT_VERSION } from '$lib/utils/env';
+	import {
+		PUBLIC_BUNDLE_HASH,
+		PUBLIC_VAULT_VERSION,
+		BUNDLE_HASH_SHORT
+	} from '$lib/utils/env';
 
 	// Render the canonical bundle hash from $env in 8-char groups, three
 	// groups per line, so the snippet always matches what `npm run build`
@@ -20,6 +24,13 @@
 		return out;
 	}
 	const trustRows = rows3(chunk8(PUBLIC_BUNDLE_HASH));
+	// Method 02's Rekor snippet uses the leading + trailing 4 chars of
+	// the live bundle hash so the displayed prefix/suffix always
+	// matches what cosign actually signed. The exact Rekor index is
+	// per-release and lives in release-artifacts/.rekor-index — not
+	// shipped in the bundle.
+	const rekorPrefix = PUBLIC_BUNDLE_HASH.slice(0, 4);
+	const rekorSuffix = PUBLIC_BUNDLE_HASH.slice(-4);
 </script>
 
 <section class="panel">
@@ -73,30 +84,38 @@
 					>
 				</div>
 				<div class="trust-snippet">
-					<span class="key">rekor</span> entry <span class="key">a3f8</span>...<span
-						class="key">e2c1</span
-					><br />
-					signed by <span class="key">vu-release-key</span><br />
-					<span class="ok">✓ verified · 2026-04-28</span>
+					<span class="key">rekor</span> entry
+					<span class="key">{rekorPrefix}</span>…<span class="key">{rekorSuffix}</span><br
+					/>
+					signed by <span class="key">github-actions OIDC</span><br />
+					<span class="ok">✓ keyless · Sigstore Fulcio + Rekor</span>
 				</div>
 			</div>
 			<div class="trust-card">
 				<div class="trust-card-num">METHOD 03</div>
-				<div class="trust-card-title">Self-host the entire stack</div>
+				<div class="trust-card-title">
+					Self-host the entire stack
+					<span class="tier-tag">Tier 2 spec</span>
+				</div>
 				<div class="trust-card-body">
 					<span data-vp-show="desktop"
-						>The sync server is ~300 lines of TypeScript on Cloudflare Workers + R2.
-						Deploy it yourself in 5 minutes. Bring your own bucket. Trust nobody,
-						including us.</span
+						>The sync server is the SvelteKit Worker + D1 + R2 you already see in
+						this repo. Tier 1 deploys it as a single Cloudflare project. Bring-
+						your-own-bucket is on the Tier 2 roadmap — until then, the Worker
+						code is reproducible and signed end-to-end.</span
 					>
 					<span data-vp-show="mobile"
-						>~300 lines of TypeScript on Workers + R2. Deploy yourself in 5 minutes.</span
+						>Worker + D1 + R2. BYO bucket on the Tier 2 roadmap; reproducible
+						today.</span
 					>
 				</div>
 				<div class="trust-snippet">
-					<span class="key">$</span> wrangler deploy<br />
-					<span class="ok">✓</span> uploaded vuvault-sync<br />
-					<span class="ok">✓</span> R2 bucket: <span class="key">vault-blobs</span>
+					<span class="key">$</span> wrangler pages deploy<br />
+					<span class="ok">✓</span> sigstore + rekor on every release<br />
+					<span class="ok">✓</span> reproducible from
+					<span class="key">git checkout v{PUBLIC_VAULT_VERSION}</span><br />
+					<span class="key">bundle:</span>
+					<span class="ok">{BUNDLE_HASH_SHORT}</span>
 				</div>
 			</div>
 		</div>
@@ -138,6 +157,22 @@
 		font-weight: 600;
 		letter-spacing: -0.015em;
 		color: var(--text);
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.trust-card-title :global(.tier-tag) {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+		padding: 2px 8px;
+		border-radius: var(--radius-xs);
 	}
 	.trust-card-body {
 		font-size: 13px;

@@ -43,7 +43,7 @@ describe('privacy-level data module', () => {
 		expect(stats.shipped).toBeGreaterThan(0);
 	});
 
-	it('current level matches `docs/PRIVACY-LEVEL.md` table for Vu Level 1', async () => {
+	it('current level matches `docs/PRIVACY-LEVEL.md` table for the shipped level', async () => {
 		const doc = await readFile(PRIVACY_DOC, 'utf8');
 		const lvl = currentLevel();
 		// The honest doc must reference the same level number and the
@@ -52,6 +52,20 @@ describe('privacy-level data module', () => {
 		// versa — the test fails CI before a stale claim ships.
 		expect(doc).toContain(`**${lvl.short}**`);
 		expect(doc).toContain('Today (M3, post this pass)');
+		// Lock in the post-inversion direction: lower-number = more
+		// private. A future inverter who flips this back without
+		// migrating the rest of the codebase will fail here.
+		expect(CURRENT_LEVEL).toBe(2);
+	});
+
+	it('ladder is inverted: lower id = stronger privacy claim', () => {
+		// Cardinality: 6 levels (0..5) post-2026-05-20 inversion.
+		expect(PRIVACY_LEVELS).toHaveLength(6);
+		const ids = PRIVACY_LEVELS.map((l) => l.id);
+		expect(ids).toEqual([0, 1, 2, 3, 4, 5]);
+		// Vu Level 5 is the banned floor.
+		const banned = PRIVACY_LEVELS.find((l) => l.id === 5);
+		expect(banned?.when).toMatch(/NOT ALLOWED/i);
 	});
 
 	it('docs/PRIVACY-LEVEL.md lists every level on the ladder', async () => {

@@ -1,15 +1,26 @@
 /**
  * POST /api/opaque/login/ke3
  *
- * Body: `{ clientId, requestId, ke3, deviceId? }` where `ke3` is the
+ * Body: `{ clientId, requestId, ke3 }` where `ke3` is the
  *       base64-encoded RFC 9807 KE3 bytes.
  * Returns: `{ accountId, token, expiresAt, sequenceClock }`.
  *
- * Mints a fresh session token on success and updates the account's
- * `last_login_at`. Wrong-password rejection (MAC mismatch) returns
- * 401 with no information about whether the clientId existed.
+ * Mints a fresh session token on success. Wrong-password rejection
+ * (MAC mismatch) returns 401 with no information about whether the
+ * clientId existed.
  *
- * Migrated from `functions/api/opaque/login/ke3.ts`.
+ * Vu1 / V1-C2 contract (post `migrations/0004_metadata_minimization.sql`):
+ *
+ *   - This endpoint MUST NOT bind a `device_id` value into the
+ *     `sessions` row. The schema no longer carries that column.
+ *   - This endpoint MUST NOT update `accounts.last_login_at`. The
+ *     schema no longer carries that column either.
+ *   - The legacy `deviceId` body field, if any client still sends
+ *     it, is silently ignored. Tolerant ignore (not 400) so older
+ *     v0.1.x clients do not break during the v1 rollout window.
+ *
+ * See `docs/VU-LEVEL-MIGRATION-MAP.md` V1-C2 and
+ * `docs/TIER2-ARCHITECTURE.md` §L08 session-mint redesign.
  */
 
 import type { RequestHandler } from './$types';
@@ -18,11 +29,13 @@ import { getServerId } from '$lib/server/api/env';
 import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { OpaqueServerEngine } from '$lib/server/api/server-opaque';
 import { D1OpaqueStorage, loadServerIdentity } from '$lib/server/api/d1-storage';
+import { maybeSweep } from '$lib/server/api/cleanup';
+import { SESSION_TTL_MS } from '$lib/server/api/auth-token';
 import { b64decode, jsonError, jsonOk, readJson } from '$lib/server/api/http';
 
-type Body = { clientId?: string; requestId?: string; ke3?: string; deviceId?: string };
-
-const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
+// `deviceId` is accepted but silently discarded — see "tolerant ignore"
+// above. We do NOT validate it because nothing downstream reads it.
+type Body = { clientId?: string; requestId?: string; ke3?: string; deviceId?: unknown };
 
 function newToken(): string {
 	const buf = new Uint8Array(32);
@@ -33,7 +46,7 @@ function newToken(): string {
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
 	const ip = request.headers.get('cf-connecting-ip') ?? 'unknown';
-	const rateLimit = await applyRateLimit(env.AUTH_DB, RATE_LIMITS.OPAQUE_LOGIN, `ip:${ip}`);
+	const rateLimit = await applyRateLimit(env, RATE_LIMITS.OPAQUE_LOGIN, `ip:${ip}`);
 	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<Body>(request);
@@ -57,10 +70,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	if (!/^[0-9a-f]{32}$/.test(body.requestId)) {
 		return jsonError(400, 'invalid requestId');
 	}
-	const deviceId =
-		typeof body.deviceId === 'string' && body.deviceId.length > 0
-			? body.deviceId.slice(0, 256)
-			: 'unknown';
+	// V1-C2: body.deviceId is intentionally NOT read. See header doc.
 
 	try {
 		const storage = new D1OpaqueStorage(env.AUTH_DB);
@@ -90,17 +100,19 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 		await env.AUTH_DB
 			.prepare(
-				`INSERT INTO sessions (token, account_id, device_id, expires_at, sequence_clock, created_at)
-				 VALUES (?, ?, ?, ?, ?, unixepoch())`
+				`INSERT INTO sessions (token, account_id, expires_at, sequence_clock, created_at)
+				 VALUES (?, ?, ?, ?, unixepoch())`
 			)
-			.bind(token, accountId, deviceId, Math.floor(expiresAt / 1000), sequenceClock)
+			.bind(token, accountId, Math.floor(expiresAt / 1000), sequenceClock)
 			.run();
 
-		await env.AUTH_DB
-			.prepare('UPDATE accounts SET last_login_at = unixepoch() WHERE account_id = ?')
-			.bind(accountId)
-			.run();
+		// V1-C2: no `UPDATE accounts SET last_login_at` — the column
+		// is gone post-0004 and we deliberately avoid maintaining
+		// per-account login timestamps. Equivalent observability is
+		// available from log-free request counters at the rate-limit
+		// table, scoped to IP rather than identity.
 
+		void maybeSweep(env.AUTH_DB).catch(() => undefined);
 		return jsonOk({
 			accountId,
 			token,

@@ -16,15 +16,17 @@
 			</div>
 			<div class="price-math">{PRICE_MATH}</div>
 			<div class="price-tag">
-				<span class="italic-serif">One flat price.</span> Unlimited devices. Every feature.<br
-				/>
+				<span class="italic-serif">One flat price.</span>
+				Every feature. Multi-device sync on the Tier 2 roadmap.<br />
 				No per-user pricing. No tier games. Cancel any time.
 			</div>
 			<div class="price-bullets">
 				<div class="price-bullet">
 					{PRICE_MONTHLY_EQUIV}<small>billed yearly</small>
 				</div>
-				<div class="price-bullet">∞<small>devices</small></div>
+				<div class="price-bullet">
+					∞<small>devices · Tier 2</small>
+				</div>
 				<div class="price-bullet">∞<small>updates</small></div>
 			</div>
 		</div>

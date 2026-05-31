@@ -37,7 +37,12 @@
 		generateMasterPasswordSalt,
 		VAULT_HIGH_PARAMS
 	} from '$lib/crypto/argon2';
-	import { rotateAuth, loadAccount } from '$lib/services/vault-session';
+	import {
+		rotateAuth,
+		loadAccount,
+		CurrentMasterPasswordIncorrect
+	} from '$lib/services/vault-session';
+	import type { Argon2idStoredParams } from '$lib/utils/storage';
 	import {
 		disableQuickUnlock,
 		enableQuickUnlock,
@@ -56,6 +61,15 @@
 		credentialId: ArrayBuffer;
 		deviceSalt: Uint8Array;
 		authMode: 'production' | 'demo';
+		/**
+		 * Argon2id salt + params for the CURRENT master password,
+		 * surfaced into the summary so the disable branch can
+		 * re-derive the current MPK and supply it to rotateAuth for
+		 * constant-time verification before stripping the factor.
+		 * Both are `null` when masterPasswordEnabled is false.
+		 */
+		masterPasswordSalt: Uint8Array | null;
+		masterPasswordParams: Argon2idStoredParams | null;
 	};
 
 	let summary = $state<AccountSummary | null>(null);
@@ -63,6 +77,14 @@
 	let mode = $state<'enable' | 'disable'>('enable');
 	let password1 = $state('');
 	let password2 = $state('');
+	/**
+	 * Current master password — required only on the disable branch.
+	 * `rotateAuth` derives the candidate vault key from this Argon2id
+	 * output and refuses the rotation when it doesn't match the live
+	 * vaultKey in constant time. See `CurrentMasterPasswordIncorrect`
+	 * in `vault-session.ts`.
+	 */
+	let currentPassword = $state('');
 	let secretKeyInput = $state('');
 	let busy = $state(false);
 	let errorMessage = $state<string | null>(null);
@@ -90,6 +112,7 @@
 			successMessage = null;
 			password1 = '';
 			password2 = '';
+			currentPassword = '';
 			secretKeyInput = '';
 			Promise.all([loadAccount(), refreshQuickUnlockStatus(), refreshRecoveryStatus()])
 				.then((acc) => {
@@ -102,7 +125,9 @@
 						masterPasswordEnabled: account.masterPasswordEnabled === true,
 						credentialId: account.credentialId,
 						deviceSalt: account.deviceSalt,
-						authMode: account.authMode
+						authMode: account.authMode,
+						masterPasswordSalt: account.masterPasswordSalt ?? null,
+						masterPasswordParams: account.masterPasswordParams ?? null
 					};
 					mode = summary.masterPasswordEnabled ? 'disable' : 'enable';
 				})
@@ -127,7 +152,15 @@
 	const canSubmitEnable = $derived(
 		!busy && validSecretKey && passwordsMatch
 	);
-	const canSubmitDisable = $derived(!busy && validSecretKey);
+	// Disable now also requires the user to prove they know the
+	// current master password. `rotateAuth` rejects any disable that
+	// doesn't constant-time match the live vault key, so the UI
+	// gate exists to surface the requirement up-front; the
+	// authoritative check lives server-side of this UI in
+	// `vault-session.ts::rotateAuth`.
+	const canSubmitDisable = $derived(
+		!busy && validSecretKey && currentPassword.length > 0
+	);
 	const canRecreateQuickUnlock = $derived(
 		!quickUnlockBusy && validSecretKey && summary?.authMode === 'production'
 	);
@@ -206,27 +239,56 @@
 					mpk.fill(0);
 				}
 			} else {
-				// Disable uses the active unlocked session plus
-				// Secret Key/passkey re-confirmation. We deliberately
-				// do not collect or fake-verify the current password here;
-				// rotateAuth gets `null` to remove the enrolled MPK factor.
-				await rotateAuth({
-					prfOutput,
-					secretKey,
-					masterPasswordKey: null
-				});
+				// Disable now verifies the CURRENT master password before
+				// stripping the factor. Derive the Argon2id key from the
+				// user-supplied current password using the same salt + params
+				// the account was enrolled with, then hand it to rotateAuth
+				// as `currentMasterPasswordKey`. rotateAuth re-derives the
+				// current vault key and constant-time compares against the
+				// live in-memory vaultKey; mismatch throws
+				// `CurrentMasterPasswordIncorrect`.
+				if (!summary.masterPasswordSalt || !summary.masterPasswordParams) {
+					throw new Error(
+						'Cannot disable: account row is missing master-password salt or params. Re-enable first.'
+					);
+				}
+				let currentMasterPasswordKey: Uint8Array | null = null;
+				try {
+					currentMasterPasswordKey = await deriveMasterPasswordKey({
+						password: currentPassword,
+						salt: summary.masterPasswordSalt,
+						params: summary.masterPasswordParams
+					});
+					await rotateAuth({
+						prfOutput,
+						secretKey,
+						masterPasswordKey: null,
+						currentMasterPasswordKey
+					});
+				} finally {
+					if (currentMasterPasswordKey) currentMasterPasswordKey.fill(0);
+				}
 				successMessage = 'Master password disabled.';
 				audit.push('warn', 'Master password disabled', { mode: 'disable' });
 				summary.masterPasswordEnabled = false;
+				summary.masterPasswordSalt = null;
+				summary.masterPasswordParams = null;
 				mode = 'enable';
 			}
 		} catch (err) {
-			errorMessage = err instanceof Error ? err.message : 'Operation failed';
-			audit.push('danger', `Master password rotation failed: ${errorMessage}`);
+			if (err instanceof CurrentMasterPasswordIncorrect) {
+				errorMessage =
+					'Current master password is incorrect. Enter the password you set when enabling MP.';
+				audit.push('warn', 'Master password disable rejected: wrong current password');
+			} else {
+				errorMessage = err instanceof Error ? err.message : 'Operation failed';
+				audit.push('danger', `Master password rotation failed: ${errorMessage}`);
+			}
 		} finally {
 			if (secretKey) secretKey.fill(0);
 			password1 = '';
 			password2 = '';
+			currentPassword = '';
 			secretKeyInput = '';
 			busy = false;
 		}
@@ -514,10 +576,28 @@
 
 			{#if mode === 'disable'}
 				<p class="lede">
-					Disabling requires this vault to already be unlocked, then re-confirms
-					your Secret Key and passkey. Current-password verification is not
-					implemented in this pass.
+					Disabling requires this vault to already be unlocked AND the
+					current master password. rotateAuth re-derives the current
+					vault key under your supplied password and refuses the
+					rotation on a constant-time mismatch — so a co-located
+					attacker holding only your Secret Key + passkey cannot strip
+					the MP factor.
 				</p>
+				<div class="form-block">
+					<label for="mp-current" class="lbl">Current master password</label>
+					<input
+						id="mp-current"
+						type="password"
+						bind:value={currentPassword}
+						autocomplete="current-password"
+						disabled={busy}
+						data-testid="mp-current-input"
+					/>
+					<div class="hint">
+						Argon2id stretches this locally with the salt + params
+						already on file for this account.
+					</div>
+				</div>
 			{/if}
 
 			<div class="form-block">

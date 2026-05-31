@@ -188,7 +188,7 @@ vuvault/
 | Sigstore Rekor publishing in CI | ✅ M3 release workflow |
 | Tier 2 layers (L06 MLS sharing, L07 CRDT sync, etc.) | ❌ Not started |
 | Document item metadata | ✅ Done |
-| Encrypted document file storage | ❌ Not started |
+| Encrypted document file storage | ✅ M3 — AES-256-GCM per-document blobs in Dexie + R2 under `vuvault-doc-aad-v1` AAD; full-workflow E2E asserts no plaintext leak in IndexedDB |
 
 See [`CURSOR_PROMPT.md`](./CURSOR_PROMPT.md) for the original handoff and the broader build queue. The full phased plan lives in `.cursor/plans/vuvault-development-roadmap_*.plan.md`.
 

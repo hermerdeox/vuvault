@@ -39,10 +39,12 @@
 			>
 			<span data-show="tech" data-vp-show="desktop"
 				>OPAQUE authentication. ML-KEM-1024 hybrid envelopes. WebAuthn PRF unlock.
-				Verifiable transparency log. The cryptography your incumbents have not shipped.</span
+				Sigstore + Rekor on every release. The cryptography your incumbents have
+				not shipped.</span
 			>
 			<span data-show="tech" data-vp-show="mobile"
-				>OPAQUE · ML-KEM-1024 · WebAuthn PRF. Cryptography incumbents skipped.</span
+				>OPAQUE · ML-KEM-1024 · WebAuthn PRF · Sigstore Rekor. Cryptography
+				incumbents skipped.</span
 			>
 		</p>
 

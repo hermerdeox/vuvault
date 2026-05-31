@@ -15,13 +15,79 @@
 VuVault today is best described as:
 
 > **High architectural privacy for vault contents and document file
-> bytes; not yet audit-complete, not yet multi-device, not yet
-> sharing-enabled.**
+> bytes; persistent server-side account/session metadata; not yet
+> multi-device, not yet sharing-enabled.**
 
-If you only need a number, call it **Vu Level 1** (vault + documents
-end-to-end encrypted, M3 sync gated and verified, no third-party
-audit). Vu Level 2 (multi-device CRDT sync, MLS sharing, AKD log)
-ships in Tier 2 — see [docs/ROADMAP.md](./ROADMAP.md).
+If you only need a number, call it **Vu Level 2** (vault + documents
+end-to-end encrypted, M3 sync gated and verified; server retains
+account / session metadata). The path to **Vu Level 1**
+(E2E + minimized relay metadata, no persistent device set) ships
+in Tier 2 — see [docs/ROADMAP.md](./ROADMAP.md). The mechanical
+gap analysis — every criterion, the code that holds us at Vu
+Level 2 today, the Tier-2 layer that closes it, and the open
+spec work — lives in
+[`docs/VU-LEVEL-MIGRATION-MAP.md`](./VU-LEVEL-MIGRATION-MAP.md).
+The path to **Vu Level 0** (zero-knowledge — no server-visible
+account correlation at all) is the Tier 2+ AKD + CRDT padding
+work in [`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md).
+
+> **2026-05-22 Phase 2 update.** The **V1-C2** criterion ("no
+> persistent device set") **has closed**: as of the session-mint
+> redesign that ships with `migrations/0004_metadata_minimization.sql`,
+> the server's `sessions` table no longer carries `device_id` and the
+> `accounts` table no longer carries `last_login_at`. The
+> `device_pairings` table is dropped.
+>
+> **2026-05-25 Vu0 full-crypto update.** The remaining V0-C1/C2/C3
+> closures are implemented in this build:
+>
+> - **V0-C1** unlinkable routing — AKD epochs
+>   ([`migrations/0006_akd_epochs.sql`](../migrations/0006_akd_epochs.sql),
+>   Ed25519-VRF in [`src/lib/crypto/ed25519-vrf.ts`](../src/lib/crypto/ed25519-vrf.ts))
+>   + VOPRF capability handles (RFC 9497 / Ristretto255 in
+>   [`src/lib/crypto/voprf.ts`](../src/lib/crypto/voprf.ts)) +
+>   per-epoch OPRF keys
+>   ([`migrations/0007_oprf_keys.sql`](../migrations/0007_oprf_keys.sql)) +
+>   capability_index lookup
+>   ([`migrations/0008_capability_index.sql`](../migrations/0008_capability_index.sql)).
+>   V2 routes accept `X-Vu0-Capability` alongside Bearer.
+> - **V0-C2** bucketed blob sizes — `padPlaintext`/`unpadPlaintext`
+>   wired into `saveItems`/`sealDocument`/`openDocument` with
+>   format-version bump v2 → v3.
+> - **V0-C3** no account-existence oracle — `/api/opaque/login/ke1`
+>   performs dummy OPRF work on the unknown-clientId path and
+>   returns a generic `"invalid login request"` 401 instead of the
+>   legacy `"unknown clientId"` string.
+>
+> **Residual gap (documented, NOT closed):** the OPAQUE handshake
+> still requires SOME stable per-account identifier so the server
+> can load the OPAQUE envelope. We replaced the user-chosen
+> `clientId` with `accountSeed`-derived handles but the handle is
+> stable per account during the OPAQUE round-trip itself. Full
+> per-handshake unlinkability requires a Tier-3+ ZK-proof layer
+> (see TIER2-ARCHITECTURE.md §"Tier 3+"). The honest V0-C1 framing
+> in this build: **"after OPAQUE login, the server cannot link a
+> session's subsequent requests to the account that logged in."**
+>
+> See
+> [`docs/verifications/2026-05-22-vu1-phase2.md`](./verifications/2026-05-22-vu1-phase2.md)
+> and
+> [`docs/verifications/2026-05-26-vu0-uplift.md`](./verifications/2026-05-26-vu0-uplift.md)
+> for the audited evidence.
+
+> **Scale direction (2026-05-20 inversion).** Lower numbers are
+> stronger. **Vu Level 0 = most private** (zero-knowledge);
+> **Vu Level 5 = least private** ("we promise" — REFUSED in the
+> Vu ecosystem). This matches the canonical taxonomy in
+> [`PRIVACY_AUDIT.md`](../PRIVACY_AUDIT.md) §15.
+>
+> **Note on audits.** Third-party audits are a *trust signal*, not a
+> *privacy capability* — they do not change what the cryptography
+> can do, only what externally-verified evidence exists for it. The
+> Vu Privacy Level ladder is defined exclusively by which guarantees
+> the shipped code holds today. Audit status is tracked separately
+> in [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md) and on the
+> M4 launch-prep section of [`docs/ROADMAP.md`](./ROADMAP.md).
 
 ---
 
@@ -41,8 +107,13 @@ Each row in this table maps to actual code paths exercised by
 | Local Recovery Envelope for passkey-loss recovery with Secret Key + Recovery Password | ✅ shipped | [`src/lib/crypto/recovery-envelope.ts`](../src/lib/crypto/recovery-envelope.ts), [`src/lib/services/recovery-envelope.ts`](../src/lib/services/recovery-envelope.ts), [`src/routes/recover/+page.svelte`](../src/routes/recover/+page.svelte) |
 | Whole-vault encrypted blob sync against R2; server stores ciphertext only | ✅ shipped | [`src/routes/api/blobs/upload/+server.ts`](../src/routes/api/blobs/upload/+server.ts), [`src/routes/api/blobs/latest/+server.ts`](../src/routes/api/blobs/latest/+server.ts), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
 | Per-document encrypted blob storage against R2; server stores ciphertext only | ✅ shipped (this pass) | [`src/routes/api/documents/[blobId]/+server.ts`](../src/routes/api/documents/[blobId]/+server.ts), [`tests/integration/api-routes.spec.ts`](../tests/integration/api-routes.spec.ts) |
-| Production rate-limit bindings fail-closed | ✅ shipped | [`src/lib/server/api/env.ts`](../src/lib/server/api/env.ts) `checkRateLimit`, [`.github/workflows/release.yml`](../.github/workflows/release.yml) post-deploy burst probe |
+| Production rate-limit bindings fail-closed | ✅ shipped | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) `applyRateLimit` + [`env.ts`](../src/lib/server/api/env.ts) `getRateLimitMode`; mode `OPAQUE_RATE_LIMIT_MODE` is `fail-closed` in `[env.production.vars]`. Verified by [`rate-limit-d1.test.ts`](../src/lib/server/api/rate-limit-d1.test.ts) + [`.github/workflows/release.yml`](../.github/workflows/release.yml) post-deploy burst probe. |
+| Server-side session revocation on lock | ✅ shipped | [`/api/opaque/logout`](../src/routes/api/opaque/logout/+server.ts), wired into `lockSession()` in [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) as a fire-and-forget call. |
+| Per-environment OPAQUE serverIdentity (preview cannot replay against production) | ✅ shipped | [`wrangler.toml`](../wrangler.toml) `[vars]` (`preview.vuvault.app`) vs `[env.production.vars]` (`vuvault.app`); `OPAQUE_SERVER_ID` mixes into every AKE transcript via [`server-opaque.ts`](../src/lib/server/api/server-opaque.ts). |
+| Opportunistic D1 cleanup of pending state / sessions / rate-limit windows | ✅ shipped | [`src/lib/server/api/cleanup.ts`](../src/lib/server/api/cleanup.ts); [`cleanup.test.ts`](../src/lib/server/api/cleanup.test.ts). |
+| Opportunistic R2 garbage collection of superseded vault blobs + dormant document blobs | ✅ shipped | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts); [`r2-gc.test.ts`](../src/lib/server/api/r2-gc.test.ts). |
 | Production preflight refuses to deploy without the `m3-sync-e2e` CI artifact | ✅ shipped | [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs) |
+| Formal threat model + audit checklist + CycloneDX SBOM | ✅ shipped | [`docs/THREAT-MODEL.md`](./THREAT-MODEL.md), [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md), `npm run sbom` ([`scripts/build-sbom.mjs`](../scripts/build-sbom.mjs)) |
 | Bundle integrity verification on every unlock; mismatch refuses decryption | ✅ shipped | [`src/lib/utils/env.ts`](../src/lib/utils/env.ts) `verifyBundleIntegrity`, `.bundle-digest` |
 | Reproducible builds (two-pass digest verified in CI) | ✅ shipped | [`scripts/verify-reproducible.mjs`](../scripts/verify-reproducible.mjs), [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) `reproducible-build` job |
 | Sigstore + Rekor keyless publishing on every release | ✅ shipped | [`.github/workflows/release.yml`](../.github/workflows/release.yml) `cosign` step |
@@ -62,7 +133,6 @@ Each row in this table maps to actual code paths exercised by
 | Sharing (family / team vaults) | ⚠️ pending | L06 MLS sharing — Tier 2 (2027). The current product is single-user |
 | Cross-device document recovery without re-uploading | ⚠️ partial | The R2 fetch path for documents works when sync is wired and the user has a valid session token, but there is no UI for "this device, no local row" prompting. Today VaultDetail's download will surface a typed error and the user can re-attach |
 | Threshold / FROST account recovery | ⚠️ pending | L11 (Tier 3, 2028). Today recovery is local-only: Secret Key + Recovery Password + local/exported Recovery Envelope |
-| Third-party crypto audit | ⚠️ pending | Tier 1 launch gate; audit firm TBD. Until then claims are based on standards-compliance and KAT vectors, not external review |
 | PIR-based breach checks (HIBP without leakage) | ⚠️ pending | L10 (Tier 2). Today no breach-check service is shipped — local "weak / reused" detection only |
 | zkSNARK selective disclosure | ⚠️ pending | L15 (Tier 4, 2029–2030) |
 
@@ -150,15 +220,34 @@ Verifying the on-the-wire / on-disk privacy claim yourself:
 ## Vu Privacy Levels reference
 
 This is a deliberately small ladder. Each level is exhaustively
-defined by which guarantees from the tables above hold today.
+defined by which **cryptographic capabilities** the shipped code
+holds today. Lower numbers are stronger; an **unaudited Vu Level 2
+system is still a Vu Level 2 system** in terms of what it can
+protect. Third-party audits are an *evidence* concern tracked in
+[`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md) + M4 of
+[`docs/ROADMAP.md`](./ROADMAP.md), not a privacy-ladder property.
 
 | Level | What holds | When |
 | --- | --- | --- |
-| **Vu Level 0** | TLS + same-origin sync + standard "we promise" privacy policy | Never; not a level we ship |
-| **Vu Level 1** | Vault + document plaintext end-to-end encrypted, local Recovery Envelope, M3 sync gated, fail-closed rate limits, reproducible + signed builds, *no third-party audit* | **Today (M3, post this pass)** |
-| **Vu Level 2** | Level 1 plus field-level CRDT sync, MLS sharing, AKD-anchored device pairing, breach checks without leakage | Tier 2 (2027) |
-| **Vu Level 3** | Level 2 plus FROST t-of-n recovery, TEE-attested metadata operations, agentic-autofill over Noise IK channels | Tier 3 (2028) |
-| **Vu Level 4** | Level 3 plus zkSNARK selective disclosure, drand timelock, threshold HBS | Tier 4 (2029–2030) |
+| **Vu Level 0** | Zero-knowledge: no server-visible account / session / device correlation; routing identifiers unlinkable; blob sizes bucketed; metadata minimized to delivery-only. A server compromise reveals, by construction, nothing useful. | **Aspirational — Tier 2+ redesign target** |
+| **Vu Level 1** | E2E content **and** minimized relay metadata — no per-user blob inventories, no persistent device set, no cross-account sequence-clock correlation. CRDT sync + MLS sharing + AKD pairing + PIR breach checks. | Tier 2 (2027) |
+| **Vu Level 2** | Vault + document plaintext E2E encrypted under X25519 + ML-KEM-1024 hybrid envelope, local Recovery Envelope, M3 sync gated and verified, fail-closed rate limits, reproducible + signed builds. Server still retains persistent account / session / device / blob metadata. | **Today (M3, post this pass)** |
+| **Vu Level 3** | Partial E2E with recoverable metadata — server can correlate or partially decrypt metadata, holds recovery material, or operates a key-escrow path. Common shape for incumbent password managers offering "account recovery." | Refused for VuVault; listed for comparison |
+| **Vu Level 4** | Weakened or legacy cryptography — E2E labels are claimed, but cipher choices or key management are brute-forceable in practice, or the server retains a key-recovery path under "operational" cover. | Refused; below the ecosystem floor |
+| **Vu Level 5** | Policy privacy: TLS + same-origin sync + standard "we promise not to look." The server holds plaintext or session keys; privacy is policy, not architecture. | **NOT ALLOWED in the Vu ecosystem** |
 
-If the UI ever claims a level higher than what's holding in this
-document, that's a bug — file it.
+**SubZero (honorary).** The canonical taxonomy in
+[`PRIVACY_AUDIT.md`](../PRIVACY_AUDIT.md) §15 reserves a tier
+*above* Vu Level 0 called **SubZero**: a system that holds every
+Vu-Level-0 invariant **AND** has a documented enforced CSP with
+zero `unsafe-inline` / `unsafe-eval`, a published independent third-
+party security review covering the cryptographic boundary, and
+formal-verification-grade evidence for the OPAQUE / envelope path.
+SubZero is not a level you ship through gradual hardening; it's a
+recognition tag for a system that has earned an externally-anchored
+provable-ZK claim. M4 audit prep (`AUDIT-CHECKLIST.md`) is the
+path. Today VuVault is not SubZero.
+
+If the UI ever claims a level numerically lower than what holds in
+this document (i.e. claims more privacy than the shipped code has),
+that's a bug — file it.

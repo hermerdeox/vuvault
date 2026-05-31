@@ -212,9 +212,13 @@
 		// Optional OPAQUE login. Required when the account row says
 		// `opaqueState === 'enrolled'` AND `authMode === 'production'`.
 		// On success: the export key is folded into openVault's
-		// derivation, and the bearer token is stashed in
-		// sessionStorage (NEVER localStorage — the token must die
-		// with the tab).
+		// derivation, and the bearer token (when minted) is stashed
+		// in `sync-client.ts`'s module-scope `sessionToken`. This is
+		// a JS module closure — NOT sessionStorage and NOT
+		// localStorage — so the token dies on hard reload and is
+		// cleared explicitly by `lockSession()`. Subsequent
+		// `/api/blobs/*` and `/api/documents/*` calls authenticate
+		// via this in-memory value only.
 		//
 		// Demo accounts skip OPAQUE entirely (B6 invariant).
 		// If sync is configured but the server is unreachable, we
@@ -241,11 +245,25 @@
 				opaqueExportKey = log.exportKey;
 				// Blob sync is only available after the Worker returns
 				// a session token from OPAQUE login. If this deployment
-				// omits token minting, keep blob operations local-only.
-				setSessionToken(log.token ?? null);
-				audit.push('success', 'OPAQUE login complete', {
-					serverId: opaqueServerId!
-				});
+				// omits token minting (KE3 endpoint missing the field,
+				// misconfigured server build, etc.) the export key still
+				// folds into vault key derivation but every blob op
+				// will early-return via hasSession(). Surface that
+				// case distinctly so a missing-token deployment is
+				// not invisible to the user — mirrors the onboarding
+				// branch in StepProvision.svelte:249-257.
+				const tokenMinted = typeof log.token === 'string' && log.token.length > 0;
+				setSessionToken(tokenMinted ? log.token! : null);
+				if (tokenMinted) {
+					audit.push('success', 'OPAQUE login complete · sync token bound', {
+						serverId: opaqueServerId!
+					});
+				} else {
+					audit.push('warn', 'OPAQUE login complete · NO sync token returned', {
+						serverId: opaqueServerId!,
+						note: 'Vault unlocks locally; sync stays local-only until the server mints a token.'
+					});
+				}
 			}
 		} catch (err) {
 			secretKey.fill(0);
@@ -615,7 +633,7 @@
 			<div class="footer-line">
 				<IconUnlock size={12} stroke={1.6} />
 				All decryption is local · zero bytes transmitted ·
-				<a class="privacy-link" href={resolve('/privacy')}>Vu Level 1</a>
+				<a class="privacy-link" href={resolve('/privacy')}>Vu Level 2</a>
 				{#if integrity}
 					<span class="integrity integrity-{integrity.state}">
 						· bundle {integrity.expectedShort}

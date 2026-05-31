@@ -31,10 +31,11 @@ The minimum credible product. Everything below is on the critical path to public
 
 ### Milestone 3 — Server-side stack (Sep 2026)
 
-- ✅ SvelteKit API routes + D1 OPAQUE record storage are production-gated by stable D1 server identity derivation, idempotent release-time identity bootstrap, fail-closed production rate-limit mode, and the `m3-sync-e2e` CI artifact (see [`src/routes/api/opaque/`](../src/routes/api/opaque/), [`migrations/0001_init.sql`](../migrations/0001_init.sql), [`src/lib/server/api/d1-storage.ts`](../src/lib/server/api/d1-storage.ts), [`scripts/seed-opaque-identity.mjs`](../scripts/seed-opaque-identity.mjs)).
+- ✅ SvelteKit API routes + D1 OPAQUE record storage are production-gated by stable D1 server identity derivation, idempotent release-time identity bootstrap, **fail-closed production rate-limit mode wired through `OPAQUE_RATE_LIMIT_MODE`** (`src/lib/server/api/rate-limit-d1.ts`, `src/lib/server/api/env.ts::getRateLimitMode`), explicit per-environment `OPAQUE_SERVER_ID` (preview vs production), and the `m3-sync-e2e` CI artifact (see [`src/routes/api/opaque/`](../src/routes/api/opaque/), [`migrations/0001_init.sql`](../migrations/0001_init.sql), [`src/lib/server/api/d1-storage.ts`](../src/lib/server/api/d1-storage.ts), [`scripts/seed-opaque-identity.mjs`](../scripts/seed-opaque-identity.mjs)).
 - ✅ R2 binding + blob upload/fetch routes are wired through authenticated KE3 session tokens and release-time `PUBLIC_SYNC_ORIGIN` verification; production release requires a real local Wrangler D1/R2 round-trip artifact, post-deploy `/api/capabilities` smoke, and a **12-request burst probe against `/api/opaque/register/request` that asserts at least one 429/503 returns** (see [`.github/workflows/release.yml`](../.github/workflows/release.yml) `Post-deploy production smoke` step) so the dashboard rate-limiter is mechanically verified before traffic flows. See also [`src/routes/api/blobs/`](../src/routes/api/blobs/), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts), [`wrangler.toml`](../wrangler.toml) `VAULT_BLOBS` binding.
 - ✅ Per-document encrypted blob storage shipped end-to-end. Document items carry a `docBlobId` UUID; plaintext file bytes are sealed client-side with AES-256-GCM under a document-scoped AAD domain (`vuvault-doc-aad-v1`) bound to the active vault session key, written to a new Dexie `documentBlobs` table, and (when sync is wired) uploaded as opaque bytes through `PUT /api/documents/<blobId>` (see [`src/routes/api/documents/[blobId]/+server.ts`](../src/routes/api/documents/[blobId]/+server.ts)). Download decrypts client-side and produces a `blob:` URL. End-to-end coverage in [`tests/e2e/full-workflow.spec.ts`](../tests/e2e/full-workflow.spec.ts) — includes a programmatic IndexedDB inspection that refuses any plaintext substring leak. See also [`docs/PRIVACY-LEVEL.md`](./PRIVACY-LEVEL.md).
-- ✅ Worker routes for OPAQUE register + login flow are production-ready inside the SvelteKit Cloudflare Worker — server stores the RFC 9807 envelope, not password-equivalent material, and release preflight refuses deploys without a same-SHA `.m3-e2e-passed` artifact (see [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts) `OpaqueServerEngine`, [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs)).
+- ✅ Worker routes for OPAQUE register + login flow are production-ready inside the SvelteKit Cloudflare Worker — server stores the RFC 9807 envelope, not password-equivalent material, and release preflight refuses deploys without a same-SHA `.m3-e2e-passed` artifact (see [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts) `OpaqueServerEngine`, [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs)). **Server-side session revocation** lands via [`POST /api/opaque/logout`](../src/routes/api/opaque/logout/+server.ts), wired into the client `lockSession()` as a fire-and-forget call so an intercepted bearer token stops working before the 1h TTL.
+- ✅ Operational hardening — opportunistic D1 cleanup ([`cleanup.ts`](../src/lib/server/api/cleanup.ts)) prunes expired `pending_registrations`, `pending_logins`, `sessions`, and stale `rate_limits` rows; opportunistic R2 garbage collection ([`r2-gc.ts`](../src/lib/server/api/r2-gc.ts)) purges superseded vault blobs and dormant document blobs. Both are sampled, bounded, and fire-and-forget — they never block or fail the originating request.
 - ✅ Sigstore + Rekor keyless publishing in CI (see [.github/workflows/release.yml](../.github/workflows/release.yml) — pinned `sigstore/cosign-installer@v3.5.0` + `cosign@v2.4.0`, `id-token: write` OIDC flow, attaches signature + cert + Rekor index to every published release)
 - ✅ Reproducible build verification job — two-pass build with `SOURCE_DATE_EPOCH`-pinned `generatedAt` and a deterministic `kit.version.name`, asserts byte-identical `.bundle-digest` across independent builds (see [scripts/verify-reproducible.mjs](../scripts/verify-reproducible.mjs), [.github/workflows/ci.yml](../.github/workflows/ci.yml) `reproducible-build` job)
 
@@ -54,8 +55,10 @@ Captured at the end of the Roadmap Audit + Perf + Mobile-First Overhaul pass. Th
 
 ### Milestone 4 — Audits & launch prep (Oct → Q4 2026)
 
-- ⏳ Third-party crypto audit (firm TBD — Cure53, NCC, or Trail of Bits)
-- ⏳ Public threat model document
+- ⏳ Third-party crypto audit (firm TBD — Cure53, NCC, or Trail of Bits) — hand-off package ready via [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md), [`docs/THREAT-MODEL.md`](./THREAT-MODEL.md), and `npm run sbom`.
+- ✅ Public threat model document — formal STRIDE-style threat model with asset inventory, trust boundaries, data-flow diagrams, and risk ratings shipped at [`docs/THREAT-MODEL.md`](./THREAT-MODEL.md).
+- ✅ CycloneDX SBOM (Software Bill of Materials) — deterministic generation via [`scripts/build-sbom.mjs`](../scripts/build-sbom.mjs); `npm run sbom` writes `sbom.json` with byte-stable output for the same lockfile.
+- ✅ Auditor-facing verification checklist — every Tier-1 claim mapped to its verification command at [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md).
 - ⏳ Apple App Store, Play Store, Firefox/Chrome extension submissions
 - ⏳ Marketing site live at vault.vu
 
@@ -63,7 +66,7 @@ Captured at the end of the Roadmap Audit + Perf + Mobile-First Overhaul pass. Th
 
 ## 2027 — Tier 2: sync & sharing
 
-The "more than one device" tier.
+The "more than one device" tier. **Engineering specification:** [`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md) — interface contracts, persistence schemas, and threat-model deltas for every layer below. **No Tier 2 code ships today;** auditors should find zero Tier-2 dependencies in `package.json` and zero Tier-2 implementations in `src/`.
 
 - L06 MLS-based family/team vaults — first quarter
 - L07 Encrypted CRDT sync (Yjs over HPKE) — second quarter
