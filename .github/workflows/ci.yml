@@ -493,6 +493,8 @@ jobs:
           PUBLIC_M3_E2E_AUTH=true
           PUBLIC_SYNC_ORIGIN=http://localhost:8788
           OPAQUE_RATE_LIMIT_MODE=fail-open
+          # Match the prod-build client serverId (getRpId()='vuvault.app'); top-level wrangler.toml [vars] preview.vuvault.app would mismatch and fail the OPAQUE AKE MAC verify on login.
+          OPAQUE_SERVER_ID=vuvault.app
           EOF
 
       - name: Start local Cloudflare Pages API
@@ -610,6 +612,8 @@ jobs:
           PUBLIC_M3_E2E_AUTH=true
           PUBLIC_SYNC_ORIGIN=http://localhost:8788
           OPAQUE_RATE_LIMIT_MODE=fail-open
+          # Match the prod-build client serverId (getRpId()='vuvault.app'); top-level wrangler.toml [vars] preview.vuvault.app would mismatch and fail the OPAQUE AKE MAC verify on login.
+          OPAQUE_SERVER_ID=vuvault.app
           EOF
 
       - name: Start local Cloudflare Pages API

@@ -52,7 +52,7 @@ import { gcm } from '@noble/ciphers/aes';
 import { hmac } from '@noble/hashes/hmac';
 import { sha256 } from '@noble/hashes/sha2';
 import { sha384, sha512 } from '@noble/hashes/sha2';
-import { deriveVaultKey, generateDeviceSalt } from '$lib/crypto/derive';
+import { deriveVaultKey, generateDeviceSalt, type DeriveVersion } from '$lib/crypto/derive';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
 import { serializeItems, deserializeItems } from '$lib/crypto/vault-codec';
 import { padPlaintext, unpadPlaintext } from '$lib/crypto/padding';
@@ -780,7 +780,7 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 		deviceSalt: opts.deviceSalt,
 		masterPasswordKey: opts.masterPasswordKey,
 		opaqueExportKey: opts.opaqueExportKey,
-		version: 2
+		version: PROVISION_FORMAT_VERSION
 	});
 
 	const newAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
@@ -926,7 +926,7 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 		throw new Error(`PRF output has unexpected length ${prfOutput.length}`);
 	}
 
-	const v = account.formatVersion as 1 | 2;
+	const v = account.formatVersion as DeriveVersion;
 	if (account.masterPasswordEnabled && !opts.masterPasswordKey) {
 		if (!opts.prfOutput) zeroize(prfOutput);
 		throw new Error(
@@ -938,7 +938,7 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 		secretKey: opts.secretKey,
 		deviceSalt: account.deviceSalt,
 		masterPasswordKey: opts.masterPasswordKey,
-		opaqueExportKey: v === 2 ? opts.opaqueExportKey : undefined,
+		opaqueExportKey: v >= 2 ? opts.opaqueExportKey : undefined,
 		version: v
 	});
 
@@ -1150,7 +1150,7 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		prfOutput: prf,
 		secretKey: opts.secretKey,
 		deviceSalt: opts.deviceSalt,
-		version: 2
+		version: PROVISION_FORMAT_VERSION
 	});
 	const wrapped = wrapAesKey(nextVaultKey, opts.deviceSalt, oldAesKey);
 	const header = serializeWrappedKey(wrapped);
@@ -1532,7 +1532,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 				account.opaqueState === 'enrolled' && account.formatVersion >= 2
 					? opts.currentOpaqueExportKey
 					: undefined,
-			version: account.formatVersion >= 2 ? 2 : 1
+			version: account.formatVersion as DeriveVersion
 		});
 		const matches = constantTimeEqual(candidateCurrentVaultKey, vaultKey!);
 		zeroize(candidateCurrentVaultKey);
@@ -1561,7 +1561,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 			nextOpaqueExportKey instanceof Uint8Array
 				? nextOpaqueExportKey
 				: undefined,
-		version: 2
+		version: PROVISION_FORMAT_VERSION
 	});
 
 	// Decrypt the current items with the OLD aesKey, then re-encrypt

@@ -151,7 +151,7 @@ test.describe('vault flows · sync', () => {
 			.locator('.list-pane button.item', { hasText: 'm3-sync-doc' })
 			.first()
 			.click();
-		const downloadPromise = page.waitForEvent('download');
+		const downloadPromise = page.waitForEvent('download', { timeout: 15_000 });
 		await page.getByTestId('download-document').click();
 		const download = await downloadPromise;
 		const path = await download.path();

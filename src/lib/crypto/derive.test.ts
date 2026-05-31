@@ -99,6 +99,19 @@ describe('deriveVaultKey · v2 with OPAQUE export key (M2)', () => {
 		expect(Array.from(v1)).toEqual(Array.from(v2));
 	});
 
+	it('v2 and v3 derive identical keys for identical inputs (with OPAQUE)', () => {
+		// V0-C2 padding bumped the format version to 3 but kept the same
+		// HKDF info string, so a vault sealed at v2 must unwrap with the
+		// key derived at v3 from the same inputs — INCLUDING the folded
+		// OPAQUE export key. This is the invariant that lets a fresh
+		// OPAQUE vault (sealed v3) be re-unlocked: openVault derives v3
+		// and must reproduce the v2-equivalent key the seal used.
+		const opaque = bytes(64, 0x77);
+		const v2 = deriveVaultKey({ ...base, version: 2, opaqueExportKey: opaque });
+		const v3 = deriveVaultKey({ ...base, version: 3, opaqueExportKey: opaque });
+		expect(Array.from(v2)).toEqual(Array.from(v3));
+	});
+
 	it('v2 + opaqueExportKey changes the derived key', () => {
 		const baseV2 = deriveVaultKey({ ...base, version: 2 });
 		const withExport = deriveVaultKey({
@@ -115,7 +128,7 @@ describe('deriveVaultKey · v2 with OPAQUE export key (M2)', () => {
 				...base,
 				opaqueExportKey: bytes(64, 0x55)
 			})
-		).toThrow(/only supported when version=2/);
+		).toThrow(/only supported when version>=2/);
 	});
 
 	it('v2 rejects opaqueExportKey shorter than 32 bytes', () => {

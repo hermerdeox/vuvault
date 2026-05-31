@@ -14,12 +14,15 @@
  * )
  *
  * The optional `opaqueExportKey` is only honored when the caller
- * passes `version: 2`. v1 callers never include OPAQUE material —
+ * passes `version >= 2`. v1 callers never include OPAQUE material —
  * which is what makes the transparent v1 → v2 upgrade in saveItems
  * work: an account with no MPK and no OPAQUE enrolment derives the
  * SAME vaultKey under both versions, so the wrapped-AES-key envelope
  * we produce on first v2 save can be unwrapped on every subsequent
- * unlock without re-deriving anything.
+ * unlock without re-deriving anything. v3 (V0-C2 padding) folds the
+ * same IKM as v2 — the info string is constant, so v2 and v3 derive
+ * an identical key from identical inputs; only the AAD formatVersion
+ * byte differs.
  *
  * Optional inputs:
  *   - masterPasswordKey: 32 bytes from Argon2id (RFC 9106), opt-in
@@ -47,7 +50,7 @@ export const VAULT_KEY_LEN = 32;
 /** Number of bytes consumed from `opaqueExportKey`. */
 export const OPAQUE_EXPORT_KEY_USE = 32;
 
-export type DeriveVersion = 1 | 2;
+export type DeriveVersion = 1 | 2 | 3;
 
 export type DeriveOpts = {
 	prfOutput: Uint8Array; // 32 bytes from WebAuthn PRF (or demo derivation)
@@ -56,7 +59,7 @@ export type DeriveOpts = {
 	masterPasswordKey?: Uint8Array; // 32 bytes from Argon2id, optional
 	/**
 	 * Opaque export key from an OPAQUE login (RFC 9807). Only honored
-	 * when `version === 2`. Must be at least 32 bytes; we slice the
+	 * when `version >= 2`. Must be at least 32 bytes; we slice the
 	 * leading 32 bytes for IKM.
 	 */
 	opaqueExportKey?: Uint8Array;
@@ -91,9 +94,9 @@ export function deriveVaultKey(opts: DeriveOpts): Uint8Array {
 		);
 	}
 	if (opts.opaqueExportKey) {
-		if (version !== 2) {
+		if (version < 2) {
 			throw new Error(
-				'deriveVaultKey: opaqueExportKey is only supported when version=2'
+				'deriveVaultKey: opaqueExportKey is only supported when version>=2'
 			);
 		}
 		if (opts.opaqueExportKey.length < OPAQUE_EXPORT_KEY_USE) {
@@ -104,7 +107,7 @@ export function deriveVaultKey(opts: DeriveOpts): Uint8Array {
 	}
 
 	const opaqueSlice =
-		version === 2 && opts.opaqueExportKey
+		version >= 2 && opts.opaqueExportKey
 			? opts.opaqueExportKey.subarray(0, OPAQUE_EXPORT_KEY_USE)
 			: undefined;
 
@@ -131,8 +134,9 @@ export function deriveVaultKey(opts: DeriveOpts): Uint8Array {
 	// the AES-GCM AAD is the authoritative version-binding mechanism.
 	// The version parameter here only gates what extra IKM material is
 	// admitted, so an account with neither MPK nor OPAQUE produces the
-	// same vaultKey under v1 and v2 — that's the property that makes
-	// the v1 → v2 on-save upgrade transparent.
+	// same vaultKey under v1, v2, and v3 — that's the property that
+	// makes the v1 → v2 on-save upgrade transparent, and it means a v2
+	// seal and a v3 seal of the same vault unwrap with the same key.
 	const out = hkdf(sha512, ikm, opts.deviceSalt, VAULT_KEY_INFO, VAULT_KEY_LEN);
 	// Best-effort: zero the IKM concatenation buffer. Doesn't reach
 	// the underlying inputs (they belong to the caller) but keeps the

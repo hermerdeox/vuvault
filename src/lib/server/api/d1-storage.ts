@@ -148,8 +148,8 @@ export class D1OpaqueStorage implements OpaqueStorage {
 		await this.db
 			.prepare(
 				`INSERT INTO accounts
-					(account_id, client_id, client_public_key, masking_key, envelope_bytes, oprf_secret_key, registration_record, created_at, last_login_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), NULL)
+					(account_id, client_id, client_public_key, masking_key, envelope_bytes, oprf_secret_key, registration_record, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
 				 ON CONFLICT(client_id) DO UPDATE SET
 				   client_public_key = excluded.client_public_key,
 				   masking_key = excluded.masking_key,

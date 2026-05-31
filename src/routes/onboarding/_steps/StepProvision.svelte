@@ -134,7 +134,8 @@
 					import('$lib/services/opaque-client'),
 					import('$lib/services/sync-client')
 				]);
-			const { provisionVault, getVaultByteSize, rotateAuth } = vaultSessionMod;
+			const { provisionVault, getVaultByteSize, rotateAuth, PROVISION_FORMAT_VERSION } =
+				vaultSessionMod;
 			const { enableQuickUnlock } = await import('$lib/services/quick-unlock');
 			const { enableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
 			const { register, login, createFetchTransport } = opaqueClientMod;
@@ -229,7 +230,12 @@
 								credentialPublicKey:
 									onboarding.publicKey ?? new ArrayBuffer(0),
 								authMode: onboarding.authMode!,
-								formatVersion: 2,
+								// Must match what rotateAuth just sealed. Persisting a
+								// stale 2 here makes the account row claim v2 while the
+								// vault blob is v3, which forces a spurious upgrade-on-
+								// first-save that rotates the AES key out from under any
+								// document sealed beforehand.
+								formatVersion: PROVISION_FORMAT_VERSION,
 								createdAt: Date.now(),
 								plan: onboarding.plan,
 								opaqueState: 'enrolled',
