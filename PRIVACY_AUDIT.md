@@ -360,9 +360,11 @@ described in [`docs/VU-LEVEL-MIGRATION-MAP.md`](./docs/VU-LEVEL-MIGRATION-MAP.md
   correlating field to D1 or R2 customMetadata.
 
 The release probe (`scripts/release-probe-vu1.mjs`) now reports
-`v1_c2 = pass` against any deploy carrying the migration. **The
-repo's CURRENT_LEVEL is still 2** because V1-C1 and V1-C3 (both
-gated by Phase 4 §L07b) remain open. See
+`v1_c2 = pass` against any deploy carrying the migration. At the time
+this footer was written the repo's `CURRENT_LEVEL` was still 2 because
+V1-C1 and V1-C3 (both gated by Phase 4 §L07b) remained open. **That is
+no longer true as of 2026-05-31 — see §18 below: V1-C1/C3 are now closed
+in the live data path and `CURRENT_LEVEL` is 1.** See
 [`docs/verifications/2026-05-22-vu1-phase2.md`](./docs/verifications/2026-05-22-vu1-phase2.md)
 for the audited evidence trail.
 
@@ -408,3 +410,52 @@ See
 [`docs/verifications/2026-05-26-vu0-uplift.md`](./docs/verifications/2026-05-26-vu0-uplift.md)
 for the full Vu0 verification trail. This footer is informational
 and does not retroactively change the audit's original findings.
+
+## 18. 2026-05-31 Vu Level 1 closure footer (informational)
+
+The §16 footer recorded V1-C2 as closed but V1-C1 and V1-C3 as still
+open, holding `CURRENT_LEVEL` at 2. As of 2026-05-31 those two criteria
+are **closed in the live data path** and `CURRENT_LEVEL` is **1**. This
+footer records the change; it does not retroactively alter the audit
+body, which describes the pre-§L07b implementation (including the route
+tables in §§5–6 and finding F-003, which cite per-account routes that no
+longer exist).
+
+What closed the gap — the §L07b wiring the earlier uplift built but
+never connected to the live flow:
+
+- **V1-C1 — no per-user blob inventories.** Whole-vault save/restore
+  (`src/lib/services/vault-session.ts`) and document attach/read
+  (`src/lib/services/document-blobs.ts`) now write random-UUID blobs to
+  `/api/v2/blobs/<uuid>` (no account prefix) with the latest-pointer in
+  a client-side encrypted inventory at `/api/v2/inv/<addr>`
+  (`src/lib/services/inventory-session.ts` over
+  `src/lib/services/blob-inventory.ts`). The legacy per-account routes
+  `/api/blobs/upload`, `/api/blobs/latest`, and `/api/documents/[blobId]`
+  — cited throughout §§5–6 and F-003 as the `vaults/<accountId>/…`
+  enumeration surface — are **deleted**. R2 object keys no longer reveal
+  per-account blob counts.
+- **V1-C3 — no cross-account sequence-clock correlation.**
+  `migrations/0009_drop_sequence_clock.sql` drops
+  `accounts.sequence_clock` and `sessions.sequence_clock` (the columns
+  added by `migrations/0002_account_sequence_clock.sql` and cited in §13).
+  Write ordering is now a client-only inventory index that never reaches
+  the server.
+
+Verification is **behavioral**, not shape-only: `release-probe-vu1.mjs`
+asserts the deleted routes return no handler, and `tests/e2e/sync.spec.ts`
+proves via request interception that real saves/documents touch only
+`/api/v2/*`. The deploy gate (`.github/workflows/release.yml`) fails
+closed on any `CURRENT_LEVEL=1` deploy without a green
+`vu1-probe-passed-${SHA}` artifact.
+
+**Accepted residual (Candidate 1).** The inventory bootstrap address is
+a deterministic HKDF of the secret vault key, so a holder of that key
+can confirm an inventory exists — moot, since the key already discloses
+the vault. Replacing it with blinded routing is a Vu0 (V0-C1) item.
+CRDT sync, MLS sharing, AKD pairing, and PIR breach checks remain Tier-2
+futures and are **not** claimed at Vu Level 1.
+
+See
+[`docs/verifications/2026-05-31-vu1-closure.md`](./docs/verifications/2026-05-31-vu1-closure.md)
+for the full closure verification trail.

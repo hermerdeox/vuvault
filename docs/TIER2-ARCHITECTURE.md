@@ -180,8 +180,8 @@ export interface CrdtSyncService {
 ## L07b — Per-blob random keys + client-side encrypted inventory
 
 > **Tier:** 2 — 2027 (after L07a lands)
-> **Status:** **`awaiting Appendix B.1 sign-off`** — bootstrap mechanism is the open hard part.
-> **Closes:** [`VU-LEVEL-MIGRATION-MAP.md`](./VU-LEVEL-MIGRATION-MAP.md) **V1-C1** (no per-user blob inventories) and **V1-C3** (no cross-account sequence-clock correlation).
+> **Status:** **✅ Variant (a) Candidate 1 SHIPPED 2026-05-31** in the §L07b metadata-minimization pass — a **hard cutover** (the legacy per-account routes were deleted, not run side-by-side). The B.1 sign-off question (see "Open issues" below) was resolved by explicit acceptance of the Candidate-1 footprint in [`docs/verifications/2026-05-31-vu1-closure.md`](./verifications/2026-05-31-vu1-closure.md). Candidate 2 (unlinkable bootstrap) + §L09cap remain V0-track futures. The rest of this section is the original design narrative, retained for context.
+> **Closes:** [`VU-LEVEL-MIGRATION-MAP.md`](./VU-LEVEL-MIGRATION-MAP.md) **V1-C1** (no per-user blob inventories) and **V1-C3** (no cross-account sequence-clock correlation) — ✅ both closed in the §L07b pass.
 
 ### Motivation
 
@@ -291,7 +291,7 @@ export interface BlobInventoryService {
 - `DELETE /api/v2/blobs/{uuid}` — capability in header.
 - `GET /api/v2/inv/{addr}` / `PUT /api/v2/inv/{addr}` — same shape, but the address is the inventory pointer rather than a blob UUID.
 
-Routes deliberately under `/api/v2/` so they coexist with the Vu Level 2 `/api/blobs/*` and `/api/documents/[blobId]` routes during the migration window.
+Routes deliberately under `/api/v2/`. **(Shipped reality, 2026-05-31:** the §L07b pass was a **hard cutover** — the legacy `/api/blobs/*` and `/api/documents/[blobId]` routes were **deleted**, not run side-by-side; there is no migration window because there was no deployed client population to preserve.)**
 
 ### Threat model delta vs L07a
 
@@ -310,15 +310,15 @@ Routes deliberately under `/api/v2/` so they coexist with the Vu Level 2 `/api/b
 
 ### Integration points
 
-- Replaces R2 key construction in `src/routes/api/blobs/upload/+server.ts`, `src/routes/api/blobs/latest/+server.ts`, `src/routes/api/documents/[blobId]/+server.ts`, and `src/lib/server/api/r2-gc.ts`.
-- Client adds `src/lib/services/blob-inventory.ts` (see public interface).
-- The existing v1 routes (`/api/blobs/*`, `/api/documents/*`) stay live for a migration window so older clients can still sync.
+- Replaces R2 key construction formerly in `src/routes/api/blobs/upload/+server.ts`, `src/routes/api/blobs/latest/+server.ts`, `src/routes/api/documents/[blobId]/+server.ts` (all **deleted** in the §L07b hard cutover) and `src/lib/server/api/r2-gc.ts` (simplified to reference-counted v2 GC).
+- Client adds `src/lib/services/blob-inventory.ts` (primitives) + `src/lib/services/inventory-session.ts` (session-scoped manager).
+- ~~The existing v1 routes (`/api/blobs/*`, `/api/documents/*`) stay live for a migration window so older clients can still sync.~~ **(Superseded 2026-05-31:** the §L07b pass deleted the v1 routes outright — hard cutover, no migration window.)**
 
 ### Open issues
 
-- **Sign-off required (B.1):** acceptance of Candidate 1's ⚠️ V1-C1 first-pointer observation as the Phase 4 minimum-viable, OR a directive to wait for Candidate 2 + L09cap before claiming Vu1.
-- **GC reference-counting algorithm.** Without per-account prefix, GC must reconstruct the live set from each authenticated client's inventory on its next read. Spec the exact sweep frequency, the staleness window, and the failure-mode if a client never returns.
-- **Migration window.** Dual-read shim that resolves both legacy `vaults/{accountId}/…` and new `blobs/{uuid}.bin` during the cutover. Need a deadline for the v1 routes to be removed.
+- ~~**Sign-off required (B.1):**~~ **RESOLVED 2026-05-31** — Candidate 1's ⚠️ V1-C1 first-pointer (deterministic bootstrap address) footprint was explicitly accepted as the minimum-viable for the V1 claim in [`docs/verifications/2026-05-31-vu1-closure.md`](./verifications/2026-05-31-vu1-closure.md). Candidate 2 + §L09cap unlinkable bootstrap remain a V0-track item, not required for V1.
+- **GC reference-counting algorithm.** Without per-account prefix, GC must reconstruct the live set from each authenticated client's inventory on its next read. Spec the exact sweep frequency, the staleness window, and the failure-mode if a client never returns. **(Shipped 2026-05-31:** `gcV2Now`/`maybeGcV2` in [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) reap `blob_references`/`inv_references` rows past a `last_seen_at` staleness cutoff; sampled and fire-and-forget so a never-returning client only delays reclamation.)**
+- ~~**Migration window.** Dual-read shim that resolves both legacy `vaults/{accountId}/…` and new `blobs/{uuid}.bin` during the cutover. Need a deadline for the v1 routes to be removed.~~ **RESOLVED 2026-05-31:** the §L07b pass was a hard cutover — no dual-read shim, the v1 routes were deleted outright (there was no deployed client population to migrate).
 
 ---
 
@@ -351,7 +351,7 @@ export interface DevicePairingService {
 
 ### Persistence
 
-- D1 `device_pairings` table is already in `0001_init.sql` but unused. L08 wires it.
+- ~~D1 `device_pairings` table is already in `0001_init.sql` but unused. L08 wires it.~~ **(Superseded 2026-05-31:** the `device_pairings` table was **dropped** in `migrations/0004_metadata_minimization.sql` to close V1-C2 — pairing is fully peer-to-peer and writes no server row, so L08 does not re-introduce it.)**
 - IndexedDB on guest device gets a fresh `account` row whose `credentialId` is registered with the host's account in D1.
 
 ### Server route contract

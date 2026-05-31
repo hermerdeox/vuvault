@@ -15,21 +15,27 @@
 VuVault today is best described as:
 
 > **High architectural privacy for vault contents and document file
-> bytes; persistent server-side account/session metadata; not yet
+> bytes, with minimized relay metadata — no per-user blob inventory,
+> no persistent device set, no cross-account sequence clock; not yet
 > multi-device, not yet sharing-enabled.**
 
-If you only need a number, call it **Vu Level 2** (vault + documents
-end-to-end encrypted, M3 sync gated and verified; server retains
-account / session metadata). The path to **Vu Level 1**
-(E2E + minimized relay metadata, no persistent device set) ships
-in Tier 2 — see [docs/ROADMAP.md](./ROADMAP.md). The mechanical
-gap analysis — every criterion, the code that holds us at Vu
-Level 2 today, the Tier-2 layer that closes it, and the open
-spec work — lives in
+If you only need a number, call it **Vu Level 1** (vault + documents
+end-to-end encrypted, M3 sync gated and verified, AND relay metadata
+minimized: blobs keyed by random UUID with no account prefix, the
+latest-pointer kept in a client-side encrypted inventory the passive
+server cannot address, no persistent device set, no server-side
+sequence clock). The §L07b metadata-minimization pass closed the last
+two V1 criteria (V1-C1, V1-C3) by wiring the random-UUID blob + client
+inventory path into the live save/restore and document flows; V1-C2
+closed earlier with `migrations/0004_metadata_minimization.sql`. The
+mechanical gap analysis — every criterion, the code that closes it,
+and the open spec work — lives in
 [`docs/VU-LEVEL-MIGRATION-MAP.md`](./VU-LEVEL-MIGRATION-MAP.md).
 The path to **Vu Level 0** (zero-knowledge — no server-visible
-account correlation at all) is the Tier 2+ AKD + CRDT padding
-work in [`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md).
+account correlation at all, including unlinkable routing identifiers
+that replace the deterministic Candidate-1 bootstrap address) is the
+Tier 2+ AKD + CRDT padding work in
+[`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md).
 
 > **2026-05-22 Phase 2 update.** The **V1-C2** criterion ("no
 > persistent device set") **has closed**: as of the session-mint
@@ -69,10 +75,33 @@ work in [`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md).
 > in this build: **"after OPAQUE login, the server cannot link a
 > session's subsequent requests to the account that logged in."**
 >
+> **2026-05-31 Vu1 closure update.** The remaining V1 criteria —
+> **V1-C1** ("no per-user blob inventories") and **V1-C3** ("no
+> cross-account sequence-clock correlation") — are now **closed in the
+> live data path**, not merely prototyped. An earlier build had the v2
+> blob/inventory primitives but never wired them into save/restore; the
+> §L07b pass connects them. The whole-vault save/restore flow and the
+> document attach/read flow write to random-UUID blobs at
+> `/api/v2/blobs/<uuid>` (no account prefix) with the latest-pointer in
+> a client-side encrypted inventory at `/api/v2/inv/<addr>` whose
+> address the passive server cannot compute. The legacy per-account
+> routes are **deleted**, and `migrations/0009_drop_sequence_clock.sql`
+> drops the server-side sequence clock. This is verified *behaviorally*
+> — not just by route shape — by `scripts/release-probe-vu1.mjs` (the
+> deleted routes return no handler) plus request-interception in
+> `tests/e2e/sync.spec.ts`. With V1-C1/C2/C3 all closed, **`CURRENT_LEVEL`
+> moves from 2 to 1.** Accepted residual: the inventory bootstrap
+> address is deterministically derived from the secret vault key
+> (Candidate 1), so a holder of that key can confirm an inventory
+> exists — moot, since holding the key already discloses the vault.
+> CRDT sync, MLS sharing, AKD pairing, and PIR breach checks remain
+> Tier-2 futures and are **not** claimed at Vu Level 1.
+>
 > See
-> [`docs/verifications/2026-05-22-vu1-phase2.md`](./verifications/2026-05-22-vu1-phase2.md)
+> [`docs/verifications/2026-05-22-vu1-phase2.md`](./verifications/2026-05-22-vu1-phase2.md),
+> [`docs/verifications/2026-05-26-vu0-uplift.md`](./verifications/2026-05-26-vu0-uplift.md),
 > and
-> [`docs/verifications/2026-05-26-vu0-uplift.md`](./verifications/2026-05-26-vu0-uplift.md)
+> [`docs/verifications/2026-05-31-vu1-closure.md`](./verifications/2026-05-31-vu1-closure.md)
 > for the audited evidence.
 
 > **Scale direction (2026-05-20 inversion).** Lower numbers are
@@ -105,13 +134,13 @@ Each row in this table maps to actual code paths exercised by
 | Argon2id (RFC 9106) optional master-password third factor | ✅ shipped | [`src/lib/crypto/argon2.ts`](../src/lib/crypto/argon2.ts), [`src/lib/crypto/argon2id-rfc9106.kat.test.ts`](../src/lib/crypto/argon2id-rfc9106.kat.test.ts) |
 | OPAQUE (RFC 9807) registration + login against D1; server never sees a password equivalent | ✅ shipped | [`src/routes/api/opaque/`](../src/routes/api/opaque/), [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts); integration tests in [`tests/integration/worker.spec.ts`](../tests/integration/worker.spec.ts) |
 | Local Recovery Envelope for passkey-loss recovery with Secret Key + Recovery Password | ✅ shipped | [`src/lib/crypto/recovery-envelope.ts`](../src/lib/crypto/recovery-envelope.ts), [`src/lib/services/recovery-envelope.ts`](../src/lib/services/recovery-envelope.ts), [`src/routes/recover/+page.svelte`](../src/routes/recover/+page.svelte) |
-| Whole-vault encrypted blob sync against R2; server stores ciphertext only | ✅ shipped | [`src/routes/api/blobs/upload/+server.ts`](../src/routes/api/blobs/upload/+server.ts), [`src/routes/api/blobs/latest/+server.ts`](../src/routes/api/blobs/latest/+server.ts), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
-| Per-document encrypted blob storage against R2; server stores ciphertext only | ✅ shipped (this pass) | [`src/routes/api/documents/[blobId]/+server.ts`](../src/routes/api/documents/[blobId]/+server.ts), [`tests/integration/api-routes.spec.ts`](../tests/integration/api-routes.spec.ts) |
+| Whole-vault encrypted blob sync against R2; server stores ciphertext only, keyed by random UUID with no account prefix | ✅ shipped | [`src/routes/api/v2/blobs/[uuid]/+server.ts`](../src/routes/api/v2/blobs/[uuid]/+server.ts), [`src/routes/api/v2/inv/[addr]/+server.ts`](../src/routes/api/v2/inv/[addr]/+server.ts), [`src/lib/services/inventory-session.ts`](../src/lib/services/inventory-session.ts), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
+| Per-document encrypted blob storage against R2; server stores ciphertext only, keyed by random UUID with no account prefix | ✅ shipped | [`src/routes/api/v2/blobs/[uuid]/+server.ts`](../src/routes/api/v2/blobs/[uuid]/+server.ts), [`src/lib/services/document-blobs.ts`](../src/lib/services/document-blobs.ts), [`tests/integration/v2-blobs.spec.ts`](../tests/integration/v2-blobs.spec.ts) |
 | Production rate-limit bindings fail-closed | ✅ shipped | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) `applyRateLimit` + [`env.ts`](../src/lib/server/api/env.ts) `getRateLimitMode`; mode `OPAQUE_RATE_LIMIT_MODE` is `fail-closed` in `[env.production.vars]`. Verified by [`rate-limit-d1.test.ts`](../src/lib/server/api/rate-limit-d1.test.ts) + [`.github/workflows/release.yml`](../.github/workflows/release.yml) post-deploy burst probe. |
 | Server-side session revocation on lock | ✅ shipped | [`/api/opaque/logout`](../src/routes/api/opaque/logout/+server.ts), wired into `lockSession()` in [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) as a fire-and-forget call. |
 | Per-environment OPAQUE serverIdentity (preview cannot replay against production) | ✅ shipped | [`wrangler.toml`](../wrangler.toml) `[vars]` (`preview.vuvault.app`) vs `[env.production.vars]` (`vuvault.app`); `OPAQUE_SERVER_ID` mixes into every AKE transcript via [`server-opaque.ts`](../src/lib/server/api/server-opaque.ts). |
 | Opportunistic D1 cleanup of pending state / sessions / rate-limit windows | ✅ shipped | [`src/lib/server/api/cleanup.ts`](../src/lib/server/api/cleanup.ts); [`cleanup.test.ts`](../src/lib/server/api/cleanup.test.ts). |
-| Opportunistic R2 garbage collection of superseded vault blobs + dormant document blobs | ✅ shipped | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts); [`r2-gc.test.ts`](../src/lib/server/api/r2-gc.test.ts). |
+| Opportunistic R2 garbage collection of superseded blobs by reference counting — no per-account prefix walk | ✅ shipped | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) (`maybeGcV2` / `gcV2Now` reaping `blob_references` / `inv_references`); [`r2-gc.test.ts`](../src/lib/server/api/r2-gc.test.ts). |
 | Production preflight refuses to deploy without the `m3-sync-e2e` CI artifact | ✅ shipped | [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs) |
 | Formal threat model + audit checklist + CycloneDX SBOM | ✅ shipped | [`docs/THREAT-MODEL.md`](./THREAT-MODEL.md), [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md), `npm run sbom` ([`scripts/build-sbom.mjs`](../scripts/build-sbom.mjs)) |
 | Bundle integrity verification on every unlock; mismatch refuses decryption | ✅ shipped | [`src/lib/utils/env.ts`](../src/lib/utils/env.ts) `verifyBundleIntegrity`, `.bundle-digest` |
@@ -165,9 +194,10 @@ placeholder. After this pass:
    `attachDocumentFile()` ([`src/lib/services/document-blobs.ts`](../src/lib/services/document-blobs.ts))
    and inside the caller's `Blob` when downloading
    ([`src/routes/vault/VaultDetail.svelte`](../src/routes/vault/VaultDetail.svelte) `downloadDocument`).
-2. **Encrypted bytes** are written to the new `documentBlobs` Dexie
-   table and, when sync is wired, uploaded as opaque blobs to
-   `vaults/<accountId>/documents/<blobId>.bin` in R2.
+2. **Encrypted bytes** are written to the local `documentBlobs` store
+   and uploaded as opaque blobs to `/api/v2/blobs/<blobId>` in R2 — a
+   random UUID with no account prefix, with the blob id recorded in the
+   client-side encrypted inventory rather than a per-account listing.
 3. **AES-256-GCM** seals each document with the active session AES
    key under a **distinct AAD domain** (`vuvault-doc-aad-v1`) bound to
    the document's UUID, the account's device salt, and the WebAuthn
@@ -221,8 +251,8 @@ Verifying the on-the-wire / on-disk privacy claim yourself:
 
 This is a deliberately small ladder. Each level is exhaustively
 defined by which **cryptographic capabilities** the shipped code
-holds today. Lower numbers are stronger; an **unaudited Vu Level 2
-system is still a Vu Level 2 system** in terms of what it can
+holds today. Lower numbers are stronger; an **unaudited Vu Level 1
+system is still a Vu Level 1 system** in terms of what it can
 protect. Third-party audits are an *evidence* concern tracked in
 [`docs/AUDIT-CHECKLIST.md`](./AUDIT-CHECKLIST.md) + M4 of
 [`docs/ROADMAP.md`](./ROADMAP.md), not a privacy-ladder property.
@@ -230,8 +260,8 @@ protect. Third-party audits are an *evidence* concern tracked in
 | Level | What holds | When |
 | --- | --- | --- |
 | **Vu Level 0** | Zero-knowledge: no server-visible account / session / device correlation; routing identifiers unlinkable; blob sizes bucketed; metadata minimized to delivery-only. A server compromise reveals, by construction, nothing useful. | **Aspirational — Tier 2+ redesign target** |
-| **Vu Level 1** | E2E content **and** minimized relay metadata — no per-user blob inventories, no persistent device set, no cross-account sequence-clock correlation. CRDT sync + MLS sharing + AKD pairing + PIR breach checks. | Tier 2 (2027) |
-| **Vu Level 2** | Vault + document plaintext E2E encrypted under X25519 + ML-KEM-1024 hybrid envelope, local Recovery Envelope, M3 sync gated and verified, fail-closed rate limits, reproducible + signed builds. Server still retains persistent account / session / device / blob metadata. | **Today (M3, post this pass)** |
+| **Vu Level 1** | E2E content **and** minimized relay metadata — no per-user blob inventories (random-UUID blobs + client-side encrypted inventory), no persistent device set, no cross-account sequence-clock correlation. The deterministic Candidate-1 bootstrap address is the accepted residual. CRDT sync, MLS sharing, AKD pairing, and PIR breach checks are **not** part of this level — they remain Tier-2 futures. | **Today (M3 — §L07b metadata-minimization pass)** |
+| **Vu Level 2** | Vault + document plaintext E2E encrypted under X25519 + ML-KEM-1024 hybrid envelope, local Recovery Envelope, M3 sync gated and verified, fail-closed rate limits, reproducible + signed builds. Server still retains per-account blob inventories, a persistent device set, and a cross-account sequence clock. | Superseded by Vu Level 1 in the §L07b pass |
 | **Vu Level 3** | Partial E2E with recoverable metadata — server can correlate or partially decrypt metadata, holds recovery material, or operates a key-escrow path. Common shape for incumbent password managers offering "account recovery." | Refused for VuVault; listed for comparison |
 | **Vu Level 4** | Weakened or legacy cryptography — E2E labels are claimed, but cipher choices or key management are brute-forceable in practice, or the server retains a key-recovery path under "operational" cover. | Refused; below the ecosystem floor |
 | **Vu Level 5** | Policy privacy: TLS + same-origin sync + standard "we promise not to look." The server holds plaintext or session keys; privacy is policy, not architecture. | **NOT ALLOWED in the Vu ecosystem** |

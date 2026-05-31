@@ -57,8 +57,7 @@ export async function authenticateCapability(
 	return {
 		token: capabilityHex,
 		accountId: row.accountId,
-		expiresAt: Number.MAX_SAFE_INTEGER,
-		sequenceClock: 0
+		expiresAt: Number.MAX_SAFE_INTEGER
 	};
 }
 

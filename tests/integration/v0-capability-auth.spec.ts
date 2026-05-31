@@ -71,18 +71,13 @@ class FakeD1 {
 	}
 
 	private firstImpl<T>(sql: string, args: unknown[]): T | null {
-		if (sql.includes('FROM sessions s JOIN accounts a')) {
+		if (sql.startsWith('SELECT token, account_id, expires_at FROM sessions')) {
 			const session = this.sessions.get(args[0] as string);
 			if (!session) return null;
-			const account = this.accounts.get(session.account_id as string);
 			return {
 				token: session.token,
 				account_id: session.account_id,
-				expires_at: session.expires_at,
-				sequence_clock: Math.max(
-					Number(session.sequence_clock ?? 0),
-					Number(account?.sequence_clock ?? 0)
-				)
+				expires_at: session.expires_at
 			} as T;
 		}
 		if (sql.startsWith('SELECT count FROM rate_limits')) {
@@ -213,12 +208,11 @@ function seedCapability(
 	capabilityHex: string,
 	bearerToken: string
 ) {
-	db.accounts.set(accountId, { account_id: accountId, sequence_clock: 0 });
+	db.accounts.set(accountId, { account_id: accountId });
 	db.sessions.set(bearerToken, {
 		token: bearerToken,
 		account_id: accountId,
-		expires_at: Math.floor((Date.now() + 60_000) / 1000),
-		sequence_clock: 0
+		expires_at: Math.floor((Date.now() + 60_000) / 1000)
 	});
 	db.capabilityIndex.set(`${epochId}:${capabilityHex.toLowerCase()}`, {
 		epoch_id: epochId,
@@ -397,7 +391,7 @@ describe('V0-C1 · /api/v2/inv accepts X-Vu0-Capability', () => {
 });
 
 describe('V0-C1 · /api/v2/sessions/self accepts X-Vu0-Capability', () => {
-	it('GET with capability returns {expiresAt, sequenceClock} but NO Next-Token rotation', async () => {
+	it('GET with capability returns {expiresAt} but NO Next-Token rotation', async () => {
 		const e = env();
 		const db = e.AUTH_DB as unknown as FakeD1;
 		seedCapability(db, 'acct-A', 7, CAPABILITY_A, BEARER_A);
@@ -421,7 +415,7 @@ describe('V0-C1 · /api/v2/sessions/self accepts X-Vu0-Capability', () => {
 		};
 		expect(body.ok).toBe(true);
 		expect(body.data).toHaveProperty('expiresAt');
-		expect(body.data).toHaveProperty('sequenceClock');
+		expect(body.data).not.toHaveProperty('sequenceClock');
 		expect(body.data).not.toHaveProperty('accountId');
 		expect(body.data).not.toHaveProperty('account_id');
 	});
@@ -430,12 +424,11 @@ describe('V0-C1 · /api/v2/sessions/self accepts X-Vu0-Capability', () => {
 		const e = env();
 		const db = e.AUTH_DB as unknown as FakeD1;
 		const token = 'a'.repeat(64);
-		db.accounts.set('acct-A', { account_id: 'acct-A', sequence_clock: 0 });
+		db.accounts.set('acct-A', { account_id: 'acct-A' });
 		db.sessions.set(token, {
 			token,
 			account_id: 'acct-A',
-			expires_at: Math.floor((Date.now() + 60_000) / 1000),
-			sequence_clock: 0
+			expires_at: Math.floor((Date.now() + 60_000) / 1000)
 		});
 		const res = await v2SessionsSelf(
 			event(

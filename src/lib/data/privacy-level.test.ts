@@ -51,11 +51,11 @@ describe('privacy-level data module', () => {
 		// — change the number here, forget to update the doc, or vice
 		// versa — the test fails CI before a stale claim ships.
 		expect(doc).toContain(`**${lvl.short}**`);
-		expect(doc).toContain('Today (M3, post this pass)');
+		expect(doc).toContain(lvl.when);
 		// Lock in the post-inversion direction: lower-number = more
 		// private. A future inverter who flips this back without
 		// migrating the rest of the codebase will fail here.
-		expect(CURRENT_LEVEL).toBe(2);
+		expect(CURRENT_LEVEL).toBe(1);
 	});
 
 	it('ladder is inverted: lower id = stronger privacy claim', () => {

@@ -3,7 +3,7 @@
  *
  * Body: `{ clientId, requestId, ke3 }` where `ke3` is the
  *       base64-encoded RFC 9807 KE3 bytes.
- * Returns: `{ accountId, token, expiresAt, sequenceClock }`.
+ * Returns: `{ accountId, token, expiresAt }`.
  *
  * Mints a fresh session token on success. Wrong-password rejection
  * (MAC mismatch) returns 401 with no information about whether the
@@ -81,29 +81,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 		const token = newToken();
 		const expiresAt = Date.now() + SESSION_TTL_MS;
-		const lastClock = await env.AUTH_DB
-			.prepare(
-				`SELECT
-					MAX(
-						COALESCE(accounts.sequence_clock, 0),
-						COALESCE((SELECT MAX(sequence_clock) FROM sessions WHERE account_id = accounts.account_id), 0)
-					) AS clock
-				 FROM accounts
-				 WHERE account_id = ?`
-			)
-			.bind(accountId)
-			.first<{ clock: number }>();
-		// New sessions inherit the durable account high-water mark. The
-		// sessions fallback keeps local/dev databases created before the
-		// additive migration safe during rollout.
-		const sequenceClock = lastClock?.clock ?? 0;
 
 		await env.AUTH_DB
 			.prepare(
-				`INSERT INTO sessions (token, account_id, expires_at, sequence_clock, created_at)
-				 VALUES (?, ?, ?, ?, unixepoch())`
+				`INSERT INTO sessions (token, account_id, expires_at, created_at)
+				 VALUES (?, ?, ?, unixepoch())`
 			)
-			.bind(token, accountId, Math.floor(expiresAt / 1000), sequenceClock)
+			.bind(token, accountId, Math.floor(expiresAt / 1000))
 			.run();
 
 		// V1-C2: no `UPDATE accounts SET last_login_at` — the column
@@ -116,8 +100,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return jsonOk({
 			accountId,
 			token,
-			expiresAt,
-			sequenceClock
+			expiresAt
 		});
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : '';

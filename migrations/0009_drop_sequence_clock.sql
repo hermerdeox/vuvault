@@ -1,0 +1,139 @@
+-- 0009_drop_sequence_clock.sql — close V1-C3 (no cross-account sequence clock).
+--
+-- =========================================================================
+-- STATUS: IN APPLY CHAIN as of 2026-05-31 (Phase 4 of the Vu1 migration brief).
+-- =========================================================================
+--
+-- This migration applied alongside the §L07b hard cutover that removed the
+-- legacy per-account blob/document routes (`/api/blobs/*`,
+-- `/api/documents/[blobId]`) and rewired the live client to the
+-- account-free v2 surface (`/api/v2/blobs/{uuid}`, `/api/v2/inv/{addr}`).
+-- Once the per-account R2 prefix is gone, the `sequence_clock` columns are
+-- the last server-side per-account ordering signal — V1-C3 requires them
+-- gone too.
+--
+-- Companion application-layer changes shipped in the same PR:
+--   - `src/lib/server/api/auth-token.ts` — `Session` drops `sequenceClock`;
+--     `authenticate` no longer JOINs `accounts` for a `MAX(sequence_clock)`;
+--     `rotateToken` no longer carries the clock; `advanceSequenceClock`
+--     is deleted.
+--   - `src/routes/api/opaque/login/ke3/+server.ts` — stops reading the
+--     account high-water mark and stops writing `sessions.sequence_clock`.
+--   - `src/routes/api/v2/sessions/self/+server.ts` — response shrinks to
+--     `{ expiresAt }`.
+--   - `src/lib/server/api/capability-auth.ts` and
+--     `src/lib/services/opaque-client.ts` — drop the `sequenceClock` field.
+--
+-- The client's `SyncNowResult.sequenceClock` / observer field is a
+-- SEPARATE, client-only concept now sourced from the encrypted inventory's
+-- `latestIndex` (`src/lib/services/inventory-session.ts`). It never crosses
+-- the wire and is unaffected by this migration.
+--
+-- =========================================================================
+-- WHAT THIS MIGRATION DOES
+-- =========================================================================
+--
+-- V1-C3 requires that the server hold no value that lets it order writes
+-- across accounts. Two columns carried that signal:
+--
+--   - `accounts.sequence_clock` — added in `0002_account_sequence_clock.sql`
+--     as the durable per-account high-water mark.
+--   - `sessions.sequence_clock`  — added in `0001_init.sql` as the
+--     per-session lower bound the next blob upload had to beat.
+--
+-- Both are now dead: no route reads or writes them after the app-layer
+-- changes above. This migration drops them.
+--
+-- After this migration applies, the server's per-account observation
+-- surface is reduced to:
+--
+--   - `accounts(account_id, client_id, …OPAQUE record fields…, created_at)`
+--   - `sessions(token, account_id, expires_at, created_at)`
+--   - `rate_limits(bucket, window_start, count)`
+--
+-- =========================================================================
+-- TRANSACTIONALITY
+-- =========================================================================
+--
+-- SQLite supports ALTER TABLE … DROP COLUMN since 3.35, which Cloudflare D1
+-- ships. Neither column participates in a PRIMARY KEY, UNIQUE constraint,
+-- index, view, generated column, or trigger body, so both drops are plain
+-- transactional rewrites. `wrangler d1 migrations apply` wraps the file in
+-- an implicit transaction; if either statement fails the prior schema
+-- remains intact.
+--
+-- GOTCHA — test this migration through `wrangler d1 migrations apply
+-- --local` (the D1 engine), NOT a bare `sqlite3 db < 0009.sql`. DROP COLUMN
+-- triggers a schema-wide re-validation of every trigger body. The
+-- `*_no_account_drift` guard triggers (0005/0006/0007) reference
+-- `pragma_table_info()` — a virtual table — in their WHEN clauses. D1 runs
+-- with `trusted_schema=ON`, which permits that and lets the drop succeed
+-- (verified: 0001→0009 applies clean on the local D1 engine). The bare
+-- sqlite3 CLI defaults to `trusted_schema=OFF`, under which the same
+-- re-validation rejects the virtual-table reference and reports a bare
+-- "SQL logic error" on these two statements. That is a CLI artifact, not a
+-- defect in this migration — do NOT "fix" it by dropping/recreating the
+-- guard triggers here.
+
+-- -------------------------------------------------------------------------
+-- 1. Drop sessions.sequence_clock
+-- -------------------------------------------------------------------------
+-- V1-C3 — eliminate the per-session ordering lower bound. The app layer
+-- must already have stopped INSERTing this column in the same PR; the KE3
+-- and rotateToken INSERTs were narrowed to
+-- `(token, account_id, expires_at, created_at)`.
+
+ALTER TABLE sessions DROP COLUMN sequence_clock;
+
+-- -------------------------------------------------------------------------
+-- 2. Drop accounts.sequence_clock
+-- -------------------------------------------------------------------------
+-- V1-C3 — eliminate the durable per-account high-water mark. Nothing reads
+-- it after `authenticate` stopped JOINing `accounts` for the MAX().
+
+ALTER TABLE accounts DROP COLUMN sequence_clock;
+
+-- -------------------------------------------------------------------------
+-- 3. metadata_minimization_guard — left intact
+-- -------------------------------------------------------------------------
+-- The `metadata_minimization_guard` row (version 1) installed by
+-- `0004_metadata_minimization.sql` is NOT touched here: `sequence_clock`
+-- is not one of the device-/account-correlating column names that guard
+-- protects, and the `sessions_metadata_minimization_check` BEFORE INSERT
+-- trigger only reads the guard row — a DROP COLUMN on `sessions` leaves
+-- both the trigger and the guard row in place, so session writes keep
+-- passing immediately after this migration applies.
+
+-- =========================================================================
+-- DOWN-MIGRATION (rollback) — manual; not auto-applied by `wrangler d1`
+-- =========================================================================
+--
+-- If this migration must be rolled back, run the following manually. The
+-- columns are restored with their original NOT NULL DEFAULT 0 shape; the
+-- application layer must be reverted to its pre-Phase-4 state in the same
+-- window so the INSERTs specify the column again.
+--
+--   ALTER TABLE accounts ADD COLUMN sequence_clock INTEGER NOT NULL DEFAULT 0;
+--   ALTER TABLE sessions ADD COLUMN sequence_clock INTEGER NOT NULL DEFAULT 0;
+--
+-- After this rollback, the V1-C3 closure is reversed. `CURRENT_LEVEL` in
+-- `src/lib/data/privacy-level.ts` MUST stay at `2` if it had been flipped
+-- to `1` based on this migration.
+--
+-- =========================================================================
+-- POST-APPLY CHECKLIST
+-- =========================================================================
+--
+-- After `wrangler d1 migrations apply AUTH_DB --env production --remote`
+-- returns success:
+--
+--   [ ] `SELECT name FROM pragma_table_info('sessions');` — assert
+--       `sequence_clock` is absent.
+--   [ ] `SELECT name FROM pragma_table_info('accounts');` — assert
+--       `sequence_clock` is absent.
+--   [ ] `SELECT * FROM metadata_minimization_guard;` — assert one row with
+--       `version=1` still present (the V1-C2 trigger depends on it).
+--   [ ] Mint a fresh session via OPAQUE KE3 against the preview origin and
+--       confirm it succeeds (proves the narrowed INSERT + trigger agree).
+--   [ ] Run the V1-C3 probe in `scripts/release-probe-vu1.mjs`; assert
+--       `v1_c3=pass`.

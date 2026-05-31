@@ -23,6 +23,7 @@
 		encodeBase32
 	} from '$lib/crypto/secret-key';
 	import { hasAccount, getAccount } from '$lib/utils/storage';
+	import { CURRENT_LEVEL } from '$lib/data/privacy-level';
 	import {
 		verifyBundleIntegrity,
 		type BundleIntegrity,
@@ -217,7 +218,7 @@
 		// a JS module closure — NOT sessionStorage and NOT
 		// localStorage — so the token dies on hard reload and is
 		// cleared explicitly by `lockSession()`. Subsequent
-		// `/api/blobs/*` and `/api/documents/*` calls authenticate
+		// `/api/v2/blobs/*` and `/api/v2/inv/*` calls authenticate
 		// via this in-memory value only.
 		//
 		// Demo accounts skip OPAQUE entirely (B6 invariant).
@@ -633,7 +634,7 @@
 			<div class="footer-line">
 				<IconUnlock size={12} stroke={1.6} />
 				All decryption is local · zero bytes transmitted ·
-				<a class="privacy-link" href={resolve('/privacy')}>Vu Level 2</a>
+				<a class="privacy-link" href={resolve('/privacy')}>Vu Level {CURRENT_LEVEL}</a>
 				{#if integrity}
 					<span class="integrity integrity-{integrity.state}">
 						· bundle {integrity.expectedShort}

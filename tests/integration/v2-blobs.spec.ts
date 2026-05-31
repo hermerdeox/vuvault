@@ -72,18 +72,13 @@ class FakeD1 {
 	}
 
 	private firstImpl<T>(sql: string, args: unknown[]): T | null {
-		if (sql.includes('FROM sessions s JOIN accounts a')) {
+		if (sql.startsWith('SELECT token, account_id, expires_at FROM sessions')) {
 			const session = this.sessions.get(args[0] as string);
 			if (!session) return null;
-			const account = this.accounts.get(session.account_id as string);
 			return {
 				token: session.token,
 				account_id: session.account_id,
-				expires_at: session.expires_at,
-				sequence_clock: Math.max(
-					Number(session.sequence_clock ?? 0),
-					Number(account?.sequence_clock ?? 0)
-				)
+				expires_at: session.expires_at
 			} as T;
 		}
 		if (sql.startsWith('SELECT count FROM rate_limits')) {
@@ -230,12 +225,11 @@ function event(request: Request, e: Env, params: Record<string, string> = {}) {
 }
 
 function seedSession(db: FakeD1, accountId: string, token: string): string {
-	db.accounts.set(accountId, { account_id: accountId, sequence_clock: 0 });
+	db.accounts.set(accountId, { account_id: accountId });
 	db.sessions.set(token, {
 		token,
 		account_id: accountId,
-		expires_at: Math.floor((Date.now() + 60_000) / 1000),
-		sequence_clock: 0
+		expires_at: Math.floor((Date.now() + 60_000) / 1000)
 	});
 	return token;
 }

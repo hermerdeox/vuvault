@@ -77,6 +77,8 @@ import {
 	sha256Hex,
 	CurrentMasterPasswordIncorrect
 } from './vault-session';
+import { attachDocumentFile } from './document-blobs';
+import { setSessionToken } from './sync-client';
 import {
 	db,
 	validateAccountRow,
@@ -110,6 +112,61 @@ function freshCredentialId(): ArrayBuffer {
 	const buf = new Uint8Array(32);
 	crypto.getRandomValues(buf);
 	return buf.buffer;
+}
+
+/**
+ * In-memory v2 transport that records every requested URL and serves
+ * the blob + inventory routes the live save/document path uses. Any
+ * route OTHER than `/api/v2/blobs/*` or `/api/v2/inv/*` (notably the
+ * retired per-account `/api/blobs/*` / `/api/documents/*` routes)
+ * returns a loud 404 and is still recorded, so a transport leak would
+ * surface as a non-v2 URL in `urls`.
+ */
+function makeV2RecordingFetch(urls: string[]): typeof fetch {
+	const blobStore = new Map<string, { nonce: string; ciphertext: string }>();
+	const invStore = new Map<string, { nonce: string; ciphertext: string }>();
+	let clock = 1;
+	return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		urls.push(url);
+		const method = (init?.method ?? 'GET').toUpperCase();
+		const body = (): { nonce: string; ciphertext: string } =>
+			JSON.parse(String(init?.body ?? '{}'));
+		const jr = (status: number, data: unknown): Response =>
+			new Response(JSON.stringify(status < 400 ? { ok: true, data } : { ok: false, error: data }), {
+				status,
+				headers: { 'content-type': 'application/json' }
+			});
+
+		const blob = url.match(/\/api\/v2\/blobs\/([^/?#]+)$/);
+		if (blob) {
+			const id = blob[1]!;
+			if (method === 'PUT') {
+				blobStore.set(id, body());
+				return jr(200, { blobId: id, updatedAt: clock++ });
+			}
+			if (method === 'GET') {
+				const hit = blobStore.get(id);
+				if (!hit) return jr(404, 'not found');
+				return jr(200, { blobId: id, ...hit, updatedAt: clock++ });
+			}
+			if (method === 'DELETE') return jr(200, { blobId: id, deletedAt: clock++ });
+		}
+		const inv = url.match(/\/api\/v2\/inv\/([^/?#]+)$/);
+		if (inv) {
+			const addr = inv[1]!;
+			if (method === 'PUT') {
+				invStore.set(addr, body());
+				return jr(200, { addr, updatedAt: clock++ });
+			}
+			if (method === 'GET') {
+				const hit = invStore.get(addr);
+				if (!hit) return jr(404, 'no inventory');
+				return jr(200, { addr, ...hit, updatedAt: clock++ });
+			}
+		}
+		return jr(404, `unexpected route ${method} ${url}`);
+	}) as unknown as typeof fetch;
 }
 
 beforeAll(() => {
@@ -965,7 +1022,7 @@ describe('sync fallback', () => {
 		);
 	});
 
-	it('saves locally even when uploadBlob would 503 (fire-and-forget)', async () => {
+	it('saves locally even when the v2 blob upload would 503 (fire-and-forget)', async () => {
 		// Mock fetch to reject with a 503 — saveItems still succeeds
 		// because the upload is fire-and-forget. The local Dexie row
 		// is the source of truth and persists.
@@ -1013,6 +1070,81 @@ describe('sync fallback', () => {
 		} finally {
 			globalThis.fetch = originalFetch;
 			mockSyncOrigin = '';
+		}
+	});
+
+	it('routes document attach + vault save over v2 only (no legacy per-account routes)', async () => {
+		// Behavioral proof behind the V1-C1/V1-C3 closure that the
+		// shape-only release probe cannot make: drive the production
+		// attach + save path against a recording transport and assert the
+		// client touches ONLY /api/v2/blobs/* and /api/v2/inv/*. The
+		// retired per-account /api/blobs/* and /api/documents/* routes
+		// must never appear.
+		mockSyncOrigin = 'https://sync.test.invalid';
+		const originalFetch = globalThis.fetch;
+		const urls: string[] = [];
+		globalThis.fetch = makeV2RecordingFetch(urls);
+		try {
+			const credentialId = freshCredentialId();
+			const deviceSalt = generateDeviceSalt();
+			const prfOutput = (await evaluatePRF({
+				credentialId,
+				salt: deviceSalt
+			})) as Uint8Array;
+			await provisionVault({
+				deviceLabel: 'v2-only',
+				secretKey: SECRET_KEY,
+				credentialId,
+				credentialPublicKey: new ArrayBuffer(0),
+				authMode: 'production',
+				prfOutput,
+				deviceSalt
+			});
+			// A live session token makes the document path's sync branch
+			// fire (isSyncWired() && hasSession()).
+			setSessionToken('f'.repeat(64));
+
+			// Document attach is fully awaited: deterministically PUTs a
+			// /api/v2/blobs/{uuid} object and records its id in the
+			// /api/v2/inv/{addr} inventory.
+			const fakeFile = {
+				name: 'memo.txt',
+				type: 'text/plain',
+				arrayBuffer: async () => new TextEncoder().encode('secret memo').buffer
+			} as unknown as File;
+			const attached = await attachDocumentFile(fakeFile);
+			expect(attached.remote).toBe(true);
+
+			// Whole-vault save: the push is fire-and-forget, so yield the
+			// macrotask queue enough times for the upload + inventory
+			// persist chain to settle.
+			await saveItems([
+				{
+					id: 'c',
+					kind: 'note',
+					title: 'v2-routed',
+					createdAt: 3,
+					updatedAt: 3,
+					noteBody: 'pushed over v2'
+				}
+			]);
+			for (let i = 0; i < 25; i++) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+
+			// Both v2 surfaces were exercised, and nothing legacy leaked.
+			expect(urls.length).toBeGreaterThan(0);
+			expect(urls.some((u) => u.includes('/api/v2/blobs/'))).toBe(true);
+			expect(urls.some((u) => u.includes('/api/v2/inv/'))).toBe(true);
+			for (const u of urls) {
+				expect(u).not.toContain('/api/blobs/');
+				expect(u).not.toContain('/api/documents/');
+			}
+		} finally {
+			mockSyncOrigin = '';
+			globalThis.fetch = originalFetch;
+			setSessionToken(null);
+			lockSession();
 		}
 	});
 });

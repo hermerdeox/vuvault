@@ -82,7 +82,7 @@ The release workflow:
 5. Applies D1 migrations to `AUTH_DB --env production --remote`.
 6. Runs `node scripts/seed-opaque-identity.mjs --env=production --rotate=false`.
 7. Deploys the Cloudflare Pages bundle.
-8. Smokes `/api/capabilities` and unauthenticated `/api/blobs/upload`.
+8. Smokes `/api/capabilities`, asserts the deleted legacy transport (`/api/blobs/*`, `/api/documents/*`) now returns 404/410/501 (route removed), and that unauthenticated `/api/v2/blobs/<uuid>` returns 401.
 
 ## OPAQUE Identity Operations
 

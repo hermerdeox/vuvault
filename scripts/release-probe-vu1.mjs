@@ -156,6 +156,57 @@ async function opaqueLoginKE1(clientId, passwordStr) {
 	return { ok: res.ok, status, body };
 }
 
+/**
+ * Behavioral negative assertion for the §L07b hard cutover.
+ *
+ * Phase 4 DELETED the per-account-prefix routes that built the
+ * `vaults/{accountId}/…` layout: `POST /api/blobs/upload`,
+ * `GET /api/blobs/latest`, and `PUT /api/documents/{blobId}`. Their
+ * absence is the strongest single signal that NO client — current or
+ * rolled-back — can still write the per-account inventory surface that
+ * V1-C1 (per-user blob enumeration) and V1-C3 (cross-account write
+ * ordering) both depend on being gone.
+ *
+ * In this app a deleted SvelteKit route falls through to the `[...rest]`
+ * catch-all (`src/routes/api/[...rest]/+server.ts`), which returns 501
+ * "Not Implemented" for any path with no dedicated handler. So the
+ * canonical "this route is gone" signal here is 501; we also accept
+ * 404/410 in case the catch-all is later changed or a tombstone handler
+ * is added. ANY other status (401/405/200/503) means the path still
+ * resolves to a REAL handler — a regression that re-opens the
+ * per-account transport — and fails the assertion. A re-added working
+ * route would return a 2xx or a route-specific 4xx, never 501/404/410.
+ *
+ * Returns `{ allGone, detail }`.
+ */
+async function probeLegacyPerAccountRoutesRemoved() {
+	const checks = [
+		{ method: 'POST', path: '/api/blobs/upload' },
+		{ method: 'GET', path: '/api/blobs/latest' },
+		{ method: 'PUT', path: '/api/documents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }
+	];
+	const live = [];
+	for (const c of checks) {
+		const res = await fetch(`${ORIGIN}${c.path}`, {
+			method: c.method,
+			headers: { 'content-type': 'application/json' },
+			body: c.method === 'GET' ? undefined : '{}',
+			cache: 'no-store'
+		}).catch(() => null);
+		const status = res?.status ?? 'no_response';
+		if (status !== 404 && status !== 410 && status !== 501) {
+			live.push(`${c.method} ${c.path} -> ${status}`);
+		}
+	}
+	return {
+		allGone: live.length === 0,
+		detail:
+			live.length === 0
+				? 'POST /api/blobs/upload, GET /api/blobs/latest, PUT /api/documents/{uuid} all 404/410/501 (no dedicated handler — per-account transport deleted)'
+				: `legacy per-account route(s) still resolve: ${live.join('; ')}`
+	};
+}
+
 // ---------------------------------------------------------------------------
 // V1-C1 — no per-user blob inventories
 // ---------------------------------------------------------------------------
@@ -250,9 +301,19 @@ async function probeV1C1() {
 		}
 	}
 
+	// BEHAVIORAL negative assertion (Phase 5): the v2 surface existing is
+	// necessary but not sufficient. V1-C1 also requires the legacy
+	// per-account inventory transport to be GONE — otherwise a client
+	// could still write `vaults/{accountId}/…` and the server could still
+	// enumerate per-account blobs. Assert the deleted routes 404/410.
+	const legacy = await probeLegacyPerAccountRoutesRemoved();
+	if (!legacy.allGone) {
+		return { result: 'fail', evidence: `V1-C1: ${legacy.detail}` };
+	}
+
 	return {
 		result: 'pass',
-		evidence: 'v2-blobs routes deployed; unauth GET returns 401; no account-correlating field names leak from health or error body; deeper two-account adversarial flow runs in CI integration tests (tests/integration/v2-blobs.spec.ts)'
+		evidence: `v2-blobs routes deployed; unauth GET returns 401; no account-correlating field names leak from health or error body; ${legacy.detail}; deeper two-account adversarial flow runs in CI integration tests (tests/integration/v2-blobs.spec.ts)`
 	};
 }
 
@@ -283,11 +344,12 @@ async function probeV1C1() {
 async function probeV1C2() {
 	// Phase 2 probes the endpoint at the SHAPE level (existence +
 	// auth-required posture). The deeper assertion — that the
-	// authenticated response body contains ONLY {expiresAt,
-	// sequenceClock} and that two consecutive calls rotate the bearer
-	// token — lives in the m3-e2e CI job, which has the full OPAQUE
-	// round-trip primitives wired and the credential injection path.
-	// See `tests/integration/sessions-self.spec.ts` (added in Phase 2)
+	// authenticated response body contains ONLY {expiresAt} (the
+	// sequenceClock field was dropped in Phase 4 / migration 0009) and
+	// that two consecutive calls rotate the bearer token — lives in the
+	// m3-e2e CI job, which has the full OPAQUE round-trip primitives
+	// wired and the credential injection path. See the `V1-C2 ·
+	// /api/v2/sessions/self` describe in `tests/integration/api-routes.spec.ts`
 	// for that deeper assertion.
 	//
 	// The release probe is unauthenticated. It can prove:
@@ -399,11 +461,11 @@ async function probeV1C3() {
 	//       the unauth error body or health body. Cross-account
 	//       sequence-clock correlation requires sequence_clock to be
 	//       readable cross-account; the v2 routes neither emit nor
-	//       accept it (sequence_clock is a v1 whole-vault concept).
-	//   (b) The /api/v2/sessions/self response shape (already
-	//       gated by V1-C2) intentionally surfaces sequence_clock
-	//       but only after auth — never across accounts. We
-	//       re-confirm that the unauth response doesn't leak it.
+	//       accept it (sequence_clock is a retired v1 concept).
+	//   (b) After Phase 4 / migration 0009 the server holds NO
+	//       sequence_clock column at all — `/api/v2/sessions/self`
+	//       returns only {expiresAt}. We re-confirm the unauth surface
+	//       leaks no sequence_clock token here for defense in depth.
 	const probeUuid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 	const unauthRes = await fetch(`${ORIGIN}/api/v2/blobs/${probeUuid}`, {
 		method: 'GET',
@@ -430,9 +492,20 @@ async function probeV1C3() {
 		};
 	}
 
+	// BEHAVIORAL negative assertion (Phase 5): cross-account write
+	// ordering lived in the per-account R2 prefix that the deleted
+	// `/api/blobs/*` + `/api/documents/*` routes wrote. With those routes
+	// gone there is no per-account namespace to order writes within, and
+	// (after migration 0009) no `sequence_clock` column to carry the
+	// ordering either. Require the legacy routes 404/410.
+	const legacy = await probeLegacyPerAccountRoutesRemoved();
+	if (!legacy.allGone) {
+		return { result: 'fail', evidence: `V1-C3: ${legacy.detail}` };
+	}
+
 	return {
 		result: 'pass',
-		evidence: 'v2-blobs routes deployed; no sequence_clock in unauth surface; cross-account ordering via R2 layout closed (no per-account prefix); deeper two-account ordering test runs in CI integration tests'
+		evidence: `v2-blobs routes deployed; no sequence_clock in unauth surface; ${legacy.detail}; cross-account ordering via R2 layout closed (no per-account prefix); deeper two-account ordering test runs in CI integration tests`
 	};
 }
 

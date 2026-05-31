@@ -49,11 +49,11 @@ npm ci --legacy-peer-deps
 | Server identity loaded from D1, all-zero rejected | [`src/lib/server/api/d1-storage.ts`](../src/lib/server/api/d1-storage.ts) `loadServerIdentity` | `npm run test tests/integration/worker.spec.ts` | "rejects an all-zero D1 OPAQUE server identity seed" test passes |
 | Per-env OPAQUE serverIdentity (no preview↔production replay) | [`wrangler.toml`](../wrangler.toml) `[vars]` + `[env.production.vars]` | `node scripts/audit-bindings.mjs` + `grep -F OPAQUE_SERVER_ID wrangler.toml` | Two distinct values; preview = `preview.vuvault.app`, production = `vuvault.app` |
 | Bearer token revoked server-side on lock | [`src/routes/api/opaque/logout/+server.ts`](../src/routes/api/opaque/logout/+server.ts), wired in [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `lockSession()` | `grep -F opaqueLogout src/lib/services/vault-session.ts` | Fire-and-forget call before zeroize |
-| Monotonic sequence clock enforced server-side | [`src/lib/server/api/auth-token.ts`](../src/lib/server/api/auth-token.ts) `advanceSequenceClock`, [`src/routes/api/blobs/upload/+server.ts`](../src/routes/api/blobs/upload/+server.ts) | `npm run test tests/integration/api-routes.spec.ts` | "enforces monotonic sequence clocks" + "rejects stale uploads against the durable account sequence clock" pass |
+| No server-side sequence clock (V1-C3) — write ordering is client-only | [`migrations/0009_drop_sequence_clock.sql`](../migrations/0009_drop_sequence_clock.sql), [`src/lib/services/inventory-session.ts`](../src/lib/services/inventory-session.ts) `inventoryLatestIndex` | `node scripts/release-probe-vu1.mjs` | `v1_c3=pass`; the legacy `POST /api/blobs/upload` returns 404/410/501 (route deleted) and `accounts.sequence_clock`/`sessions.sequence_clock` are dropped |
 | D1-backed sliding-window rate limit | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) | `npm run test src/lib/server/api/rate-limit-d1.test.ts` | 11 tests covering quota, fail-open, fail-closed, mode resolution |
 | Production rate-limit fails closed on D1 outage | Same | `npm run test tests/integration/api-routes.spec.ts -t "fails closed"` | 503 with `fail-closed` mode; 200/400 with `fail-open` |
 | Opportunistic D1 row cleanup (pending state, sessions, rate limits) | [`src/lib/server/api/cleanup.ts`](../src/lib/server/api/cleanup.ts) | `npm run test src/lib/server/api/cleanup.test.ts` | 3 tests; deterministic sweepNow + partial-failure tolerance |
-| Opportunistic R2 garbage collection (superseded vault blobs + dormant document blobs) | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) | `npm run test src/lib/server/api/r2-gc.test.ts` | 5 tests covering vault-blob age-out, doc-blob age-out, prefix isolation, R2-failure tolerance |
+| Opportunistic R2 garbage collection (reference-counted v2 blobs) | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) `gcV2Now`/`maybeGcV2` | `npm run test src/lib/server/api/r2-gc.test.ts` | 4 tests covering stale-reference collection, R2-delete-failure tolerance, D1-read-failure degradation, and below-cutoff no-op |
 | API route ↔ Env interface ↔ wrangler.toml parity | [`scripts/audit-bindings.mjs`](../scripts/audit-bindings.mjs) | `node scripts/audit-bindings.mjs` | `audit-bindings: OK (2 Env bindings × 2 envs verified, 7 vars tracked)` |
 
 ---
@@ -111,8 +111,10 @@ curl -s https://<origin>/_app/immutable/bundle-manifest.json | jq -r '.aggregate
 # Compare against `gh release view <tag>` `.bundle-digest` artifact
 # and against the entry on https://search.sigstore.dev/?hash=<digest>
 
-# 5.5 Verify the SvelteKit Worker accepts only same-origin Authorization
-curl -i -X POST https://<origin>/api/blobs/upload    # expect 401 unauthorized
+# 5.5 Verify the live v2 transport enforces auth (unauthenticated → 401)
+curl -i -X GET https://<origin>/api/v2/blobs/11111111-2222-4333-8444-555555555555   # expect 401 unauthorized
+# 5.5b The legacy per-account transport was deleted in the §L07b pass (V1-C1/V1-C3)
+curl -i -X POST https://<origin>/api/blobs/upload    # expect 404/410/501 (route removed)
 ```
 
 ---

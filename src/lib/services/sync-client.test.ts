@@ -16,10 +16,12 @@ import {
 	isSyncWired,
 	setSessionToken,
 	hasSession,
-	uploadBlob,
-	fetchBlob,
+	uploadV2Blob,
+	fetchV2Blob,
 	opaqueLoginKE3
 } from './sync-client';
+
+const SAMPLE_UUID = '11111111-1111-4111-8111-111111111111';
 
 const env = await import('$lib/utils/env');
 
@@ -106,8 +108,7 @@ describe('sync-client', () => {
 				data: {
 					accountId: 'acct-1',
 					token: 'a'.repeat(64),
-					expiresAt: 1,
-					sequenceClock: 0
+					expiresAt: 1
 				}
 			});
 		}) as unknown as typeof fetch;
@@ -157,19 +158,9 @@ describe('sync-client', () => {
 		const captured: { headers?: HeadersInit } = {};
 		globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
 			captured.headers = init?.headers;
-			return jsonResponse({ ok: true, data: { updatedAt: 1, sequenceClock: 1 } });
+			return jsonResponse({ ok: true, data: { blobId: SAMPLE_UUID, updatedAt: 1 } });
 		}) as unknown as typeof fetch;
-		await uploadBlob({
-			op: 'blob-upload',
-			accountId: '',
-			deviceId: '',
-			sequenceClock: 1,
-			header: 'AQ==',
-			nonce: 'Ag==',
-			ciphertext: 'Aw==',
-			updatedAt: Date.now(),
-			formatVersion: 2
-		});
+		await uploadV2Blob({ blobId: SAMPLE_UUID, nonce: 'Ag==', ciphertext: 'Aw==' });
 		const headers = captured.headers as Record<string, string>;
 		expect(headers.authorization).toBe(`Bearer ${'a'.repeat(64)}`);
 	});
@@ -180,7 +171,7 @@ describe('sync-client', () => {
 			captured.headers = init?.headers;
 			return jsonResponse({ ok: false, error: 'unauthorized', code: 401 }, { status: 401 });
 		}) as unknown as typeof fetch;
-		await fetchBlob({ op: 'blob-fetch', accountId: '', deviceId: '' });
+		await fetchV2Blob(SAMPLE_UUID);
 		const headers = captured.headers as Record<string, string>;
 		expect(headers.authorization).toBeUndefined();
 	});

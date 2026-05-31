@@ -384,6 +384,36 @@
 			</div>
 		</header>
 
+		<div
+			style="
+				margin: 0 0 28px;
+				padding: 14px 18px;
+				border: 1px solid var(--warn);
+				border-radius: var(--radius);
+				background: rgba(255, 165, 0, 0.08);
+				color: var(--text-2);
+				font-size: 14px;
+			"
+		>
+			<strong style="color: var(--warn)"
+				>⚠ 2026-05-31 baseline note — read first.</strong
+			>
+			This plan assumes the M3 per-account transport
+			(<code>/api/blobs/upload</code>, <code>/api/blobs/latest</code>,
+			<code>vaults/{accountId}/…</code>) as its baseline. That transport was
+			<strong>deleted</strong> in the §L07b metadata-minimization pass (hard
+			cutover — see
+			<a href="PRIVACY-LEVEL.md" style="color: var(--accent)"
+				>docs/PRIVACY-LEVEL.md</a
+			>
+			and <code>docs/verifications/2026-05-31-vu1-closure.md</code>). The live
+			transport is now random-UUID <code>/api/v2/blobs/{uuid}</code> plus a
+			client-side encrypted inventory at <code>/api/v2/inv/{addr}</code>, with
+			no server sequence clock. When L07a CRDT sync is implemented, rebase the
+			delta routes onto the v2 surface; the route names and the
+			<code>sequenceClock</code> column referenced below are historical.
+		</div>
+
 		<div class="toc">
 			<div class="toc-title">Sections</div>
 			<ol>

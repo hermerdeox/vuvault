@@ -29,7 +29,6 @@ export type Session = {
 	token: string;
 	accountId: string;
 	expiresAt: number; // ms
-	sequenceClock: number;
 };
 
 function newTokenString(): string {
@@ -47,22 +46,12 @@ export async function authenticate(
 	if (!match) return null;
 	const token = match[1]!;
 	const row = await db
-		.prepare(
-			`SELECT
-				s.token,
-				s.account_id,
-				s.expires_at,
-				MAX(s.sequence_clock, COALESCE(a.sequence_clock, 0)) AS sequence_clock
-			 FROM sessions s
-			 JOIN accounts a ON a.account_id = s.account_id
-			 WHERE s.token = ?`
-		)
+		.prepare(`SELECT token, account_id, expires_at FROM sessions WHERE token = ?`)
 		.bind(token)
 		.first<{
 			token: string;
 			account_id: string;
 			expires_at: number;
-			sequence_clock: number;
 		}>();
 	if (!row) return null;
 	const expiresAtMs = row.expires_at * 1000;
@@ -70,15 +59,14 @@ export async function authenticate(
 	return {
 		token: row.token,
 		accountId: row.account_id,
-		expiresAt: expiresAtMs,
-		sequenceClock: row.sequence_clock
+		expiresAt: expiresAtMs
 	};
 }
 
 /**
  * Rotate a bearer token. Atomically inserts a freshly minted token
- * row carrying the SAME account binding and sequence clock, then
- * deletes the old token row. Returns the new token + new expiry.
+ * row carrying the SAME account binding, then deletes the old token
+ * row. Returns the new token + new expiry.
  *
  * Returns `null` if the old token is unknown or already expired.
  *
@@ -94,7 +82,7 @@ export async function authenticate(
 export async function rotateToken(
 	db: D1Database,
 	oldToken: string
-): Promise<{ newToken: string; expiresAt: number; sequenceClock: number } | null> {
+): Promise<{ newToken: string; expiresAt: number } | null> {
 	const existing = await authenticate(db, `Bearer ${oldToken}`);
 	if (!existing) return null;
 	const fresh = newTokenString();
@@ -106,43 +94,11 @@ export async function rotateToken(
 	await db.batch([
 		db
 			.prepare(
-				`INSERT INTO sessions (token, account_id, expires_at, sequence_clock, created_at)
-				 VALUES (?, ?, ?, ?, unixepoch())`
+				`INSERT INTO sessions (token, account_id, expires_at, created_at)
+				 VALUES (?, ?, ?, unixepoch())`
 			)
-			.bind(fresh, existing.accountId, expiresAtSec, existing.sequenceClock),
+			.bind(fresh, existing.accountId, expiresAtSec),
 		db.prepare(`DELETE FROM sessions WHERE token = ?`).bind(oldToken)
 	]);
-	return { newToken: fresh, expiresAt: expiresAtMs, sequenceClock: existing.sequenceClock };
-}
-
-/**
- * Bump the sequence clock on a session after a successful upload.
- * The new clock is returned so the client can include it as the
- * lower bound on its next upload.
- */
-export async function advanceSequenceClock(
-	db: D1Database,
-	token: string,
-	newClock: number
-): Promise<boolean> {
-	const result = await db
-		.prepare(
-			`UPDATE accounts
-			 SET sequence_clock = ?
-			 WHERE account_id = (SELECT account_id FROM sessions WHERE token = ?)
-			   AND sequence_clock < ?`
-		)
-		.bind(newClock, token, newClock)
-		.run();
-	const accountChanged = result.meta?.changes ?? 0;
-	if (accountChanged === 0) return false;
-	await db
-		.prepare(
-			`UPDATE sessions
-			 SET sequence_clock = MAX(sequence_clock, ?)
-			 WHERE token = ?`
-		)
-		.bind(newClock, token)
-		.run();
-	return true;
+	return { newToken: fresh, expiresAt: expiresAtMs };
 }

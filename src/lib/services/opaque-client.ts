@@ -85,7 +85,6 @@ export interface OpaqueTransport {
 		accountId: AccountId;
 		token?: string;
 		expiresAt?: number;
-		sequenceClock?: number;
 	}>;
 }
 
@@ -100,7 +99,6 @@ export interface OpaqueLoginResult {
 	exportKey: Uint8Array;
 	token?: string;
 	expiresAt?: number;
-	sequenceClock?: number;
 }
 
 export interface OpaqueRegisterInput {
@@ -365,8 +363,7 @@ export async function login(opts: OpaqueLoginInput): Promise<OpaqueLoginResult> 
 		sessionKey: finish.sessionKey,
 		exportKey: finish.exportKey,
 		token: session.token,
-		expiresAt: session.expiresAt,
-		sequenceClock: session.sequenceClock
+		expiresAt: session.expiresAt
 	};
 }
 
@@ -480,7 +477,6 @@ export function createFetchTransport(origin: string): OpaqueTransport {
 				accountId: string;
 				token?: string;
 				expiresAt?: number;
-				sequenceClock?: number;
 			}>(
 				`${base}/api/opaque/login/ke3`,
 				{ clientId, requestId, ke3: bytesToBase64(ke3) }
@@ -488,8 +484,7 @@ export function createFetchTransport(origin: string): OpaqueTransport {
 			return {
 				accountId: data.accountId,
 				token: data.token,
-				expiresAt: data.expiresAt,
-				sequenceClock: data.sequenceClock
+				expiresAt: data.expiresAt
 			};
 		}
 	};

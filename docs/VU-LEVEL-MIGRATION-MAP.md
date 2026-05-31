@@ -1,5 +1,22 @@
 # Vu Level Migration Map
 
+> **✅ 2026-05-31 status update — V1-C1/C2/C3 are CLOSED; the project is
+> now at Vu Level 1.** This map was written when Vu Level 1 was a future
+> Tier-2 target, so the per-criterion "Today (Vu Level 2)" sections below
+> and the "Direction of travel" diagram describe the **pre-closure** state
+> and cite per-account routes (`/api/blobs/*`, `/api/documents/*`) that
+> have since been **deleted**. The closure did **not** wait for the full
+> L07 CRDT layer the map anticipated; it used the lighter §L07b path —
+> random-UUID blobs at `/api/v2/blobs/<uuid>` plus a client-side encrypted
+> inventory at `/api/v2/inv/<addr>` (V1-C1), `migrations/0004` (V1-C2),
+> and `migrations/0009` dropping the server sequence clock (V1-C3). CRDT
+> sync (L07a) remains a Tier-2 future and is **not** required for the V1
+> invariant set. See
+> [`docs/verifications/2026-05-31-vu1-closure.md`](./verifications/2026-05-31-vu1-closure.md)
+> and `CURRENT_LEVEL = 1` in
+> [`src/lib/data/privacy-level.ts`](../src/lib/data/privacy-level.ts).
+> Each V1 criterion section below now opens with a **CLOSED** note.
+
 **Purpose.** Make the path from today's **Vu Level 2** to Tier 2's
 **Vu Level 1** (and the longer path to **Vu Level 0**) mechanically
 tractable. Each criterion below cites the exact code that holds the
@@ -21,7 +38,7 @@ Channels" section.
 
 ```
 Vu Level 5  →  Vu Level 4  →  Vu Level 3  →  Vu Level 2  →  Vu Level 1  →  Vu Level 0  →  SubZero
-  banned        refused       refused      TODAY (M3)    Tier 2 (2027)   Tier 2+ + AKD  + audit + CSP
+  banned        refused       refused      superseded    TODAY (M3)    Tier 2+ + AKD  + audit + CSP
 ```
 
 Lower number = stronger claim. The ladder cannot be skipped: moving
@@ -56,6 +73,13 @@ as the gap between Vu Level 2 and Vu Level 1. Each entry has:
   criterion is closed.
 
 ### V1-C1 · No per-user blob inventories
+
+> **CLOSED 2026-05-31 (§L07b).** Live save/restore + document flows use
+> random-UUID `/api/v2/blobs/<uuid>` (no account prefix) with a
+> client-side encrypted inventory at `/api/v2/inv/<addr>`; the legacy
+> per-account routes named below are **deleted** and `r2-gc.ts` is now
+> reference-counted, not a prefix walk. The "Today (Vu Level 2)" text
+> below describes the pre-closure state.
 
 **Today (Vu Level 2):**
 - R2 object keys leak both the account namespace and the blob
@@ -106,6 +130,11 @@ minimization." (a) is the minimum-viable form of that.
 
 ### V1-C2 · No persistent device set
 
+> **CLOSED 2026-05-22 (migration 0004).** `sessions.device_id`,
+> `accounts.last_login_at`, and the `device_pairings` table are dropped
+> with a guard trigger; KE3 writes no device fields. The "Today (Vu
+> Level 2)" text below describes the pre-closure state.
+
 **Today (Vu Level 2):**
 - D1 `device_pairings` table (created in
   [`migrations/0001_init.sql`](../migrations/0001_init.sql) line 97
@@ -152,6 +181,12 @@ The additional design needed:
   shared identifier the server can correlate.
 
 ### V1-C3 · No cross-account sequence-clock correlation
+
+> **CLOSED 2026-05-31 (migration 0009).** `accounts.sequence_clock` and
+> `sessions.sequence_clock` are dropped; write ordering is now a
+> client-only inventory index (`inventoryLatestIndex`) that never reaches
+> the server. The "Today (Vu Level 2)" text below describes the
+> pre-closure state.
 
 **Today (Vu Level 2):**
 - `accounts.sequence_clock`

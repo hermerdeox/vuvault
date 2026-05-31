@@ -2,7 +2,7 @@
  * GET /api/v2/sessions/self — session introspection (V1-C2 probe target).
  *
  * Returns the MINIMAL set of fields about the authenticated session:
- * `{ expiresAt, sequenceClock }`. By construction, this endpoint MUST
+ * `{ expiresAt }`. By construction, this endpoint MUST
  * NOT return any of:
  *   - account_id
  *   - device_id
@@ -14,10 +14,10 @@
  * contains any disallowed field. See `docs/VU-LEVEL-MIGRATION-MAP.md`
  * V1-C2 and `docs/TIER2-ARCHITECTURE.md` §L08 session-mint redesign.
  *
- * This endpoint is path-versioned `/api/v2/` so it coexists with the
- * v1 surface (`/api/blobs/*`, `/api/documents/[blobId]`, etc.) during
- * the Phase 2-4 migration window. v1 routes continue to work
- * unchanged.
+ * This endpoint is path-versioned `/api/v2/`. After the §L07b hard
+ * cutover (Phase 4) the legacy per-account surface (`/api/blobs/*`,
+ * `/api/documents/[blobId]`) was deleted, so `/api/v2/` is now the
+ * only blob/session transport.
  */
 
 import type { RequestHandler } from './$types';
@@ -69,8 +69,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	const body = JSON.stringify({
 		ok: true,
 		data: {
-			expiresAt: rotated?.expiresAt ?? session.expiresAt,
-			sequenceClock: rotated?.sequenceClock ?? session.sequenceClock
+			expiresAt: rotated?.expiresAt ?? session.expiresAt
 		}
 	});
 	const headers: Record<string, string> = {

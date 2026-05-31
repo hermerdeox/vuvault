@@ -8,7 +8,6 @@
  *   - register → login → export-key match
  *   - wrong password rejected at KE3 MAC verify
  *   - unknown clientId rejected at KE1
- *   - monotonic SequenceClock enforced on blob upload
  *   - bearer-token expiry / unknown-token rejection
  *
  * The in-memory D1 mock dispatches each prepared statement to a
@@ -28,10 +27,7 @@ import {
 	D1OpaqueStorage,
 	loadServerIdentity
 } from '../../src/lib/server/api/d1-storage';
-import {
-	authenticate,
-	advanceSequenceClock
-} from '../../src/lib/server/api/auth-token';
+import { authenticate } from '../../src/lib/server/api/auth-token';
 import { register, login } from '../../src/lib/services/opaque-client';
 
 // --- Hand-rolled D1 mock -------------------------------------------
@@ -88,30 +84,17 @@ class FakeD1 {
 		if (sql.startsWith('SELECT oprf_seed FROM server_identity')) {
 			return this.serverIdentity as T | null;
 		}
-		if (sql.includes('FROM sessions s JOIN accounts a')) {
+		if (sql.startsWith('SELECT token, account_id, expires_at FROM sessions')) {
 			const session = this.sessions.get(args[0] as string);
 			if (!session) return null;
-			const account = this.accounts.get(session.account_id as string);
-			// Post-0004: the SELECT no longer requests `device_id`. The
-			// mock returns only the V1-C2-compliant columns.
+			// Post-0004/0009: the SELECT requests neither `device_id`
+			// (V1-C2) nor `sequence_clock` (V1-C3); it reads sessions
+			// only, with no JOIN on accounts.
 			return {
 				token: session.token,
 				account_id: session.account_id,
-				expires_at: session.expires_at,
-				sequence_clock: Math.max(
-					Number(session.sequence_clock ?? 0),
-					Number(account?.sequence_clock ?? 0)
-				)
+				expires_at: session.expires_at
 			} as T;
-		}
-		if (sql.startsWith('SELECT COALESCE(MAX(sequence_clock), 0) AS clock')) {
-			let max = 0;
-			for (const s of this.sessions.values()) {
-				if (s.account_id === args[0] && (s.sequence_clock as number) > max) {
-					max = s.sequence_clock as number;
-				}
-			}
-			return { clock: max } as T;
 		}
 		return null;
 	}
@@ -123,8 +106,7 @@ class FakeD1 {
 				client_public_key: args[2],
 				masking_key: args[3],
 				envelope_bytes: args[4],
-				oprf_secret_key: args[5],
-				sequence_clock: 0
+				oprf_secret_key: args[5]
 			});
 			return 1;
 		}
@@ -157,37 +139,21 @@ class FakeD1 {
 			return 1;
 		}
 		if (sql.startsWith('INSERT INTO sessions')) {
-			// Post-0004: KE3 binds (token, account_id, expires_at,
-			// sequence_clock). No device_id column anywhere in the
-			// statement.
+			// Post-0004/0009: KE3 binds (token, account_id, expires_at).
+			// No device_id (V1-C2) and no sequence_clock (V1-C3) column
+			// anywhere in the statement.
 			this.sessions.set(args[0] as string, {
 				token: args[0],
 				account_id: args[1],
-				expires_at: args[2],
-				sequence_clock: args[3]
+				expires_at: args[2]
 			});
 			return 1;
 		}
-		if (sql.startsWith('UPDATE accounts SET sequence_clock')) {
-			const token = args[1] as string;
-			const newClock = Number(args[0]);
-			const session = this.sessions.get(token);
-			if (!session) return 0;
-			const account = this.accounts.get(session.account_id as string);
-			if (!account || Number(account.sequence_clock ?? 0) >= newClock) return 0;
-			account.sequence_clock = newClock;
-			return 1;
-		}
-		if (sql.startsWith('UPDATE sessions SET sequence_clock')) {
-			const s = this.sessions.get(args[1] as string);
-			if (s) s.sequence_clock = Math.max(Number(s.sequence_clock ?? 0), Number(args[0]));
-			return s ? 1 : 0;
-		}
-		// Post-0004: KE3 no longer issues `UPDATE accounts SET
-		// last_login_at`. If a regression re-introduces it, the
-		// statement will fall through here and return 0, which the
-		// production code path ignores — but the audit-bindings Rule 4
-		// would catch the migration drift first.
+		// Post-0004/0009: KE3 no longer issues `UPDATE accounts SET
+		// last_login_at` or any `sequence_clock` write. If a regression
+		// re-introduces one, the statement falls through here and returns
+		// 0, which the production code path ignores — but audit-bindings
+		// Rule 4 would catch the migration drift first.
 		return 0;
 	}
 }
@@ -381,22 +347,17 @@ describe('Worker integration · D1 + engine round-trip', () => {
 	});
 });
 
-describe('Worker integration · session token + sequence clock', () => {
+describe('Worker integration · session token', () => {
 	let db: FakeD1;
 
 	beforeEach(() => {
 		db = new FakeD1();
-		// Seed a session row directly so we can test auth + clock
-		// without a full OPAQUE round-trip.
-		db.accounts.set('acct-1', {
-			account_id: 'acct-1',
-			sequence_clock: 5
-		});
+		// Seed a session row directly so we can test auth without a
+		// full OPAQUE round-trip.
 		db.sessions.set('a'.repeat(64), {
 			token: 'a'.repeat(64),
 			account_id: 'acct-1',
-			expires_at: Math.floor((Date.now() + 60_000) / 1000),
-			sequence_clock: 5
+			expires_at: Math.floor((Date.now() + 60_000) / 1000)
 		});
 	});
 
@@ -404,7 +365,6 @@ describe('Worker integration · session token + sequence clock', () => {
 		const session = await authenticate(db, `Bearer ${'a'.repeat(64)}`);
 		expect(session).not.toBeNull();
 		expect(session!.accountId).toBe('acct-1');
-		expect(session!.sequenceClock).toBe(5);
 	});
 
 	it('authenticate returns null for missing/malformed/unknown tokens', async () => {
@@ -414,22 +374,11 @@ describe('Worker integration · session token + sequence clock', () => {
 	});
 
 	it('authenticate rejects expired tokens', async () => {
-		db.accounts.set('acct-2', {
-			account_id: 'acct-2',
-			sequence_clock: 0
-		});
 		db.sessions.set('c'.repeat(64), {
 			token: 'c'.repeat(64),
 			account_id: 'acct-2',
-			expires_at: Math.floor((Date.now() - 60_000) / 1000),
-			sequence_clock: 0
+			expires_at: Math.floor((Date.now() - 60_000) / 1000)
 		});
 		expect(await authenticate(db, `Bearer ${'c'.repeat(64)}`)).toBeNull();
-	});
-
-	it('advanceSequenceClock bumps the stored clock', async () => {
-		await advanceSequenceClock(db, 'a'.repeat(64), 99);
-		const session = await authenticate(db, `Bearer ${'a'.repeat(64)}`);
-		expect(session!.sequenceClock).toBe(99);
 	});
 });

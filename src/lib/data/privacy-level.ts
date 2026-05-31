@@ -25,11 +25,19 @@
  *     Vu Level 5  =  LEAST private (policy privacy, "we promise" —
  *                                   REFUSED in this ecosystem)
  *
- * `CURRENT_LEVEL = 2` reflects the verdict in PRIVACY_AUDIT.md: vault
- * and document bytes are E2E ciphertext, but the server retains
- * stable account / session / device / blob metadata in D1 + R2, which
- * caps the project at canonical Vu2 until that metadata plane is
- * redesigned (Tier 2+).
+ * `CURRENT_LEVEL = 1` reflects the verdict in PRIVACY_AUDIT.md after
+ * the §L07b metadata-minimization pass: vault and document bytes are
+ * E2E ciphertext AND the relay metadata plane is minimized. Blobs are
+ * keyed by random UUID with no account prefix; the latest-pointer lives
+ * in a client-side encrypted inventory the passive server cannot
+ * address (V1-C1); the persistent device set is gone (V1-C2, migration
+ * 0004); and the cross-account sequence clock is dropped (V1-C3,
+ * migration 0009). This is verified behaviorally — not just by route
+ * shape — by scripts/release-probe-vu1.mjs (v1_c1/v1_c2/v1_c3=pass)
+ * plus the request-interception flow in tests/e2e/sync.spec.ts. The
+ * accepted residual is the Candidate-1 deterministic bootstrap address
+ * (see the Level 1 summary below). Vu Level 0 additionally requires
+ * unlinkable routing identifiers, which remain a Tier-2+ target.
  *
  * The mirror at [docs/PRIVACY-LEVEL.md](../../../docs/PRIVACY-LEVEL.md)
  * is the human-readable expansion of this data. When you change the
@@ -61,23 +69,23 @@ export const PRIVACY_LEVELS: readonly PrivacyLevel[] = [
 		headline: 'Zero-knowledge',
 		when: 'Aspirational — Tier 2+ redesign target',
 		summary:
-			'Server cannot correlate accounts, sessions, devices, or blob inventories. Routing identifiers are unlinkable; blob sizes are bucketed; metadata is minimized to what the protocol strictly needs to deliver bytes. Vu Level 0 is the canonical zero-knowledge tier — what a server compromise reveals is, by construction, useless. VuVault reaches this tier when the metadata plane (D1 accounts, sessions, sequence clocks) is redesigned around unlinkable identifiers and blinded routing, gated by the L09 AKD log + L07 CRDT padding work in docs/TIER2-ARCHITECTURE.md.'
+			'Server cannot correlate accounts, sessions, devices, or blob inventories. Routing identifiers are unlinkable; blob sizes are bucketed; metadata is minimized to what the protocol strictly needs to deliver bytes. Vu Level 0 is the canonical zero-knowledge tier — what a server compromise reveals is, by construction, useless. Vu Level 1 already removed the per-user blob inventory, the persistent device set, and the cross-account sequence clock; VuVault reaches Level 0 when the remaining D1 account + session identifiers are redesigned around unlinkable identifiers and blinded routing (so even the deterministic Candidate-1 bootstrap address is replaced), gated by the L09 AKD log + L07 CRDT padding work in docs/TIER2-ARCHITECTURE.md.'
 	},
 	{
 		id: 1,
 		short: 'Vu Level 1',
 		headline: 'End-to-end + minimal relay metadata',
-		when: 'Tier 2 (2027)',
+		when: 'Today (M3 — §L07b metadata-minimization pass)',
 		summary:
-			'Vault and document bytes are end-to-end encrypted, AND server-visible metadata is reduced to only what is strictly necessary for delivery (no per-user blob inventories, no persistent device set, no sequence-clock correlation across accounts). Tier 2 brings field-level CRDT sync with HPKE + ML-KEM-768, bucketed-padding deltas, MLS sharing, AKD-anchored device pairing, and PIR breach checks.'
+			'Vault and document bytes are end-to-end encrypted, AND server-visible relay metadata is reduced to only what is strictly necessary for delivery. Blobs are keyed by random UUID with no account prefix and the latest-pointer lives in a client-side encrypted inventory the passive server cannot address (no per-user blob inventories — V1-C1); the persistent device set is gone (V1-C2); and no sequence clock correlates writes across accounts (V1-C3). Accepted residual: the inventory bootstrap address is deterministically derived from the secret vault key (Candidate 1), so a party who already holds the vault key can confirm an inventory exists — moot, since holding that key already discloses the whole vault. NOT claimed at this level and deferred to Tier 2: field-level CRDT sync (HPKE + ML-KEM-768), bucketed-padding deltas, MLS sharing, AKD-anchored device pairing, and PIR breach checks.'
 	},
 	{
 		id: 2,
 		short: 'Vu Level 2',
 		headline: 'Architectural privacy for vault + documents',
-		when: 'Today (M3, post this pass)',
+		when: 'Superseded by Vu Level 1 in the §L07b pass',
 		summary:
-			'Vault items and document file bytes are end-to-end encrypted under a per-vault AES-256-GCM key wrapped in an X25519 + ML-KEM-1024 hybrid envelope. OPAQUE (RFC 9807) authenticates without a password-equivalent hitting the server. Local Recovery Envelope supports passkey-loss recovery without server-held key material. Reproducible builds, SHA-384 manifest verified at every unlock, fail-closed production rate-limit gates, Sigstore + Rekor on every release. Server still retains persistent account / session / device / blob metadata in D1 + R2 — that is what holds the project at Vu Level 2 vs. Vu Level 1. The level is defined by cryptographic capability — third-party audit status is tracked separately in docs/AUDIT-CHECKLIST.md.'
+			'Vault items and document file bytes are end-to-end encrypted under a per-vault AES-256-GCM key wrapped in an X25519 + ML-KEM-1024 hybrid envelope. OPAQUE (RFC 9807) authenticates without a password-equivalent hitting the server. Local Recovery Envelope supports passkey-loss recovery without server-held key material. Reproducible builds, SHA-384 manifest verified at every unlock, fail-closed production rate-limit gates, Sigstore + Rekor on every release. Vu Level 2 is the prior tier, where the server still retained per-account blob inventories, a persistent device set, and a cross-account sequence clock; the §L07b metadata-minimization pass removed all three to reach Vu Level 1. The level is defined by cryptographic capability — third-party audit status is tracked separately in docs/AUDIT-CHECKLIST.md.'
 	},
 	{
 		id: 3,
@@ -108,15 +116,17 @@ export const PRIVACY_LEVELS: readonly PrivacyLevel[] = [
 /**
  * The level currently held by the shipped code.
  *
- * Under the inverted scale a LOWER value is a STRONGER claim. Moving
- * `CURRENT_LEVEL` from 2 to 1 requires redesigning the D1/R2
- * metadata plane (see PRIVACY_AUDIT.md F-003); to 0 requires that
- * plus unlinkable routing identifiers. Both moves must update every
- * entry in `EVIDENCE` to a higher status AND `docs/PRIVACY-LEVEL.md`
- * in the same commit. CI's privacy regression test refuses to pass
- * otherwise.
+ * Under the inverted scale a LOWER value is a STRONGER claim. The
+ * 2 → 1 move landed in the §L07b pass: random-UUID blobs + client
+ * inventory (V1-C1), no persistent device set (V1-C2, migration 0004),
+ * no server-side sequence clock (V1-C3, migration 0009). Moving to 0
+ * additionally requires unlinkable routing identifiers (V0-C1) and
+ * blinded bootstrap addressing — still Tier-2+. Any level change must
+ * update `docs/PRIVACY-LEVEL.md` in the same commit and is gated by the
+ * behavioral probe artifact (`vu1-probe-passed-${SHA}`): release.yml
+ * fails closed on a CURRENT_LEVEL=1 deploy without it.
  */
-export const CURRENT_LEVEL: PrivacyLevelId = 2;
+export const CURRENT_LEVEL: PrivacyLevelId = 1;
 
 export function currentLevel(): PrivacyLevel {
 	const found = PRIVACY_LEVELS.find((l) => l.id === CURRENT_LEVEL);
@@ -174,10 +184,10 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 	},
 	{
 		id: 'E06',
-		claim: 'Per-document encrypted blob storage in R2 — server stores ciphertext only',
+		claim: 'Per-document encrypted blob storage in R2 — server stores ciphertext only, keyed by random UUID with no account prefix',
 		status: 'shipped',
 		evidence:
-			'src/routes/api/documents/[blobId]/+server.ts, tests/integration/api-routes.spec.ts'
+			'src/routes/api/v2/blobs/[uuid]/+server.ts, src/lib/services/document-blobs.ts, tests/integration/v2-blobs.spec.ts'
 	},
 	{
 		id: 'E07',
@@ -205,6 +215,27 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 		status: 'shipped',
 		evidence:
 			'src/lib/types/vault-item.ts (SECRET_FIELDS_BY_KIND), src/lib/services/vault-session.ts (lockSession)'
+	},
+	{
+		id: 'E16',
+		claim: 'No per-user blob inventories — blobs keyed by random UUID with no account prefix; latest-pointer kept in a client-side encrypted inventory the passive server cannot address (V1-C1)',
+		status: 'shipped',
+		evidence:
+			'src/routes/api/v2/blobs/[uuid]/+server.ts, src/routes/api/v2/inv/[addr]/+server.ts, src/lib/services/blob-inventory.ts, src/lib/services/inventory-session.ts; behavioral proof in scripts/release-probe-vu1.mjs + tests/e2e/sync.spec.ts'
+	},
+	{
+		id: 'E17',
+		claim: 'No persistent device set — sessions carry no device_id, the device_pairings table is gone, no last_login_at (V1-C2)',
+		status: 'shipped',
+		evidence:
+			'migrations/0004_metadata_minimization.sql (drops + metadata_minimization_guard trigger), src/lib/server/api/server-opaque.ts (KE3 writes no device fields)'
+	},
+	{
+		id: 'E18',
+		claim: 'No cross-account sequence-clock correlation — server-side sequence_clock columns dropped; write ordering is a client-only inventory index (V1-C3)',
+		status: 'shipped',
+		evidence:
+			'migrations/0009_drop_sequence_clock.sql, src/lib/services/inventory-session.ts (inventoryLatestIndex), scripts/release-probe-vu1.mjs negative assertion'
 	},
 	{
 		id: 'E11',

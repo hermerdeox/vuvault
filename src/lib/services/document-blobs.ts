@@ -26,12 +26,16 @@ import {
 	type DocumentBlobRecord
 } from '$lib/utils/storage';
 import {
-	uploadDocumentBlob,
-	fetchDocumentBlob,
-	deleteDocumentBlob as deleteRemoteDocumentBlob,
+	uploadV2Blob,
+	fetchV2Blob,
+	deleteV2Blob,
 	hasSession,
 	isSyncWired
 } from './sync-client';
+import {
+	inventoryAddDocumentBlob,
+	inventoryRemoveDocumentBlob
+} from './inventory-session';
 
 export type AttachedDocument = SealedDocument & {
 	fileName: string;
@@ -81,12 +85,18 @@ export async function attachDocumentFile(file: File): Promise<AttachedDocument> 
 
 	let remote = false;
 	if (isSyncWired() && hasSession()) {
-		const upload = await uploadDocumentBlob({
+		// V1-C1: the document is a random-UUID v2 blob with no account
+		// prefix; its UUID is recorded in the client-side encrypted
+		// inventory rather than a per-account server index.
+		const upload = await uploadV2Blob({
 			blobId: sealed.blobId,
 			nonce: bytesToBase64(sealed.nonce),
 			ciphertext: bytesToBase64(sealed.ciphertext)
 		});
 		remote = upload.ok;
+		if (upload.ok) {
+			await inventoryAddDocumentBlob(sealed.blobId);
+		}
 	}
 
 	return {
@@ -114,7 +124,7 @@ export async function readDocumentBlob(blobId: string): Promise<Uint8Array> {
 	if (!isSyncWired() || !hasSession()) {
 		throw new Error('Document blob not found locally and sync is not available.');
 	}
-	const result = await fetchDocumentBlob(blobId);
+	const result = await fetchV2Blob(blobId);
 	if (!result.ok) {
 		throw new Error(`Document blob fetch failed: ${result.message}`);
 	}
@@ -145,9 +155,13 @@ export async function readDocumentBlob(blobId: string): Promise<Uint8Array> {
 export async function purgeDocumentBlob(blobId: string): Promise<void> {
 	await deleteLocalDocumentBlob(blobId);
 	if (isSyncWired() && hasSession()) {
-		// Errors are deliberately ignored — server is opaque storage,
-		// not the source of truth.
-		await deleteRemoteDocumentBlob(blobId).catch(() => undefined);
+		// Drop the inventory reference first so a subsequent inventory
+		// load no longer lists this document, then best-effort delete the
+		// opaque object. Errors are deliberately ignored — the server is
+		// opaque storage, not the source of truth, and the v2
+		// reference-counted GC reaps any object left behind.
+		await inventoryRemoveDocumentBlob(blobId).catch(() => undefined);
+		await deleteV2Blob(blobId).catch(() => undefined);
 	}
 }
 

@@ -81,13 +81,23 @@ import {
 	type RecoveryEnvelopeSealed
 } from '$lib/crypto/recovery-envelope';
 import {
-	uploadBlob,
-	fetchBlob,
+	uploadV2Blob,
+	fetchV2Blob,
+	deleteV2Blob,
 	hasSession,
 	isSyncWired,
 	setSessionToken,
 	opaqueLogout
 } from './sync-client';
+import { newBlobId } from './blob-inventory';
+import {
+	initInventorySession,
+	clearInventorySession,
+	inventorySetVaultBlob,
+	inventoryAddDocumentBlob,
+	inventoryPullVault,
+	inventoryLatestIndex
+} from './inventory-session';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 
 /** The format version we emit for newly-provisioned vaults. */
@@ -116,19 +126,6 @@ let vaultKey: Uint8Array | null = null;
 let aesKey: Uint8Array | null = null; // v2 only; null for v1 sessions
 let activeAuthMode: AuthMode | null = null;
 let activeFormatVersion: number | null = null;
-
-/**
- * Monotonic per-session sequence clock. Initialized to 0 on
- * `openVault()`; bumped to `serverHigh + 1` whenever a successful
- * pull tells us the server has a higher value; bumped on every
- * push so re-uploads from the same session strictly increase.
- *
- * The Worker rejects any upload whose `sequenceClock <= server's
- * stored clock`, so this matches the server-side CRDT merge rule.
- *
- * Reset to 0 on `lockSession()`.
- */
-let sequenceClock = 0;
 
 /**
  * `BlobBytes` is the on-the-wire shape of a v2 vault upload. The
@@ -190,32 +187,71 @@ function blobBytesSize(blob: BlobBytes): number {
 }
 
 /**
+ * Pack a whole-vault blob's `header` (the wrapped-key envelope) and
+ * `ciphertext` into a single self-describing body for the v2 blob
+ * route, which only models `{ nonce, ciphertext }`. Layout:
+ *   u32BE headerLen ‖ header ‖ ciphertext
+ * The AES nonce travels in the route's separate `nonce` field. The
+ * inverse `unpackVaultBody` splits it back so the existing
+ * open/decrypt path sees an unchanged `BlobBytes`.
+ */
+function packVaultBody(header: Uint8Array, ciphertext: Uint8Array): Uint8Array {
+	const out = new Uint8Array(4 + header.length + ciphertext.length);
+	new DataView(out.buffer).setUint32(0, header.length, false);
+	out.set(header, 4);
+	out.set(ciphertext, 4 + header.length);
+	return out;
+}
+
+function unpackVaultBody(body: Uint8Array): { header: Uint8Array; ciphertext: Uint8Array } {
+	if (body.length < 4) throw new Error('unpackVaultBody: truncated body');
+	const headerLen = new DataView(
+		body.buffer,
+		body.byteOffset,
+		body.byteLength
+	).getUint32(0, false);
+	if (4 + headerLen > body.length) {
+		throw new Error('unpackVaultBody: header length out of range');
+	}
+	return {
+		header: body.slice(4, 4 + headerLen),
+		ciphertext: body.slice(4 + headerLen)
+	};
+}
+
+/**
  * Push the just-saved blob to the sync server. Fire-and-forget at
  * the call site (caller does not await this); failures are logged
- * to the observer and never propagate. Strictly bumps the local
- * sequence clock on success.
+ * to the observer and never propagate.
+ *
+ * V1-C1/C3: the blob is written to a random `/api/v2/blobs/{uuid}`
+ * with no account prefix; the new UUID is recorded as the current
+ * whole-vault pointer in the client-side encrypted inventory. The
+ * superseded blob is best-effort deleted (the reference-counted GC
+ * also reaps it).
  */
 async function pushBlobToServer(blob: BlobBytes): Promise<void> {
 	if (!isSyncWired() || !hasSession()) return;
-	const next = sequenceClock + 1;
-	const result = await uploadBlob({
-		op: 'blob-upload',
-		accountId: '', // Worker derives from session token; field unused.
-		deviceId: '', // ditto
-		sequenceClock: next,
-		header: bytesToBase64(blob.header),
+	const blobId = newBlobId();
+	const result = await uploadV2Blob({
+		blobId,
 		nonce: bytesToBase64(blob.nonce),
-		ciphertext: bytesToBase64(blob.ciphertext),
-		updatedAt: Date.now(),
-		formatVersion: 2
+		ciphertext: bytesToBase64(packVaultBody(blob.header, blob.ciphertext))
 	});
 	if (!result.ok) {
 		syncObserver.onPushFailure?.({ reason: result.reason, message: result.message });
 		return;
 	}
-	sequenceClock = result.value.sequenceClock;
+	const { ok, previousBlobId } = await inventorySetVaultBlob(blobId);
+	if (!ok) {
+		syncObserver.onPushFailure?.({ reason: 'server', message: 'inventory update failed' });
+		return;
+	}
+	if (previousBlobId) {
+		void deleteV2Blob(previousBlobId).catch(() => undefined);
+	}
 	syncObserver.onPushSuccess?.({
-		sequenceClock: result.value.sequenceClock,
+		sequenceClock: Number(inventoryLatestIndex()),
 		bytes: blobBytesSize(blob)
 	});
 }
@@ -231,28 +267,34 @@ async function pullBlobFromServer(): Promise<BlobBytes | null> {
 		syncObserver.onPullSkipped?.({ reason: 'not-wired' });
 		return null;
 	}
-	const result = await fetchBlob({
-		op: 'blob-fetch',
-		accountId: '',
-		deviceId: ''
-	});
-	if (!result.ok) {
-		// 404 (no blob) is the common "first launch on a fresh
-		// device" path — treat as skipped, not error.
-		syncObserver.onPullSkipped?.({ reason: result.reason });
-		return null;
-	}
-	const remoteClock = result.value.sequenceClock;
-	if (remoteClock <= sequenceClock) {
+	// Resolve the current whole-vault pointer from the encrypted
+	// inventory. Returns null when the server has no newer vault than
+	// this session already holds (the inventory's save counter plays
+	// the role the per-account sequence clock used to).
+	const pointer = await inventoryPullVault();
+	if (!pointer) {
 		syncObserver.onPullSkipped?.({ reason: 'local-newer' });
 		return null;
 	}
-	syncObserver.onPullPromoted?.({ sequenceClock: remoteClock });
-	sequenceClock = remoteClock;
+	const result = await fetchV2Blob(pointer.blobId);
+	if (!result.ok) {
+		// 404 (blob GC'd or never landed) is the common "nothing to
+		// promote" path — treat as skipped, not error.
+		syncObserver.onPullSkipped?.({ reason: result.reason });
+		return null;
+	}
+	let body: { header: Uint8Array; ciphertext: Uint8Array };
+	try {
+		body = unpackVaultBody(base64ToBytes(result.value.ciphertext));
+	} catch {
+		syncObserver.onPullSkipped?.({ reason: 'malformed-blob' });
+		return null;
+	}
+	syncObserver.onPullPromoted?.({ sequenceClock: Number(pointer.index) });
 	return {
-		header: base64ToBytes(result.value.header),
+		header: body.header,
 		nonce: base64ToBytes(result.value.nonce),
-		ciphertext: base64ToBytes(result.value.ciphertext)
+		ciphertext: body.ciphertext
 	};
 }
 
@@ -317,7 +359,7 @@ export async function syncNow(): Promise<SyncNowResult> {
 			return {
 				status: 'promoted',
 				message: 'Pulled newer vault from sync server.',
-				sequenceClock,
+				sequenceClock: Number(inventoryLatestIndex()),
 				items: remoteItems
 			};
 		} catch (err) {
@@ -807,6 +849,7 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 	aesKey = newAesKey;
 	activeAuthMode = opts.authMode;
 	activeFormatVersion = PROVISION_FORMAT_VERSION;
+	initInventorySession(newVaultKey, opts.deviceSalt);
 	return {
 		deviceSalt: opts.deviceSalt,
 		accountCreatedAt: now,
@@ -932,7 +975,7 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	aesKey = newAesKey;
 	activeAuthMode = account.authMode;
 	activeFormatVersion = account.formatVersion;
-	sequenceClock = 0;
+	initInventorySession(newVaultKey, account.deviceSalt);
 
 	// Race the local read against a server pull. If the remote has a
 	// strictly higher sequence clock, decrypt that blob with the
@@ -1059,7 +1102,11 @@ export async function openVaultWithRecoveryEnvelope(
 		aesKey = recoveredAesKey;
 		activeAuthMode = account.authMode;
 		activeFormatVersion = account.formatVersion;
-		sequenceClock = 0;
+		// No vaultKey in the recovery-open window (the inventory's
+		// bootstrap address derives from it), so there is no inventory
+		// session yet; rebindRecoveredVault establishes it once the new
+		// vaultKey exists.
+		clearInventorySession();
 		return items;
 	} catch (err) {
 		zeroize(recoveredAesKey);
@@ -1155,6 +1202,23 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		updatedAt: now
 	});
 
+	// The rebind changes vaultKey, which moves the inventory's bootstrap
+	// address. Re-init the inventory session on the new key, then rebuild
+	// the remote inventory at the new address: re-upload the re-sealed
+	// whole-vault blob and every re-sealed document to v2. Each step is
+	// best-effort and a no-op when sync is unwired or there is no
+	// session.
+	initInventorySession(nextVaultKey, opts.deviceSalt);
+	if (isSyncWired() && hasSession()) {
+		const vaultBlobId = newBlobId();
+		const vaultUpload = await uploadV2Blob({
+			blobId: vaultBlobId,
+			nonce: bytesToBase64(sealed.nonce),
+			ciphertext: bytesToBase64(packVaultBody(header, sealed.ciphertext))
+		});
+		if (vaultUpload.ok) await inventorySetVaultBlob(vaultBlobId);
+	}
+
 	const ids = await listDocumentBlobIds();
 	for (const id of ids) {
 		const doc = await getDocumentBlob(id);
@@ -1176,6 +1240,14 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 			ciphertext
 		});
 		zeroize(plaintextDoc);
+		if (isSyncWired() && hasSession()) {
+			const docUpload = await uploadV2Blob({
+				blobId: id,
+				nonce: bytesToBase64(nonce),
+				ciphertext: bytesToBase64(ciphertext)
+			});
+			if (docUpload.ok) await inventoryAddDocumentBlob(id);
+		}
 	}
 
 	zeroize(vaultKey);
@@ -1601,6 +1673,10 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 	zeroize(aesKey);
 	vaultKey = newVaultKey;
 	aesKey = newAesKey;
+	// The rotated vaultKey moves the inventory's bootstrap address; the
+	// next save re-establishes the remote inventory there. The old
+	// address is orphaned and reference-GC'd.
+	initInventorySession(newVaultKey, account.deviceSalt);
 	if (account.authMode === 'demo') zeroize(prf);
 }
 
@@ -1618,11 +1694,11 @@ export function lockSession(): void {
 	zeroize(vaultKey);
 	zeroize(aesKey);
 	setSessionToken(null);
+	clearInventorySession();
 	vaultKey = null;
 	aesKey = null;
 	activeAuthMode = null;
 	activeFormatVersion = null;
-	sequenceClock = 0;
 }
 
 export function isSessionActive(): boolean {

@@ -8,8 +8,10 @@
  * Milestone 2 reshapes the OPAQUE vocabulary to match RFC 9807
  * exactly — `RegistrationRequest`, `RegistrationResponse`,
  * `RegistrationRecord`, `KE1`, `KE2`, `KE3`, plus a `serverIdentifier`
- * for transcript binding. The DeviceId / SequenceClock additions from
- * Milestone 1 hardening are preserved.
+ * for transcript binding. The §L07b hard cutover (V1-C1/C3) removed the
+ * device-/sequence-clock sync types: blob transport is now random-UUID
+ * v2 objects tracked in a client-side encrypted inventory, so the
+ * server keeps no per-device sequence counter to model here.
  *
  * `src/lib/services/mock-opaque-server.ts` remains as an in-process
  * test/dev implementation of the same OPAQUE server-side contract.
@@ -94,7 +96,6 @@ export type OpaqueLoginResult = {
 	accountId: AccountId;
 	token?: string;
 	expiresAt?: number;
-	sequenceClock?: SequenceClock;
 };
 
 export type OpaqueServerError = {
@@ -103,63 +104,7 @@ export type OpaqueServerError = {
 	hint?: string;
 };
 
-// --- Sync + device metadata (Milestone 1 hardening) ------------------
-
-/**
- * A device-scoped identifier that survives `localStorage.clear()` only
- * by accident — it should be regenerated whenever the account is
- * provisioned or recovered. Used by the server to attribute writes
- * for last-write-wins ordering and (later) per-device sync logs.
- */
-export type DeviceId = string;
-
-/**
- * A monotonic per-device sequence counter. Each successful blob
- * upload from a device increments its own counter. The server keeps
- * the highest known sequence per (accountId, deviceId) and rejects
- * any upload whose `sequenceClock <= server.knownLatest`. This makes
- * "Tab A persists slowly while Tab B persists later from a different
- * device" deterministic instead of racing on `updatedAt`.
- *
- * Milestone 2 uses this as the basis for incremental sync; Milestone 3
- * may upgrade to a vector clock for true conflict detection across N
- * devices.
- */
-export type SequenceClock = number;
-
-export type SyncBlobUpload = {
-	op: 'blob-upload';
-	accountId: AccountId;
-	deviceId: DeviceId;
-	sequenceClock: SequenceClock;
-	header: string; // base64
-	nonce: string;
-	ciphertext: string;
-	updatedAt: number;
-	formatVersion: number;
-};
-
-export type SyncBlobFetch = {
-	op: 'blob-fetch';
-	accountId: AccountId;
-	deviceId: DeviceId;
-	/** Only return if the latest blob's sequenceClock > this value. */
-	sinceSequenceClock?: SequenceClock;
-	/** Legacy ms-epoch fallback; servers MAY ignore. */
-	since?: number;
-};
-
-export type SyncBlobResponse = {
-	header: string;
-	nonce: string;
-	ciphertext: string;
-	updatedAt: number;
-	formatVersion: number;
-	/** Identifies which device produced this blob version. */
-	deviceId: DeviceId;
-	/** Per-device sequence at the time of upload. */
-	sequenceClock: SequenceClock;
-};
+// --- Sync transport errors -------------------------------------------
 
 export type ServerError = {
 	error: string;

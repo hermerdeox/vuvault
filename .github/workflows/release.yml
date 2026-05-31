@@ -510,10 +510,36 @@ jobs:
             return unauth.status;
           }
 
-          const blobUploadStatus = await assertUnauthProbe('/api/blobs/upload');
-          const blobLatestStatus = await assertUnauthProbe('/api/blobs/latest', 'GET');
-          const documentStatus = await assertUnauthProbe(
+          // The legacy per-account transport (`/api/blobs/*`,
+          // `/api/documents/*`) was deleted in the §L07b
+          // metadata-minimization pass to close V1-C1/V1-C3. A deleted
+          // SvelteKit route falls through to the [...rest] catch-all,
+          // which returns 501. Assert the leaky routes are gone, then
+          // assert the live v2 transport still enforces auth (401) on an
+          // unauthenticated request.
+          async function assertRouteRemoved(path, method = 'POST') {
+            const res = await fetch(`${origin}${path}`, {
+              method,
+              headers: { 'content-type': 'application/json' },
+              body: method === 'GET' ? undefined : '{}',
+              cache: 'no-store'
+            });
+            if (res.status !== 404 && res.status !== 410 && res.status !== 501) {
+              throw new Error(
+                `${path} should be removed (expect 404/410/501) but returned ${res.status}`
+              );
+            }
+            return res.status;
+          }
+
+          const blobUploadStatus = await assertRouteRemoved('/api/blobs/upload');
+          const blobLatestStatus = await assertRouteRemoved('/api/blobs/latest', 'GET');
+          const documentStatus = await assertRouteRemoved(
             '/api/documents/11111111-2222-4333-8444-555555555555',
+            'GET'
+          );
+          const v2BlobUnauthStatus = await assertUnauthProbe(
+            '/api/v2/blobs/11111111-2222-4333-8444-555555555555',
             'GET'
           );
 
@@ -575,7 +601,7 @@ jobs:
             );
           }
           console.log(
-            `post-deploy-smoke: route gates OK (blob upload ${blobUploadStatus}, blob latest ${blobLatestStatus}, document ${documentStatus}, register burst ${burst.join(',')})`
+            `post-deploy-smoke: route gates OK (legacy removed — blob upload ${blobUploadStatus}, blob latest ${blobLatestStatus}, document ${documentStatus}; v2 blob unauth ${v2BlobUnauthStatus}; register burst ${burst.join(',')})`
           );
           NODE
 

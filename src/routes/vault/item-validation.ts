@@ -79,7 +79,7 @@ export type DocumentInput = {
  * Hard upper bound on attached document plaintext size. Aligns with the
  * R2 upload route's ciphertext cap so a save here never produces a blob
  * the sync server will reject. 8 MiB matches `MAX_CIPHERTEXT_BYTES` in
- * [src/routes/api/blobs/upload/+server.ts](src/routes/api/blobs/upload/+server.ts);
+ * [src/routes/api/v2/blobs/[uuid]/+server.ts](src/routes/api/v2/blobs/[uuid]/+server.ts);
  * GCM tag + 12-byte nonce adds at most 28 bytes so the plaintext cap is
  * deliberately a few KB under that.
  */

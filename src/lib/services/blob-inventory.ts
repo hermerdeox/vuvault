@@ -1,14 +1,20 @@
 /**
- * Client-side encrypted blob inventory — Phase 4 / §L07b implementation.
+ * Client-side encrypted blob inventory — Phase 4 / §L07b primitives.
  *
- * Closes V1-C1 ("no per-user blob inventories") and V1-C3 ("no
- * cross-account sequence-clock correlation") per
- * `docs/VU-LEVEL-MIGRATION-MAP.md` and the §L07b sub-section of
- * `docs/TIER2-ARCHITECTURE.md`.
+ * Provides the CLIENT crypto primitives behind V1-C1 ("no per-user blob
+ * inventories") and V1-C3 ("no cross-account sequence-clock
+ * correlation") per `docs/VU-LEVEL-MIGRATION-MAP.md` and the §L07b
+ * sub-section of `docs/TIER2-ARCHITECTURE.md`. These primitives only
+ * CLOSE those invariants once wired into the live save/restore path —
+ * that wiring lives in `inventory-session.ts` + `vault-session.ts` +
+ * `document-blobs.ts` and landed 2026-05-31 (see
+ * `docs/verifications/2026-05-31-vu1-closure.md`).
  *
  * Variant (a) per-blob random keys + Candidate 1 deterministic-first-
- * pointer bootstrap, per the user's Appendix B.1 sign-off
- * (see `docs/verifications/2026-05-22-vu1-recon.md`).
+ * pointer bootstrap. The Candidate-1 trade-off is accepted explicitly in
+ * `docs/verifications/2026-05-31-vu1-closure.md`; no separate "Appendix
+ * B.1" human sign-off was ever actually on record (an earlier draft of
+ * this comment implied one that did not exist).
  *
  * High-level shape:
  *

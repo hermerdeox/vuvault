@@ -1,168 +1,157 @@
 /**
- * Unit tests for the opportunistic R2 garbage collection sweep.
+ * Unit tests for the v2 reference-counted R2 garbage collection sweep.
  *
- * Exercises `gcAccountNow()` against an in-memory R2 mock so the
- * key-shape contract (vault prefix vs documents subprefix, sequence-
- * clock parsing, uploaded-time eligibility) is locked down.
+ * Exercises `gcV2Now()` against in-memory fakes for the global D1
+ * reference tables (`blob_references` / `inv_references`) and the R2
+ * bucket, locking down the contract that:
+ *   - only references older than the age cutoff are collected,
+ *   - the matching R2 object key is account-free (`v2/blobs/{uuid}` /
+ *     `v2/inv/{addr}`),
+ *   - the D1 row is dropped even when the R2 delete fails,
+ *   - a D1 read failure degrades to "deleted nothing" rather than
+ *     throwing into the originating request.
  */
 
 import { describe, expect, it } from 'vitest';
-import { gcAccountNow } from './r2-gc';
+import { gcV2Now } from './r2-gc';
 import type { Env, R2Bucket } from './env';
 
-type FakeObject = { key: string; uploaded: Date };
+const DAY_SEC = 24 * 60 * 60;
+const NOW_SEC = Math.floor(Date.now() / 1000);
+const STALE_SEC = NOW_SEC - 30 * DAY_SEC; // well past the 14-day window
+const FRESH_SEC = NOW_SEC; // just refreshed — must survive
 
 class FakeR2 {
-	objects = new Map<string, FakeObject>();
-	listShouldFail = false;
 	deletedKeys: string[] = [];
-
-	put(key: string, _value: unknown, _opts?: unknown): Promise<unknown> {
-		this.objects.set(key, { key, uploaded: new Date() });
-		return Promise.resolve({});
-	}
-
-	get(key: string): Promise<unknown> {
-		return Promise.resolve(this.objects.get(key) ?? null);
-	}
+	deleteShouldFail = false;
 
 	delete(key: string): Promise<void> {
+		if (this.deleteShouldFail) return Promise.reject(new Error('R2 unavailable'));
 		this.deletedKeys.push(key);
-		this.objects.delete(key);
 		return Promise.resolve();
-	}
-
-	list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
-		objects: { key: string; uploaded: Date; size: number }[];
-		truncated: boolean;
-		cursor?: string;
-	}> {
-		if (this.listShouldFail) return Promise.reject(new Error('R2 unavailable'));
-		const prefix = options?.prefix ?? '';
-		const items = Array.from(this.objects.values())
-			.filter((o) => o.key.startsWith(prefix))
-			.map((o) => ({ key: o.key, uploaded: o.uploaded, size: 0 }));
-		return Promise.resolve({ objects: items, truncated: false });
 	}
 }
 
-function envWith(r2: FakeR2): Env {
+class FakeStmt {
+	private args: unknown[] = [];
+	constructor(
+		private db: FakeD1,
+		private sql: string
+	) {}
+
+	bind(...args: unknown[]): this {
+		this.args = args;
+		return this;
+	}
+
+	all<T>(): Promise<{ results: T[] }> {
+		if (this.db.selectShouldFail) return Promise.reject(new Error('D1 unavailable'));
+		const [cutoff, limit] = this.args as [number, number];
+		if (this.sql.includes('FROM blob_references')) {
+			return Promise.resolve({ results: pick(this.db.blobRefs, cutoff, limit, 'blob_id') as T[] });
+		}
+		if (this.sql.includes('FROM inv_references')) {
+			return Promise.resolve({ results: pick(this.db.invRefs, cutoff, limit, 'addr') as T[] });
+		}
+		return Promise.resolve({ results: [] as T[] });
+	}
+
+	run(): Promise<{ meta: { changes: number } }> {
+		if (this.sql.includes('DELETE FROM blob_references')) {
+			this.db.blobRefs.delete(this.args[0] as string);
+		} else if (this.sql.includes('DELETE FROM inv_references')) {
+			this.db.invRefs.delete(this.args[0] as string);
+		}
+		return Promise.resolve({ meta: { changes: 1 } });
+	}
+}
+
+class FakeD1 {
+	blobRefs = new Map<string, number>();
+	invRefs = new Map<string, number>();
+	selectShouldFail = false;
+
+	prepare(sql: string): FakeStmt {
+		return new FakeStmt(this, sql);
+	}
+}
+
+function pick(
+	table: Map<string, number>,
+	cutoff: number,
+	limit: number,
+	col: 'blob_id' | 'addr'
+): Record<string, string>[] {
+	return [...table.entries()]
+		.filter(([, t]) => t < cutoff)
+		.sort((a, b) => a[1] - b[1])
+		.slice(0, limit)
+		.map(([id]) => ({ [col]: id }));
+}
+
+function envWith(db: FakeD1, r2: FakeR2): Env {
 	return {
-		AUTH_DB: {} as Env['AUTH_DB'],
+		AUTH_DB: db as unknown as Env['AUTH_DB'],
 		VAULT_BLOBS: r2 as unknown as R2Bucket
 	};
 }
 
-describe('r2-gc · gcAccountNow', () => {
-	it('deletes vault blobs below currentClock - KEEP_SUPERSEDED', async () => {
+describe('r2-gc · gcV2Now', () => {
+	it('collects stale references and leaves fresh ones', async () => {
+		const db = new FakeD1();
+		db.blobRefs.set('11111111-1111-4111-8111-111111111111', STALE_SEC);
+		db.blobRefs.set('22222222-2222-4222-8222-222222222222', FRESH_SEC);
+		db.invRefs.set('aaaaaaaaaaaaaaaaaaaaaaaaaa', STALE_SEC);
+		db.invRefs.set('bbbbbbbbbbbbbbbbbbbbbbbbbb', FRESH_SEC);
 		const r2 = new FakeR2();
-		const now = new Date();
-		const accountId = 'acct-1';
-		// Sequence clocks: 1..7 written. Clock=7 is the latest.
-		for (let i = 1; i <= 7; i++) {
-			r2.objects.set(`vaults/${accountId}/${i}.bin`, {
-				key: `vaults/${accountId}/${i}.bin`,
-				uploaded: now
-			});
-		}
-		// Add an unrelated account's blob to make sure prefix filter holds.
-		r2.objects.set('vaults/other-acct/1.bin', {
-			key: 'vaults/other-acct/1.bin',
-			uploaded: now
-		});
 
-		const result = await gcAccountNow(envWith(r2), accountId, 7);
+		const result = await gcV2Now(envWith(db, r2));
 
-		// KEEP_SUPERSEDED = 2 -> cutoff = 5, anything <= 5 deleted.
-		// That is 1, 2, 3, 4, 5 -> 5 vault blobs deleted.
-		expect(result.vaultBlobsDeleted).toBe(5);
-		// 6 and 7 still present for this account.
-		expect(r2.objects.has(`vaults/${accountId}/6.bin`)).toBe(true);
-		expect(r2.objects.has(`vaults/${accountId}/7.bin`)).toBe(true);
-		// Other account untouched.
-		expect(r2.objects.has('vaults/other-acct/1.bin')).toBe(true);
+		expect(result).toEqual({ v2BlobsDeleted: 1, v2InvsDeleted: 1 });
+		expect(r2.deletedKeys).toContain('v2/blobs/11111111-1111-4111-8111-111111111111.bin');
+		expect(r2.deletedKeys).toContain('v2/inv/aaaaaaaaaaaaaaaaaaaaaaaaaa.bin');
+		// Account-free key shape — never a vaults/{accountId}/... path.
+		expect(r2.deletedKeys.every((k) => k.startsWith('v2/'))).toBe(true);
+		// Fresh rows survive.
+		expect(db.blobRefs.has('22222222-2222-4222-8222-222222222222')).toBe(true);
+		expect(db.invRefs.has('bbbbbbbbbbbbbbbbbbbbbbbbbb')).toBe(true);
+		// Stale rows are gone from D1.
+		expect(db.blobRefs.has('11111111-1111-4111-8111-111111111111')).toBe(false);
+		expect(db.invRefs.has('aaaaaaaaaaaaaaaaaaaaaaaaaa')).toBe(false);
 	});
 
-	it('does not delete document blobs as part of the vault-blob sweep', async () => {
+	it('drops the D1 row even when the R2 delete fails', async () => {
+		const db = new FakeD1();
+		db.blobRefs.set('33333333-3333-4333-8333-333333333333', STALE_SEC);
 		const r2 = new FakeR2();
-		const now = new Date();
-		const accountId = 'acct-1';
-		r2.objects.set(`vaults/${accountId}/1.bin`, {
-			key: `vaults/${accountId}/1.bin`,
-			uploaded: now
-		});
-		r2.objects.set(`vaults/${accountId}/2.bin`, {
-			key: `vaults/${accountId}/2.bin`,
-			uploaded: now
-		});
-		const blobId = '11111111-1111-4111-8111-111111111111';
-		r2.objects.set(`vaults/${accountId}/documents/${blobId}.bin`, {
-			key: `vaults/${accountId}/documents/${blobId}.bin`,
-			uploaded: now
-		});
+		r2.deleteShouldFail = true;
 
-		const result = await gcAccountNow(envWith(r2), accountId, 10);
+		const result = await gcV2Now(envWith(db, r2));
 
-		// Vault blobs 1 and 2 < cutoff 8, both deleted.
-		expect(result.vaultBlobsDeleted).toBe(2);
-		// Document blob is fresh, NOT deleted by the doc-age pass either.
-		expect(result.documentBlobsDeleted).toBe(0);
-		expect(
-			r2.objects.has(`vaults/${accountId}/documents/${blobId}.bin`)
-		).toBe(true);
+		expect(result.v2BlobsDeleted).toBe(1);
+		expect(r2.deletedKeys).toHaveLength(0);
+		expect(db.blobRefs.size).toBe(0);
 	});
 
-	it('deletes document blobs older than DOC_BLOB_MAX_AGE_MS', async () => {
+	it('degrades to zero on a D1 read failure without throwing', async () => {
+		const db = new FakeD1();
+		db.selectShouldFail = true;
 		const r2 = new FakeR2();
-		const accountId = 'acct-1';
-		const fresh = new Date();
-		const stale = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days
-		const freshBlob = '22222222-2222-4222-8222-222222222222';
-		const staleBlob = '33333333-3333-4333-8333-333333333333';
-		r2.objects.set(`vaults/${accountId}/documents/${freshBlob}.bin`, {
-			key: `vaults/${accountId}/documents/${freshBlob}.bin`,
-			uploaded: fresh
-		});
-		r2.objects.set(`vaults/${accountId}/documents/${staleBlob}.bin`, {
-			key: `vaults/${accountId}/documents/${staleBlob}.bin`,
-			uploaded: stale
-		});
 
-		const result = await gcAccountNow(envWith(r2), accountId, 1);
+		const result = await gcV2Now(envWith(db, r2));
 
-		expect(result.documentBlobsDeleted).toBe(1);
-		expect(
-			r2.objects.has(`vaults/${accountId}/documents/${freshBlob}.bin`)
-		).toBe(true);
-		expect(
-			r2.objects.has(`vaults/${accountId}/documents/${staleBlob}.bin`)
-		).toBe(false);
+		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0 });
+		expect(r2.deletedKeys).toHaveLength(0);
 	});
 
-	it('is a no-op when currentClock <= KEEP_SUPERSEDED', async () => {
+	it('returns zero when nothing is past the cutoff', async () => {
+		const db = new FakeD1();
+		db.blobRefs.set('44444444-4444-4444-8444-444444444444', FRESH_SEC);
 		const r2 = new FakeR2();
-		const accountId = 'acct-1';
-		const now = new Date();
-		r2.objects.set(`vaults/${accountId}/1.bin`, {
-			key: `vaults/${accountId}/1.bin`,
-			uploaded: now
-		});
-		r2.objects.set(`vaults/${accountId}/2.bin`, {
-			key: `vaults/${accountId}/2.bin`,
-			uploaded: now
-		});
 
-		const result = await gcAccountNow(envWith(r2), accountId, 1);
+		const result = await gcV2Now(envWith(db, r2));
 
-		expect(result.vaultBlobsDeleted).toBe(0);
-		expect(r2.objects.size).toBe(2);
-	});
-
-	it('survives an R2 listing failure without throwing', async () => {
-		const r2 = new FakeR2();
-		r2.listShouldFail = true;
-		const result = await gcAccountNow(envWith(r2), 'acct-1', 5);
-		expect(result.vaultBlobsDeleted).toBe(0);
-		expect(result.documentBlobsDeleted).toBe(0);
+		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0 });
+		expect(db.blobRefs.size).toBe(1);
 	});
 });

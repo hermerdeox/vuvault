@@ -76,9 +76,9 @@
 								<span data-show="tech"
 									>Documents encrypted client-side before upload; the server
 									holds opaque blobs and subpoenaing the M3 sync storage yields
-									ciphertext nobody can decrypt — including us. The handlers
-									live in <code>src/routes/api/documents/[blobId]/+server.ts</code>
-									and refuse anything but base64-encoded sealed bytes.</span
+									ciphertext nobody can decrypt — including us. The handler
+									lives in <code>src/routes/api/v2/blobs/[uuid]/+server.ts</code>
+									and refuses anything but base64-encoded sealed bytes.</span
 								>
 							</div>
 						</div>

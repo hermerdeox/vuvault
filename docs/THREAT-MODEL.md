@@ -118,12 +118,17 @@ sequenceDiagram
 		W->>D1: SELECT account + load identity
 		W-->>SPA: KE2
 		SPA->>W: POST /api/opaque/login/ke3
-		W->>D1: INSERT session, UPDATE last_login_at
-		W-->>SPA: token + expiresAt + sequenceClock
-		SPA->>W: GET /api/blobs/latest (Bearer)
-		W->>R2: list + get latest
-		W-->>SPA: ciphertext + sequenceClock
-		SPA->>SPA: Compare server clock; promote if higher
+		W->>D1: INSERT session (no device id, no last_login_at)
+		W-->>SPA: token + expiresAt
+		SPA->>SPA: Derive inventory bootstrap addr from vault key
+		SPA->>W: GET /api/v2/inv/{addr} (Bearer)
+		W->>R2: get inventory blob at addr
+		W-->>SPA: encrypted inventory
+		SPA->>SPA: Open inventory → vault blob UUID + save index
+		SPA->>W: GET /api/v2/blobs/{uuid} (Bearer)
+		W->>R2: get blob by random UUID
+		W-->>SPA: ciphertext
+		SPA->>SPA: Compare inventory save index ≥ local; promote if higher
 	end
 	SPA->>SPA: Verify bundle integrity (SHA-384)
 	SPA-->>U: Vault ready
@@ -134,11 +139,11 @@ sequenceDiagram
 | Step | Threat | Mitigation |
 | --- | --- | --- |
 | 4 | PRF replay against an offline copy of IndexedDB | Secret Key + PRF + device salt are all required; missing any one fails decrypt |
-| 6 | Tampered vault blob | AAD binds formatVersion + auth-mode + deviceSalt + credId digest + header digest; GCM tag fails on any tamper |
-| 9–13 | Server brute-force against password | OPAQUE — server never sees the password; OPRF blinds it before transit |
-| 14 | Token theft | 1h TTL; revoked on lock via logout endpoint; bearer required for every blob op |
-| 17 | Replay of older blob | Server enforces monotonic sequence clock; client checks server clock ≥ local |
-| 18 | Backdoored bundle | SHA-384 verified in-browser against `.bundle-digest` baked at build; mismatch refuses decryption |
+| 7 | Tampered vault blob | AAD binds formatVersion + auth-mode + deviceSalt + credId digest + header digest; GCM tag fails on any tamper |
+| 8–13 | Server brute-force against password | OPAQUE — server never sees the password; OPRF blinds it before transit |
+| 15, 19 | Token theft | 1h TTL; revoked on lock via logout endpoint; bearer required for every blob op |
+| 22 | Replay of older blob | Server holds no sequence clock (V1-C3 — `migrations/0009_drop_sequence_clock.sql`); the client compares the inventory's monotonic save index against its last-seen value and refuses an older inventory |
+| 23 | Backdoored bundle | SHA-384 verified in-browser against `.bundle-digest` baked at build; mismatch refuses decryption |
 
 ### 4.2 Save / sync flow
 
@@ -154,13 +159,17 @@ sequenceDiagram
 	SPA->>SPA: Encrypt items via AES-256-GCM(aesKey, nonce, AAD)
 	SPA->>IDB: Persist encrypted blob + header
 	alt Sync wired
-		SPA->>W: POST /api/blobs/upload (Bearer + header + nonce + ciphertext + sequenceClock)
+		SPA->>SPA: Generate random blob UUID
+		SPA->>W: PUT /api/v2/blobs/{uuid} (Bearer + nonce + ciphertext)
 		W->>D1: authenticate(Bearer)
 		W->>D1: applyRateLimit(env, BLOB, account)
-		W->>R2: put vaults/{accountId}/{N}.bin
-		W->>D1: advanceSequenceClock
-		W-->>SPA: { updatedAt, sequenceClock }
-		W->>W: maybeSweep(D1) + maybeGcAccount(R2) (fire-and-forget)
+		W->>R2: put blobs/{uuid}.bin (no account prefix)
+		W->>D1: upsert blob_references row
+		W-->>SPA: { updatedAt }
+		SPA->>SPA: setVaultBlob(uuid) + bump save index in inventory
+		SPA->>W: PUT /api/v2/inv/{addr} (Bearer + sealed inventory)
+		W->>R2: put inv blob at addr
+		W->>W: maybeGcV2(D1+R2) (fire-and-forget)
 	end
 ```
 
@@ -169,10 +178,10 @@ sequenceDiagram
 | Step | Threat | Mitigation |
 | --- | --- | --- |
 | 1 | AAD substitution between accounts | AAD binds deviceSalt + credId digest; cross-account replay fails decrypt |
-| 4 | Stolen bearer token | Token validated against D1 + expiry on every op; logout invalidates immediately |
-| 5 | Quota-flood DoS | D1-backed sliding window; production fail-closed on D1 outage; 30 req/60s per account |
-| 7 | Replay older blob | Monotonic sequence clock enforced in `advanceSequenceClock`; 409 on regression |
-| 9 | Unbounded R2 growth | Opportunistic GC purges superseded vault blobs (`{N}.bin` ≤ clock - KEEP_SUPERSEDED) and dormant document blobs |
+| 5 | Stolen bearer token | Token validated against D1 + expiry on every op; logout invalidates immediately |
+| 6 | Quota-flood DoS | D1-backed sliding window; production fail-closed on D1 outage; 30 req/60s per account |
+| 7 | Cross-account write correlation / replay | Blob key is a random UUID with no account prefix (V1-C1); the server holds no sequence clock (V1-C3 — migration 0009), so a passive server cannot order or link writes across accounts. The client detects inventory rollback via the monotonic save index |
+| 13 | Unbounded R2 growth | Reference-counted v2 GC (`maybeGcV2`) reaps blobs no longer referenced by any inventory (`blob_references`/`inv_references`) |
 
 ---
 
@@ -269,7 +278,7 @@ Risks are computed as `Likelihood × Impact`. Likelihood is for the deployed sys
 
 These are tracked but not fixed in the current Tier 1 release. They are NOT P0 — none of them violate the foundational claim.
 
-- **OPAQUE log-rotation policy.** D1 `last_login_at` is updated but never trimmed. Long-term we want a privacy-friendly retention policy.
+- ~~**OPAQUE log-rotation policy.** D1 `last_login_at` is updated but never trimmed.~~ **Closed 2026-05-31 (V1-C2):** `accounts.last_login_at` was dropped in `migrations/0004_metadata_minimization.sql` and a guard trigger blocks re-introduction; the server no longer records per-account login timestamps, so there is nothing to trim.
 - **Trusted Types enforcement.** Currently set as a target; cannot enable globally until Argon2id WASM and FOUC-prevention scripts are migrated.
 - **CSP `report-to` endpoint.** No CSP violation telemetry today (consistent with the no-telemetry policy). Auditors may want to add one for the audit window only.
 - **Padding for document blobs.** Tier 2 (L07) — bucketed padding to defeat the size oracle on R2.

@@ -4,11 +4,41 @@ import { clearStorage } from './helpers';
 const M3_E2E = process.env.M3_E2E === '1' || process.env.M3_E2E === 'true';
 const RECOVERY_PASSWORD = 'Cobalt! River! Juniper! Falcon!';
 
+/**
+ * Record the pathname of every `/api/*` request the page issues. Used
+ * to prove — behaviorally, against the live preview — that the §L07b
+ * hard cutover holds: the save/document flow must touch ONLY the v2
+ * surface (`/api/v2/blobs/*`, `/api/v2/inv/*`) and NEVER the retired
+ * per-account routes (`/api/blobs/*`, `/api/documents/*`). This is the
+ * V1-C1/V1-C3 closure that the shape-only release probe cannot make.
+ */
+function trackApiRequests(page: Page): string[] {
+	const paths: string[] = [];
+	page.on('request', (req) => {
+		try {
+			const p = new URL(req.url()).pathname;
+			if (p.startsWith('/api/')) paths.push(p);
+		} catch {
+			/* non-URL request; ignore */
+		}
+	});
+	return paths;
+}
+
+/** Assert no request ever hit the deleted per-account transport. */
+function assertNoLegacyRoutes(paths: string[]): void {
+	const legacy = paths.filter(
+		(p) => p.startsWith('/api/blobs/') || p.startsWith('/api/documents/')
+	);
+	expect(legacy, `legacy per-account routes must be gone: ${legacy.join(', ')}`).toEqual([]);
+}
+
 test.describe('vault flows · sync', () => {
 	test.skip(!M3_E2E, 'M3_E2E=1 not set; full sync round-trip skipped (see file header)');
 
 	test('onboard → save → reload → re-unlock pulls remote blob', async ({ page }) => {
 		await clearStorage(page);
+		const apiPaths = trackApiRequests(page);
 		await completeM3Onboarding(page);
 
 		await page.getByRole('button', { name: 'Add item' }).click();
@@ -30,16 +60,26 @@ test.describe('vault flows · sync', () => {
 			page.getByRole('button', { name: 'm3-sync-test-item sync-user' })
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByTestId('sync-status')).toContainText(/ready|synced/);
+
+		// Behavioral V1-C1/V1-C3 proof: the whole-vault save + the
+		// re-unlock pull used the v2 blob/inventory surface and never the
+		// retired per-account routes.
+		assertNoLegacyRoutes(apiPaths);
+		expect(apiPaths.some((p) => p.startsWith('/api/v2/blobs/'))).toBe(true);
+		expect(apiPaths.some((p) => p.startsWith('/api/v2/inv/'))).toBe(true);
 	});
 
 	test('document file round-trips through R2 as opaque ciphertext', async ({ page }) => {
 		await clearStorage(page);
+		const apiPaths = trackApiRequests(page);
 		await completeM3Onboarding(page);
 
 		// Attach an encrypted document. The client sealer (sealDocument)
-		// runs inside the browser; sync-client.uploadDocumentBlob pushes
-		// the AES-GCM ciphertext to /api/documents/<blobId> against the
-		// live Wrangler R2 binding.
+		// runs inside the browser; sync-client.uploadV2Blob pushes the
+		// AES-GCM ciphertext to /api/v2/blobs/<uuid> (random UUID, no
+		// account prefix) against the live Wrangler R2 binding, and the
+		// document UUID is recorded in the encrypted inventory at
+		// /api/v2/inv/<addr>.
 		const DOCUMENT_TEXT =
 			'M3 sync E2E lease bytes — confidential — multi-paragraph payload.';
 		await page.getByRole('button', { name: 'Add item' }).click();
@@ -105,8 +145,8 @@ test.describe('vault flows · sync', () => {
 
 		// Re-select the document and trigger a download. The vault
 		// session sees no local blob row, falls back to GET
-		// /api/documents/<blobId>, decrypts the ciphertext returned
-		// by R2, and produces a Blob URL with the original plaintext.
+		// /api/v2/blobs/<uuid>, decrypts the ciphertext returned by R2,
+		// and produces a Blob URL with the original plaintext.
 		await page
 			.locator('.list-pane button.item', { hasText: 'm3-sync-doc' })
 			.first()
@@ -119,6 +159,13 @@ test.describe('vault flows · sync', () => {
 		const fs = await import('node:fs/promises');
 		const downloaded = await fs.readFile(path!);
 		expect(downloaded.toString('utf8')).toBe(DOCUMENT_TEXT);
+
+		// Behavioral V1-C1 proof: the document upload, the full-vault
+		// sync, and the R2-fallback download all used the v2 blob/
+		// inventory surface and never the retired per-account routes.
+		assertNoLegacyRoutes(apiPaths);
+		expect(apiPaths.some((p) => p.startsWith('/api/v2/blobs/'))).toBe(true);
+		expect(apiPaths.some((p) => p.startsWith('/api/v2/inv/'))).toBe(true);
 	});
 });
 

@@ -475,13 +475,13 @@
 							>
 							<span data-show="tech" data-vp-show="desktop"
 								><code>password-health.ts</code> scores entropy and reuse
-								in-memory; the server only ever observes
-								<code>(deviceId, sequenceClock, ciphertext)</code>. Footer
-								surfaces ZK state, suite, and build hash — proof, not
-								policy.</span
+								in-memory; the server only ever observes opaque
+								<code>ciphertext</code> under a random blob UUID — no device
+								id, no account-linked clock. Footer surfaces ZK state, suite,
+								and build hash — proof, not policy.</span
 							>
 							<span data-show="tech" data-vp-show="mobile"
-								>In-memory entropy/reuse check · server sees only ciphertext + clock.</span
+								>In-memory entropy/reuse check · server sees only opaque ciphertext.</span
 							>
 						</div>
 					</div>
