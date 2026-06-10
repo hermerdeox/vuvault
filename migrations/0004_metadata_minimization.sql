@@ -132,18 +132,27 @@ INSERT OR REPLACE INTO metadata_minimization_guard (id, version, applied_at)
 -- Sentinel trigger: every session INSERT verifies the guard row exists
 -- with version >= 1. If a future migration removes or downgrades the
 -- guard, session writes fail loudly rather than silently regress.
+--
+-- NOTE on form: the condition lives in the trigger's WHEN clause (the
+-- same pattern as the *_no_account_drift triggers in 0005-0007), NOT
+-- in a CASE ... END expression inside the body. wrangler's remote
+-- statement splitter pairs BEGIN/END to keep trigger bodies intact;
+-- a CASE's END (and any ';' inside a string literal) makes it cut the
+-- statement mid-trigger, and the deploy fails with
+-- "incomplete input: SQLITE_ERROR" — which is exactly how the v0.1.14
+-- release run died. Local SQLite parses both forms fine; only the
+-- remote path splits client-side. Keep trigger bodies to simple
+-- semicolon-free single statements.
 
 CREATE TRIGGER IF NOT EXISTS sessions_metadata_minimization_check
 BEFORE INSERT ON sessions
 FOR EACH ROW
+WHEN NOT EXISTS (
+  SELECT 1 FROM metadata_minimization_guard
+    WHERE id = 1 AND version >= 1
+)
 BEGIN
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1 FROM metadata_minimization_guard
-        WHERE id = 1 AND version >= 1
-    )
-    THEN RAISE(ABORT, 'metadata_minimization_guard missing or downgraded; refusing session insert')
-  END;
+  SELECT RAISE(ABORT, 'metadata_minimization_guard missing or downgraded - refusing session insert');
 END;
 
 -- =========================================================================
