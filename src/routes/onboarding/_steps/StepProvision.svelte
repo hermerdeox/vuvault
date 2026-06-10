@@ -400,7 +400,7 @@
 </script>
 
 <section class="screen">
-	<div class="screen-inner">
+	<div class="screen-inner wide">
 		<Eyebrow>{onboarding.stepLabel('provision')} · Provisioning your vault</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
@@ -516,6 +516,16 @@
 		flex-direction: column;
 		gap: 10px;
 		margin-bottom: 28px;
+	}
+	/* Desktop: two-column pipeline (6 steps → 3 rows) so the whole
+	   screen — headline, steps, and the Enter-your-vault CTA — fits
+	   in one viewport with no scrolling. */
+	@media (min-width: 64em) {
+		.stack {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 10px;
+		}
 	}
 	.step {
 		display: grid;
