@@ -1,36 +1,74 @@
 {
-  "name": "VuVault",
-  "short_name": "VuVault",
-  "description": "Zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction.",
-  "start_url": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "theme_color": "#000000",
-  "background_color": "#000000",
-  "icons": [
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icons/icon-monochrome-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "monochrome"
-    }
-  ]
+	"id": "/",
+	"name": "VuVault",
+	"short_name": "VuVault",
+	"description": "Zero-knowledge password manager. Mathematical privacy, not policy. Quantum-safe by construction.",
+	"lang": "en",
+	"dir": "ltr",
+	"start_url": "/unlock",
+	"scope": "/",
+	"display": "standalone",
+	"display_override": ["standalone", "minimal-ui"],
+	"orientation": "any",
+	"theme_color": "#000000",
+	"background_color": "#000000",
+	"categories": ["security", "utilities", "productivity"],
+	"icons": [
+		{
+			"src": "/icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/icon-maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		},
+		{
+			"src": "/icons/icon-monochrome-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "monochrome"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Unlock vault",
+			"short_name": "Unlock",
+			"description": "Unlock your vault with Touch ID",
+			"url": "/unlock",
+			"icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+		},
+		{
+			"name": "Recover access",
+			"short_name": "Recover",
+			"description": "Recover your vault with Secret Key + Recovery Password",
+			"url": "/recover",
+			"icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }]
+		}
+	],
+	"screenshots": [
+		{
+			"src": "/screenshots/app-narrow.png",
+			"sizes": "1170x2532",
+			"type": "image/png",
+			"form_factor": "narrow",
+			"label": "Your passwords. Untouchable."
+		},
+		{
+			"src": "/marketing/hero-banner-1920x1080.png",
+			"sizes": "1920x1080",
+			"type": "image/png",
+			"form_factor": "wide",
+			"label": "VuVault — zero-knowledge password manager"
+		}
+	]
 }

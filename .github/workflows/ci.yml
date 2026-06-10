@@ -210,9 +210,10 @@ jobs:
               | grep -v 'opaque-client\.ts' \
               | grep -v 'src/lib/utils/env\.ts' \
               | grep -v 'src/lib/crypto/argon2\.ts' \
+              | grep -v 'src/service-worker\.ts' \
               | grep -v '\.test\.ts' \
               | grep -q .; then
-            echo "::error::Stray fetch( call. Network calls are reserved for sync-client.ts, opaque-client.ts (createFetchTransport), env.ts (manifest), argon2.ts (WASM)."
+            echo "::error::Stray fetch( call. Network calls are reserved for sync-client.ts, opaque-client.ts (createFetchTransport), env.ts (manifest), argon2.ts (WASM), service-worker.ts (same-origin cache layer)."
             exit 1
           fi
 

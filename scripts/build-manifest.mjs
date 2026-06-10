@@ -92,6 +92,21 @@ async function main() {
 	// Skip a stale manifest from a previous run.
 	const filtered = files.filter((f) => f !== MANIFEST_OUT);
 
+	// PWA service worker — emitted at the build root, not under
+	// _app/immutable/, but it is executable code shipped to every
+	// client, so it belongs in the integrity manifest (the runtime
+	// verifier fetches manifest keys generically). Its content does
+	// not depend on PUBLIC_BUNDLE_HASH (no $env import in
+	// src/service-worker.ts), so two-pass convergence is preserved:
+	// pass-1 and pass-2 workers are byte-identical.
+	const swPath = join(BUILD_DIR, 'service-worker.js');
+	try {
+		await stat(swPath);
+		filtered.push(swPath);
+	} catch {
+		// No service worker in this build output — nothing to add.
+	}
+
 	const hashes = {};
 	for (const abs of filtered) {
 		const buf = await readFile(abs);

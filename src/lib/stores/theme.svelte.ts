@@ -17,6 +17,22 @@ export type Theme = 'modern' | 'brutalist';
 
 const STORAGE_KEY = 'vuvault-theme';
 
+/**
+ * Browser-chrome color per theme (status bar on installed iOS PWAs,
+ * One UI / Samsung Internet toolbar tint). Must mirror each theme's
+ * `--bg` token — tokens-modern.css / tokens-brutalist.css — and the
+ * pre-paint mirror of this map in app.html's inline script.
+ */
+const THEME_COLOR: Record<Theme, string> = {
+	modern: '#000000',
+	brutalist: '#f5f5f0'
+};
+
+function syncThemeColorMeta(theme: Theme): void {
+	const meta = document.querySelector('meta[name="theme-color"]');
+	if (meta) meta.setAttribute('content', THEME_COLOR[theme]);
+}
+
 function readInitial(): Theme {
 	if (!browser) return 'modern';
 	const stored = localStorage.getItem(STORAGE_KEY);
@@ -32,6 +48,7 @@ class ThemeState {
 		this.current = theme;
 		if (browser) {
 			document.documentElement.setAttribute('data-theme', theme);
+			syncThemeColorMeta(theme);
 			try {
 				localStorage.setItem(STORAGE_KEY, theme);
 			} catch {

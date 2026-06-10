@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { afterNavigate } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import PwaUpdateToast from '$lib/components/PwaUpdateToast.svelte';
+	import { pwa } from '$lib/pwa/pwa.svelte';
 	import '../app.css';
 
 	type Props = {
@@ -62,6 +64,10 @@
 	onMount(() => {
 		document.documentElement.dataset.hydrated = 'true';
 
+		// PWA: register the snapshot service worker (production only)
+		// and start watching for consent-gated updates.
+		void pwa.init();
+
 		const handleError = (event: ErrorEvent) => {
 			reloadOnceForStaleBuild({
 				message: event.message,
@@ -92,3 +98,5 @@
 {#if children}
 	{@render children()}
 {/if}
+
+<PwaUpdateToast />

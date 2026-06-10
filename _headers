@@ -7,3 +7,21 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), idle-detection=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
+
+# PWA: the service worker script must always revalidate so new
+# releases are DETECTED promptly (applying them is consent-gated
+# in-app). Without this, the HTTP cache can pin an old worker for
+# its default TTL and updates go invisible.
+/service-worker.js
+  Cache-Control: no-cache, must-revalidate
+
+# The web-app manifest drives install metadata; keep it fresh.
+/manifest.json
+  Cache-Control: no-cache
+  Content-Type: application/manifest+json
+
+# The bundle-integrity manifest must never be served stale — a CDN-
+# cached old manifest against new chunks would fail verification at
+# unlock (or worse, mask a real mismatch window).
+/_app/immutable/bundle-manifest.json
+  Cache-Control: no-store

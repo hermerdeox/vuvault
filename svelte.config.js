@@ -42,6 +42,13 @@ const config = {
 		version: {
 			name: VERSION_NAME
 		},
+		serviceWorker: {
+			// Manual registration in src/lib/pwa/pwa.svelte.ts — updates
+			// must be consent-gated (P5 "no silent updates"), which needs
+			// control over the waiting-worker lifecycle that SvelteKit's
+			// auto-registration does not expose.
+			register: false
+		},
 		csp: {
 			mode: 'auto',
 			directives: {
@@ -54,7 +61,10 @@ const config = {
 				'script-src': [
 					'self',
 					'wasm-unsafe-eval',
-					'sha256-yj1hmv3aSt4fxpyB0GeNuvoyTJdAkCx9xGhCM9+1J/0='
+					// sha256 of the inline FOUC/theme script in src/app.html.
+					// Recompute when that script changes:
+					//   node -e "const m=require('fs').readFileSync('src/app.html','utf8').match(/<script>([\s\S]*?)<\/script>/);console.log('sha256-'+require('crypto').createHash('sha256').update(m[1],'utf8').digest('base64'))"
+					'sha256-2ciyL97eAATatHL+OvD2aIf6DH5sGN1m7sYzpoGPozc='
 				],
 				'style-src': ['self', 'unsafe-inline'],
 				'font-src': ['self'],
