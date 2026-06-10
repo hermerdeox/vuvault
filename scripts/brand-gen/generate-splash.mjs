@@ -39,10 +39,18 @@ const DEVICES = [
 	{ w: 428, h: 926, s: 3 }, // 12-14 Pro Max / 14 Plus
 	{ w: 430, h: 932, s: 3 }, // 15 Plus / 15 Pro Max / 16 Plus
 	{ w: 440, h: 956, s: 3 }, // 16 Pro Max
-	{ w: 768, h: 1024, s: 2 }, // iPad 10.2" class
-	{ w: 834, h: 1194, s: 2 }, // iPad Air / Pro 11"
-	{ w: 1024, h: 1366, s: 2 } // iPad Pro 12.9 / 13"
+	{ w: 744, h: 1133, s: 2 }, // iPad mini 6/7
+	{ w: 768, h: 1024, s: 2 }, // iPad 9.7" (5th/6th gen), legacy minis
+	{ w: 810, h: 1080, s: 2 }, // iPad 10.2" (7th-9th gen)
+	{ w: 820, h: 1180, s: 2 }, // iPad 10th/11th gen, Air 4/5, Air 11" M2/M3
+	{ w: 834, h: 1194, s: 2 }, // iPad Pro 11" (gen 1-4)
+	{ w: 834, h: 1210, s: 2 }, // iPad Pro 11" M4
+	{ w: 1024, h: 1366, s: 2 }, // iPad Pro 12.9", Air 13"
+	{ w: 1032, h: 1376, s: 2 } // iPad Pro 13" M4
 ];
+// Portrait-only by design: landscape launch frames are a marginal
+// win (iPhones launch portrait; iPad landscape gets the default
+// sheet briefly) and would double the asset set.
 
 const BG = '#000000'; // matches modern --bg + manifest background_color
 

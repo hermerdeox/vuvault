@@ -516,7 +516,10 @@ jobs:
           exit 1
 
       - name: Run M3 sync E2E
-        run: npx playwright test tests/e2e/sync.spec.ts
+        # pwa.spec.ts rides along because its service-worker group only
+        # runs against BUILT output (gated on PLAYWRIGHT_BASE_URL, which
+        # this job sets) — registration, snapshot pinning, offline boot.
+        run: npx playwright test tests/e2e/sync.spec.ts tests/e2e/pwa.spec.ts
         env:
           PLAYWRIGHT_SKIP_WEB_SERVER: '1'
           PLAYWRIGHT_BASE_URL: http://localhost:8788

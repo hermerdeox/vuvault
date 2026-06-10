@@ -25,7 +25,10 @@
 <style>
 	.update-toast {
 		position: fixed;
-		z-index: 200;
+		/* Below Modal/CommandK (z-index 100): an open dialog covers the
+		   toast instead of the toast intercepting its bottom-edge taps.
+		   updateReady persists, so it reappears when the dialog closes. */
+		z-index: 90;
 		left: 50%;
 		transform: translateX(-50%);
 		bottom: calc(16px + env(safe-area-inset-bottom, 0px));

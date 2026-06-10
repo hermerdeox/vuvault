@@ -98,11 +98,36 @@ a,
 
 /* iOS auto-zooms any focused field whose font-size is below 16px —
    the single biggest "this is a website" tell in an installed app.
-   Floor every text-entry control at 16px on mobile viewports. */
-html[data-vp~='mobile'] input,
-html[data-vp~='mobile'] textarea,
-html[data-vp~='mobile'] select {
-	font-size: 16px !important;
+   Keyed to pointer capability, NOT viewport width: an iPhone in
+   landscape reports tablet-class innerWidth, but it still zooms.
+   (No input anywhere in src/ styles above 16px, so the floor only
+   ever raises sizes.) */
+@media (pointer: coarse) {
+	input,
+	textarea,
+	select {
+		font-size: 16px !important;
+	}
+}
+
+/* iOS reads apple-mobile-web-app-status-bar-style once at install
+   time; black-translucent draws WHITE status-bar text over the page.
+   Fine on the modern theme (pure-black --bg), unreadable on the
+   brutalist off-white. Paint a dark backdrop behind the status-bar
+   region for the light theme — installed app only, zero effect in a
+   browser tab. */
+@media (display-mode: standalone) {
+	html[data-theme='brutalist'] body::before {
+		content: '';
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: env(safe-area-inset-top, 0px);
+		background: #0a0a0a;
+		z-index: 1000;
+		pointer-events: none;
+	}
 }
 
 button {

@@ -8,13 +8,23 @@
  *   `updateReady` flips → PwaUpdateToast asks the user →
  *   applyUpdate() posts SKIP_WAITING → controllerchange → reload.
  *
- * That consent step is invariant P5 ("no silent updates") made real:
- * the running snapshot never changes under the user's feet.
+ * That consent step is invariant P5 ("no silent updates") for the
+ * running session: an open app never swaps builds underneath the
+ * user. Consent given in ANY tab speaks for the user in ALL tabs —
+ * when the consented worker takes control, every previously
+ * controlled tab reloads into the new coherent snapshot (the old
+ * snapshot cache is purged on activation, so staying behind would
+ * mean torn state). After the last client closes, the platform
+ * activates a waiting worker on its own; the next launch boots the
+ * new snapshot — consent is a session guarantee, not a cross-launch
+ * one.
  */
 
 import { dev, browser } from '$app/environment';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
+/** After "Later", stay quiet this long before re-offering the update. */
+const REPROMPT_SNOOZE_MS = 4 * 60 * 60 * 1000;
 
 class PwaState {
 	/** A new, fully-installed snapshot is waiting for consent. */
@@ -26,7 +36,7 @@ class PwaState {
 
 	#registration: ServiceWorkerRegistration | null = null;
 	#reloading = false;
-	#consented = false;
+	#snoozedUntil = 0;
 
 	async init(): Promise<void> {
 		if (!browser) return;
@@ -47,6 +57,11 @@ class PwaState {
 			});
 			this.#registration = reg;
 
+			// Was this page controlled before any update could land? Used
+			// to tell a consented-update takeover (reload required) apart
+			// from the very first install's clients.claim() (no reload).
+			let wasControlled = !!navigator.serviceWorker.controller;
+
 			// A worker that finished installing before this page loaded.
 			if (reg.waiting && navigator.serviceWorker.controller) {
 				void this.#announce(reg.waiting);
@@ -62,24 +77,39 @@ class PwaState {
 				});
 			});
 
-			// Reload exactly once when the user-CONSENTED worker takes
-			// control, landing the page in the new coherent snapshot.
-			// First-install claim() also fires controllerchange — that
-			// one must NOT reload (no consent was asked, nothing visible
-			// changes; the snapshot simply starts serving).
+			// A consented worker taking control means the old snapshot is
+			// gone — every previously controlled tab must reload into the
+			// new one (consent in one tab is the user's consent; a tab
+			// left behind would lazy-load chunks that no longer exist).
+			// First-install claim() flips controller from null → set and
+			// must NOT reload.
 			navigator.serviceWorker.addEventListener('controllerchange', () => {
-				if (!this.#consented || this.#reloading) return;
+				if (!wasControlled) {
+					wasControlled = true;
+					return;
+				}
+				if (this.#reloading) return;
 				this.#reloading = true;
 				window.location.reload();
 			});
 
+			const recheck = () => {
+				void reg.update().catch(() => undefined);
+				// A worker that is ALREADY waiting never re-fires
+				// updatefound — re-offer it (post-snooze) so a long-lived
+				// installed app cannot sit on a stale snapshot forever.
+				if (!this.updateReady && reg.waiting && navigator.serviceWorker.controller) {
+					if (Date.now() >= this.#snoozedUntil) void this.#announce(reg.waiting);
+				}
+				// Heal storage-pressure eviction (hash-verified refill).
+				reg.active?.postMessage({ type: 'CHECK_SNAPSHOT' });
+			};
+
 			// Re-check for new releases periodically and when the app
 			// returns to the foreground (installed apps live long).
-			setInterval(() => void reg.update().catch(() => undefined), UPDATE_POLL_MS);
+			setInterval(recheck, UPDATE_POLL_MS);
 			document.addEventListener('visibilitychange', () => {
-				if (document.visibilityState === 'visible') {
-					void reg.update().catch(() => undefined);
-				}
+				if (document.visibilityState === 'visible') recheck();
 			});
 		} catch {
 			// Registration failure degrades to plain web behavior — never
@@ -94,12 +124,12 @@ class PwaState {
 
 	/** User consent: activate the waiting snapshot. */
 	applyUpdate(): void {
-		this.#consented = true;
 		this.#registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
 	}
 
 	dismissUpdate(): void {
 		this.updateReady = false;
+		this.#snoozedUntil = Date.now() + REPROMPT_SNOOZE_MS;
 	}
 }
 

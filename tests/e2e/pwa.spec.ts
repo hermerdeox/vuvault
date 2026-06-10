@@ -78,10 +78,15 @@ test.describe('pwa · manifest & shell', () => {
 		await expect(meta).toHaveAttribute('content', '#f5f5f0');
 	});
 
-	test('native-feel CSS is active (overscroll, tap highlight, input zoom floor)', async ({
-		page
-	}) => {
-		await page.setViewportSize({ width: 390, height: 844 });
+});
+
+test.describe('pwa · native-feel CSS (touch device)', () => {
+	// The anti-zoom floor is keyed to `pointer: coarse` (NOT viewport
+	// width — landscape iPhones report tablet-class widths), so the
+	// test must emulate a touch device for the media query to match.
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+	test('overscroll is suppressed and inputs are floored at 16px', async ({ page }) => {
 		await page.goto('/onboarding');
 		await waitForHydration(page);
 
@@ -90,7 +95,7 @@ test.describe('pwa · manifest & shell', () => {
 		);
 		expect(overscroll).toBe('none');
 
-		// iOS zoom floor: every text input on a mobile viewport >= 16px.
+		// iOS zoom floor: every text input on a touch device >= 16px.
 		await page.getByRole('button', { name: 'Begin setup' }).click();
 		const fontSize = await page
 			.locator('input[type="text"]')
