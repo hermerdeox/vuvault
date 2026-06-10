@@ -7,37 +7,46 @@
 
 <section class="screen">
 	<div class="screen-inner">
-		<Eyebrow>Setup · 60 seconds · zero accounts created</Eyebrow>
+		<Eyebrow>
+			<span data-vp-show="desktop">Setup · 60 seconds · zero accounts created</span>
+			<span data-vp-show="mobile">Setup · 60 seconds</span>
+		</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Let's set up <span class="italic-serif">your vault.</span>
 		</h1>
 		<p class="lede">
-			No email. No master password. No company holding your stuff. We'll generate a 256-bit Secret
-			Key on this device, bind it to Touch ID, and you're done. The only people who will ever
-			decrypt your vault are you and your trusted devices.
+			<span data-vp-show="desktop"
+				>No email. No master password. No company holding your stuff. We'll generate a 256-bit
+				Secret Key on this device, bind it to Touch ID, and you're done. The only people who will
+				ever decrypt your vault are you and your trusted devices.</span
+			>
+			<span data-vp-show="mobile">No email. No master password. Touch ID + a Secret Key made on this phone. Done in 60 seconds.</span>
 		</p>
 
 		<div class="cards">
 			<div class="card">
 				<div class="card-title">No account creation</div>
-				<div class="card-body">
+				<div class="card-body" data-vp-show="desktop">
 					No email, no phone, no name. Your vault is keyed to this device, not to a record on our
 					server.
 				</div>
+				<div class="card-body" data-vp-show="mobile">Keyed to this device, not to us.</div>
 			</div>
 			<div class="card">
 				<div class="card-title">Quantum-safe from day one</div>
-				<div class="card-body">
+				<div class="card-body" data-vp-show="desktop">
 					ML-KEM-1024 hybrid envelope. A vault stolen today stays unreadable in 2032 and beyond.
 				</div>
+				<div class="card-body" data-vp-show="mobile">Unreadable in 2032 and beyond.</div>
 			</div>
 			<div class="card">
 				<div class="card-title">Verifiable build</div>
-				<div class="card-body">
+				<div class="card-body" data-vp-show="desktop">
 					Bundle hash visible at every unlock. Compare it to the public release log. We can't ship
 					a backdoor.
 				</div>
+				<div class="card-body" data-vp-show="mobile">We can't ship a backdoor.</div>
 			</div>
 		</div>
 
@@ -48,16 +57,17 @@
 			</Button>
 			<Button variant="ghost" href="#restore">
 				<IconRefresh size={14} />
-				Restore from another device instead
+				<span data-vp-show="desktop">Restore from another device instead</span>
+				<span data-vp-show="mobile">Restore instead</span>
 			</Button>
 		</div>
 
 		<p class="trust-line">
-			Don't take our word for it.
+			<span data-vp-show="desktop">Don't take our word for it.</span>
 			<a class="trust-link" href="/privacy">
 				See the honest Vu Privacy Level
 			</a>
-			— every claim points to a file path you can read.
+			<span data-vp-show="desktop">— every claim points to a file path you can read.</span>
 		</p>
 	</div>
 </section>
