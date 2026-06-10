@@ -5,7 +5,13 @@
 	import { audit } from '$lib/stores/audit.svelte';
 	import { vault } from '$lib/stores/vault.svelte';
 	import { encodeBase32 } from '$lib/crypto/secret-key';
-	import { getSyncOrigin, isSyncOriginConfigured, getRpId } from '$lib/utils/env';
+	import {
+		getSyncOrigin,
+		isSyncOriginConfigured,
+		getRpId,
+		verifyBundleIntegrity,
+		type BundleIntegrity
+	} from '$lib/utils/env';
 	import { IconArrowRight, IconCheck, IconWarning } from '$lib/icons';
 
 	// PERFORMANCE: vault-session, opaque-client, and sync-client pull
@@ -88,6 +94,11 @@
 	// Non-fatal sync-enrollment failure: the vault is provisioned and
 	// fully usable local-only; we surface the gap instead of failing.
 	let syncNotice = $state<string | null>(null);
+	// Bundle-integrity verdict, shown as a pill. The standalone Verify
+	// screen was removed from the wizard; its GATE lives here instead —
+	// runProvision refuses to seal a vault on a mismatched or
+	// unverifiable bundle (the same check also blocks every unlock).
+	let integrity = $state<BundleIntegrity | null>(null);
 
 	// Screen-reader announcement for the pipeline. Polite live region:
 	// announces the step currently running, then the terminal outcome.
@@ -132,6 +143,19 @@
 			) {
 				throw new Error(
 					'Missing Secret Key, credential, auth mode, or device salt. Please restart onboarding.'
+				);
+			}
+
+			// Bundle-integrity gate (was the standalone Verify step).
+			// Refuse to seal a vault from a bundle we cannot vouch for —
+			// the identical check also blocks every unlock, so this is
+			// belt-and-suspenders, surfaced at the earliest useful moment.
+			integrity = await verifyBundleIntegrity();
+			if (integrity.state === 'mismatch' || integrity.state === 'unsupported') {
+				throw new Error(
+					integrity.state === 'mismatch'
+						? 'Bundle hash mismatch — the running code does not match the published release. Refusing to create a vault. Hard-refresh, and verify the release on GitHub.'
+						: 'This browser cannot verify the bundle hash (WebCrypto unavailable). Refusing to create a vault.'
 				);
 			}
 
@@ -387,6 +411,24 @@
 			into an encrypted vault. Each step happens locally — no server contacted.
 		</p>
 
+		{#if integrity}
+			<div
+				class="integrity-pill state-{integrity.state}"
+				title="SHA-384 of the running bundle, checked against the published release manifest"
+			>
+				<span class="pill-dot"></span>
+				{#if integrity.state === 'verified'}
+					Bundle verified · {integrity.expectedShort}
+				{:else if integrity.state === 'placeholder'}
+					Dev build · bundle hash not pinned
+				{:else if integrity.state === 'mismatch'}
+					Bundle hash mismatch
+				{:else}
+					Bundle verification unavailable
+				{/if}
+			</div>
+		{/if}
+
 		<div class="sr-only" role="status" aria-live="polite">{liveStatus}</div>
 
 		<div class="stack">
@@ -598,6 +640,55 @@
 	}
 	.step.done .time {
 		color: var(--success);
+	}
+
+	.integrity-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		align-self: flex-start;
+		margin-bottom: 18px;
+		padding: 5px 12px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		border-radius: 999px;
+		border: 1px solid var(--border-mid);
+		background: var(--surface);
+		color: var(--text-2);
+	}
+	.integrity-pill .pill-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--text-3);
+	}
+	.integrity-pill.state-verified {
+		color: var(--success);
+		border-color: color-mix(in srgb, var(--success) 35%, transparent);
+		background: var(--success-dim);
+	}
+	.integrity-pill.state-verified .pill-dot {
+		background: var(--success);
+	}
+	.integrity-pill.state-placeholder {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 10%, transparent);
+	}
+	.integrity-pill.state-placeholder .pill-dot {
+		background: var(--warn);
+	}
+	.integrity-pill.state-mismatch,
+	.integrity-pill.state-unsupported {
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+	}
+	.integrity-pill.state-mismatch .pill-dot,
+	.integrity-pill.state-unsupported .pill-dot {
+		background: var(--danger);
 	}
 
 	.sr-only {

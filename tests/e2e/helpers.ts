@@ -40,8 +40,6 @@ export async function completeDemoOnboarding(
 	await page.getByRole('button', { name: 'Use demo mode' }).click();
 	await page.getByRole('button', { name: 'Continue in demo mode' }).click();
 	await page.getByRole('button', { name: 'Continue', exact: true }).click();
-	await page.getByRole('button', { name: 'Looks right, continue' }).click();
-	await page.getByRole('button', { name: /Continue with/ }).click();
 	await expect(page.getByRole('button', { name: 'Enter your vault' })).toBeEnabled({
 		timeout: 30_000
 	});

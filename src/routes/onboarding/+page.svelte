@@ -14,8 +14,6 @@
 	import StepSecret from './_steps/StepSecret.svelte';
 	import StepRecovery from './_steps/StepRecovery.svelte';
 	import StepTouch from './_steps/StepTouch.svelte';
-	import StepVerify from './_steps/StepVerify.svelte';
-	import StepPricing from './_steps/StepPricing.svelte';
 	import StepProvision from './_steps/StepProvision.svelte';
 
 	import { onboarding } from '$lib/stores/onboarding.svelte';
@@ -32,8 +30,6 @@
 		{ id: 'secret', name: 'Secret Key' },
 		{ id: 'recovery', name: 'Recovery' },
 		{ id: 'touch', name: 'Touch ID' },
-		{ id: 'verify', name: 'Verify' },
-		{ id: 'pricing', name: 'Plan' },
 		{ id: 'provision', name: 'Provision' }
 	];
 
@@ -112,10 +108,6 @@
 		<StepRecovery />
 	{:else if onboarding.current === 'touch'}
 		<StepTouch />
-	{:else if onboarding.current === 'verify'}
-		<StepVerify />
-	{:else if onboarding.current === 'pricing'}
-		<StepPricing />
 	{:else if onboarding.current === 'provision'}
 		<StepProvision {onComplete} />
 	{/if}

@@ -203,8 +203,6 @@ async function completeM3Onboarding(page: Page): Promise<string> {
 	await expect(page.getByText(/WebAuthn PRF active/)).toBeVisible();
 	await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
-	await page.getByRole('button', { name: 'Looks right, continue' }).click();
-	await page.getByRole('button', { name: /Continue with/ }).click();
 	await expect(page.getByRole('button', { name: 'Enter your vault' })).toBeEnabled({
 		timeout: 30_000
 	});

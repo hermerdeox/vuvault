@@ -1,5 +1,5 @@
 /**
- * Onboarding state machine — 8 steps from "Start free" to vault unlocked.
+ * Onboarding state machine — 6 steps from "Start free" to vault unlocked.
  *
  * Step order:
  *   1. welcome     - claim & 3 cards
@@ -7,10 +7,14 @@
  *   3. secret      - generate 256-bit Secret Key
  *   4. recovery    - set local Recovery Password
  *   5. touch       - bind WebAuthn passkey with PRF extension
- *   6. verify      - bundle hash + verification cards
- *   7. pricing     - free vs $25.60/year
- *   8. provision   - run real crypto operations to seal the vault
+ *   6. provision   - run real crypto operations to seal the vault
  *   (then transitions to the vault route)
+ *
+ * Removed from the critical path (2026-06): the standalone bundle-verify
+ * screen (the identical check gates StepProvision AND every unlock —
+ * see unlock/+page.svelte) and the plan picker (`plan` carries no
+ * feature gates anywhere; it defaults to 'free' and belongs in
+ * settings once a paid tier actually gates something).
  *
  * Each step has a canAdvance() predicate. Keyboard nav (arrows, PageUp/Down)
  * only advances when canAdvance is true.
@@ -29,8 +33,6 @@ export type StepId =
 	| 'secret'
 	| 'recovery'
 	| 'touch'
-	| 'verify'
-	| 'pricing'
 	| 'provision';
 export const STEPS: StepId[] = [
 	'welcome',
@@ -38,8 +40,6 @@ export const STEPS: StepId[] = [
 	'secret',
 	'recovery',
 	'touch',
-	'verify',
-	'pricing',
 	'provision'
 ];
 
@@ -68,6 +68,8 @@ class OnboardingState {
 	prfRegistrationOutput = $state<Uint8Array | null>(null); // captured at registration so provision step does not re-prompt
 	credentialId = $state<ArrayBuffer | null>(null);
 	publicKey = $state<ArrayBuffer | null>(null);
+	// No plan picker in the wizard anymore — provisions as 'free' and a
+	// future settings surface owns upgrades (no feature gates read it yet).
 	plan = $state<Plan>('free');
 	provisioned = $state<boolean>(false);
 
@@ -87,10 +89,6 @@ class OnboardingState {
 				);
 			case 'touch':
 				return this.authenticatorBound && this.authMode !== null;
-			case 'verify':
-				return true;
-			case 'pricing':
-				return true;
 			case 'provision':
 				return this.provisioned;
 		}
