@@ -107,15 +107,31 @@ try {
 		process.exit(exitCode);
 	}
 
-	const res = await fetch(`${ORIGIN}/api/opaque/register/request`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			clientId: probeClientId,
-			request: bytesToBase64(blindedElement)
-		}),
-		cache: 'no-store'
-	});
+	// GitHub runners share egress IPs, so the production register
+	// rate bucket (10/min per IP, fail-closed) is regularly exhausted
+	// before the probe's FIRST request — it has now failed four
+	// release runs in a row while production was verifiably healthy.
+	// On 429, wait out the sliding window and retry instead of
+	// failing the deploy record. Any other status stays fatal.
+	const RATE_LIMIT_RETRIES = 3;
+	const RATE_WINDOW_MS = 65_000;
+	let res;
+	for (let attempt = 0; ; attempt++) {
+		res = await fetch(`${ORIGIN}/api/opaque/register/request`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				clientId: probeClientId,
+				request: bytesToBase64(blindedElement)
+			}),
+			cache: 'no-store'
+		});
+		if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES) break;
+		console.log(
+			`release-probe-opaque: register/request 429 (shared runner IP) — waiting ${RATE_WINDOW_MS / 1000}s for the rate window, retry ${attempt + 1}/${RATE_LIMIT_RETRIES}`
+		);
+		await new Promise((r) => setTimeout(r, RATE_WINDOW_MS));
+	}
 
 	if (!res.ok) {
 		const body = await res.text();
