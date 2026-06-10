@@ -126,7 +126,7 @@
 	.list-pane {
 		display: flex;
 		flex-direction: column;
-		background: var(--bg);
+		background: color-mix(in srgb, var(--bg) 72%, transparent);
 		border-right: 1px solid var(--border);
 		overflow: hidden;
 		height: 100%;
@@ -222,10 +222,19 @@
 	}
 	.item:hover {
 		background: var(--surface);
+		border-color: var(--border-mid);
+		transform: translateY(-1px);
+		box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
 	}
 	.item.selected {
 		background: var(--accent-dim);
 		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+		box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.item:hover {
+			transform: none;
+		}
 	}
 
 	.ico {

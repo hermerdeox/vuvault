@@ -6,6 +6,7 @@
 	import { copySecretToClipboard } from '$lib/services/secure-clipboard';
 	import { IconEye, IconEyeOff, IconCopy, IconClock, IconWarning } from '$lib/icons';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import CreditCard from './CreditCard.svelte';
 
 	type Props = {
 		onEdit?: (item: VaultItem) => void;
@@ -383,6 +384,14 @@
 					</div>
 				{/if}
 			{:else if item.kind === 'card'}
+				<div class="cc-host">
+					<CreditCard
+						cardholder={item.cardholder}
+						cardNumber={item.cardNumber}
+						cardExpiry={item.cardExpiry}
+						revealed={Boolean(revealedFields.cardNumber)}
+					/>
+				</div>
 				{#if item.cardholder}
 					<div class="field">
 						<div class="key">Cardholder</div>
@@ -718,7 +727,7 @@
 
 <style>
 	.detail {
-		background: var(--bg-elev);
+		background: color-mix(in srgb, var(--bg-elev) 72%, transparent);
 		overflow-y: auto;
 		padding: 24px 28px;
 		height: 100%;
@@ -795,13 +804,28 @@
 		border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
 	}
 	.kind {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
 		font-family: var(--font-mono);
 		font-size: 10px;
 		color: var(--accent);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		font-weight: 700;
-		margin-bottom: 6px;
+		margin-bottom: 10px;
+		padding: 4px 11px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+	}
+	.kind::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
 	}
 	.title {
 		font-size: 22px;
@@ -956,5 +980,8 @@
 	}
 	.health-banner {
 		margin-bottom: 18px;
+	}
+	.cc-host {
+		margin-bottom: 22px;
 	}
 </style>

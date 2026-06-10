@@ -20,6 +20,7 @@
 		import('./MasterPasswordSettings.svelte');
 	const importQuickGenerator = () => import('./QuickGenerator.svelte');
 
+	import BackgroundFx from '$lib/components/BackgroundFx.svelte';
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import SplashScreen from '$lib/components/SplashScreen.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
@@ -134,6 +135,8 @@
 </svelte:head>
 
 <SplashScreen visible={locking} />
+
+<BackgroundFx />
 
 <div class="app">
 	<header class="topbar">
@@ -423,7 +426,11 @@
 		padding-bottom: calc(var(--footer-h) + var(--safe-bottom, 0px));
 		padding-left: var(--safe-left, 0px);
 		padding-right: var(--safe-right, 0px);
-		background: var(--bg);
+		/* Translucent over BackgroundFx — the homepage's grid +
+		   spotlight ambience reads through every pane. */
+		background: color-mix(in srgb, var(--bg) 86%, transparent);
+		position: relative;
+		z-index: 1;
 	}
 
 	.tab-banner {
@@ -487,6 +494,22 @@
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px);
 		-webkit-backdrop-filter: blur(18px);
+		position: relative;
+	}
+	.topbar::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: -1px;
+		height: 1px;
+		background: linear-gradient(
+			90deg,
+			transparent 8%,
+			color-mix(in srgb, var(--accent) 45%, transparent) 50%,
+			transparent 92%
+		);
+		pointer-events: none;
 	}
 
 	.center {

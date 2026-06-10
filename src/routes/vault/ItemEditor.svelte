@@ -1,6 +1,16 @@
 <script lang="ts">
 	import Modal from '$lib/components/Modal.svelte';
 	import GeneratorPanel from './GeneratorPanel.svelte';
+	import {
+		detectNetwork,
+		formatCardNumber,
+		formatExpiry,
+		expiryComplete,
+		cardNumberComplete,
+		cvcLengthFor,
+		stripDigits,
+		networkLabel
+	} from '$lib/utils/card';
 	import { vault, type VaultItem, type ItemKind } from '$lib/stores/vault.svelte';
 	import type { VaultItemPayload } from '$lib/types/vault-item';
 	import { audit } from '$lib/stores/audit.svelte';
@@ -72,6 +82,43 @@
 	let cardNumber = $state('');
 	let cardExpiry = $state('');
 	let cardCvc = $state('');
+
+	// Card intelligence: live network detection + formatting +
+	// auto-advance (number → expiry → CVC). All local (utils/card).
+	const cardNetwork = $derived(detectNetwork(cardNumber));
+	let cardExpiryRef = $state<HTMLInputElement | undefined>();
+	let cardCvcRef = $state<HTMLInputElement | undefined>();
+
+	function onCardNumberInput(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const before = input.value.slice(0, input.selectionStart ?? input.value.length);
+		const digitsBefore = stripDigits(before).length;
+		cardNumber = formatCardNumber(input.value);
+		input.value = cardNumber;
+		// Restore the caret after reformatting: walk to the position
+		// that has the same number of digits before it.
+		let pos = 0;
+		let seen = 0;
+		while (pos < cardNumber.length && seen < digitsBefore) {
+			if (/\d/.test(cardNumber[pos]!)) seen += 1;
+			pos += 1;
+		}
+		input.setSelectionRange(pos, pos);
+		if (cardNumberComplete(cardNumber)) cardExpiryRef?.focus();
+	}
+
+	function onCardExpiryInput(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		cardExpiry = formatExpiry(input.value);
+		input.value = cardExpiry;
+		if (expiryComplete(cardExpiry)) cardCvcRef?.focus();
+	}
+
+	function onCardCvcInput(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		cardCvc = stripDigits(input.value).slice(0, cvcLengthFor(cardNumber));
+		input.value = cardCvc;
+	}
 	let noteBody = $state('');
 	let identityName = $state('');
 	let identityEmail = $state('');
@@ -613,20 +660,31 @@
 							type="text"
 							bind:value={cardholder}
 							autocomplete="off"
+							autocapitalize="characters"
+							enterkeyhint="next"
+							placeholder="Name on card"
 						/>
 					</div>
 					<div class="field">
 						<label for="ie-num">Card number</label>
-						<input
-							id="ie-num"
-							type="text"
-							bind:value={cardNumber}
-							inputmode="numeric"
-							autocomplete="off"
-							class="mono"
-							aria-invalid={err('cardNumber') !== null}
-							aria-describedby={describedBy('cardNumber')}
-						/>
+						<div class="card-num-wrap">
+							<input
+								id="ie-num"
+								type="text"
+								value={cardNumber}
+								oninput={onCardNumberInput}
+								inputmode="numeric"
+								autocomplete="off"
+								enterkeyhint="next"
+								placeholder="1234 5678 9012 3456"
+								class="mono"
+								aria-invalid={err('cardNumber') !== null}
+								aria-describedby={describedBy('cardNumber')}
+							/>
+							{#if cardNetwork !== 'unknown'}
+								<span class="network-badge">{networkLabel(cardNetwork)}</span>
+							{/if}
+						</div>
 						{#if err('cardNumber')}
 							<div class="field-err" id={errId('cardNumber')}>{err('cardNumber')}</div>
 						{/if}
@@ -637,9 +695,14 @@
 							<input
 								id="ie-exp"
 								type="text"
-								bind:value={cardExpiry}
+								value={cardExpiry}
+								oninput={onCardExpiryInput}
+								bind:this={cardExpiryRef}
 								placeholder="MM/YY"
+								inputmode="numeric"
 								autocomplete="off"
+								enterkeyhint="next"
+								maxlength="5"
 								class="mono"
 								aria-invalid={err('cardExpiry') !== null}
 								aria-describedby={describedBy('cardExpiry')}
@@ -654,9 +717,13 @@
 								<input
 									id="ie-cvc"
 									type={showCvc ? 'text' : 'password'}
-									bind:value={cardCvc}
+									value={cardCvc}
+									oninput={onCardCvcInput}
+									bind:this={cardCvcRef}
 									inputmode="numeric"
 									autocomplete="off"
+									enterkeyhint="done"
+									maxlength={cvcLengthFor(cardNumber)}
 									class="mono"
 									aria-invalid={err('cardCvc') !== null}
 									aria-describedby={describedBy('cardCvc')}
@@ -1141,6 +1208,42 @@
 	.row input,
 	.row textarea {
 		flex: 1;
+	}
+	.card-num-wrap {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+	.card-num-wrap input {
+		flex: 1;
+		padding-right: 120px;
+	}
+	.network-badge {
+		position: absolute;
+		right: 10px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		padding: 4px 10px;
+		border-radius: 999px;
+		color: var(--accent);
+		background: var(--accent-dim);
+		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+		pointer-events: none;
+		white-space: nowrap;
+		animation: badge-in 200ms ease;
+	}
+	@keyframes badge-in {
+		from {
+			opacity: 0;
+			transform: translateX(4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
 	}
 	@media (pointer: coarse) {
 		.row-btn,

@@ -90,7 +90,9 @@
 		gap: 24px;
 		padding: 18px 14px;
 		overflow-y: auto;
-		background: var(--bg-elev);
+		background: color-mix(in srgb, var(--bg-elev) 76%, transparent);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
 		border-right: 1px solid var(--border);
 		height: 100%;
 		box-sizing: border-box;
@@ -138,6 +140,12 @@
 		background: var(--accent-dim);
 		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 		color: var(--accent);
+		box-shadow:
+			inset 2px 0 0 var(--accent),
+			0 0 18px color-mix(in srgb, var(--accent) 14%, transparent);
+	}
+	.row:hover:not(.disabled):not(.active) {
+		transform: translateX(2px);
 	}
 	.row.disabled {
 		opacity: 0.45;
