@@ -192,7 +192,7 @@
 	.page {
 		min-height: 100dvh;
 		display: grid;
-		grid-template-rows: var(--header-h) 1fr;
+		grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr;
 	}
 
 	.topbar {

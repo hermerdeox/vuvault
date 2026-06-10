@@ -300,6 +300,10 @@
 						bind:value={recoveryPasswordInput}
 						placeholder="Type the Recovery Password you saved separately"
 						autocomplete="current-password"
+						enterkeyhint="go"
+						onkeydown={(e) => {
+							if (e.key === 'Enter' && validKey) void rewirePasskey();
+						}}
 						aria-invalid={Boolean(errorMessage && !recoveryPasswordInput)}
 						aria-describedby={recoveryPasswordDescribedBy}
 					/>
@@ -389,7 +393,7 @@
 	.screen {
 		height: 100dvh;
 		display: grid;
-		grid-template-rows: var(--header-h) 1fr;
+		grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr;
 		background: var(--bg);
 	}
 	.topbar {
@@ -404,7 +408,9 @@
 	.screen-inner {
 		display: flex;
 		flex-direction: column;
-		justify-content: center;
+		/* safe center: scrollable from the top when content overflows. */
+		justify-content: safe center;
+		scroll-padding-bottom: 45dvh;
 		padding-top: max(48px, env(safe-area-inset-top, 0px));
 		padding-right: max(64px, env(safe-area-inset-right, 0px));
 		padding-bottom: max(48px, env(safe-area-inset-bottom, 0px));

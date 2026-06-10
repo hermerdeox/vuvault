@@ -1142,6 +1142,12 @@
 	.row textarea {
 		flex: 1;
 	}
+	@media (pointer: coarse) {
+		.row-btn,
+		.btn {
+			min-height: 44px;
+		}
+	}
 	.row-btn {
 		display: inline-flex;
 		align-items: center;

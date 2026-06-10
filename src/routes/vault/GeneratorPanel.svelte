@@ -281,6 +281,11 @@
 		gap: 8px;
 		margin-top: 4px;
 	}
+	@media (pointer: coarse) {
+		.btn {
+			min-height: 44px;
+		}
+	}
 	.btn {
 		display: inline-flex;
 		align-items: center;

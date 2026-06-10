@@ -198,19 +198,20 @@
 <style>
 	.popover-scrim {
 		position: fixed;
-		inset: var(--header-h) 0 0 0;
+		inset: calc(var(--header-h) + var(--safe-top, 0px)) 0 0 0;
 		z-index: 60;
 		display: block;
 	}
 	.popover {
 		position: absolute;
 		top: 8px;
-		right: 16px;
+		right: max(16px, var(--safe-right, 0px));
 		width: min(420px, calc(100vw - 32px));
 		/* Subtract the iOS home-indicator inset so the popover never
 		   extends behind it when content is tall. */
 		max-height: calc(
-			100dvh - var(--header-h) - 24px - env(safe-area-inset-bottom, 0px)
+			100dvh - var(--header-h) - var(--safe-top, 0px) - 24px -
+				env(safe-area-inset-bottom, 0px)
 		);
 		display: flex;
 		flex-direction: column;

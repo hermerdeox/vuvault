@@ -192,7 +192,7 @@
 	}
 	.hero-safe {
 		position: absolute;
-		left: 0;
+		left: var(--safe-left, 0px);
 		top: 50%;
 		transform: translate(-50%, -50%);
 		width: clamp(280px, 30vw, 560px);
@@ -260,8 +260,8 @@
 	@media (max-width: 30em) {
 		.hero {
 			justify-content: center;
-			padding-top: var(--top-bar-h, 56px);
-			padding-bottom: var(--top-bar-h, 56px);
+			padding-top: calc(var(--top-bar-h, 56px) + var(--safe-top, 0px));
+			padding-bottom: calc(var(--top-bar-h, 56px) + var(--safe-bottom, 0px));
 		}
 		.hero-headline {
 			margin-bottom: 18px;
@@ -356,7 +356,8 @@
 
 	.hero-down {
 		position: absolute;
-		bottom: 28px;
+		/* Stay above the home-indicator gesture zone on island iPhones. */
+		bottom: calc(28px + var(--safe-bottom, 0px));
 		left: 50%;
 		transform: translateX(-50%);
 		font-size: 11px;

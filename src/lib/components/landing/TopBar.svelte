@@ -87,6 +87,11 @@
 		gap: 8px;
 	}
 
+	@media (pointer: coarse) {
+		.lbtn {
+			min-height: 44px;
+		}
+	}
 	.lbtn {
 		display: inline-flex;
 		align-items: center;

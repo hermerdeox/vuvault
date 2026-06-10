@@ -311,7 +311,26 @@
 	<main class="panes" data-mobile-pane={vault.mobilePane}>
 		<div class="pane sidebar-pane"><VaultSidebar /></div>
 		<div class="pane list-pane-wrap"><VaultList /></div>
-		<div class="pane detail-pane"><VaultDetail onEdit={openEditEditor} /></div>
+		<div class="pane detail-pane">
+			<button
+				class="detail-back"
+				onclick={() => (vault.mobilePane = 'list')}
+				aria-label="Back to items"
+			>
+				<svg
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.2"
+					stroke-linecap="round"
+					stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg
+				>
+				Items
+			</button>
+			<VaultDetail onEdit={openEditEditor} />
+		</div>
 	</main>
 
 	<nav class="mobile-tabs" aria-label="Vault sections">
@@ -397,8 +416,13 @@
 	.app {
 		height: 100dvh;
 		display: grid;
-		grid-template-rows: var(--header-h) 1fr;
-		padding-bottom: var(--footer-h);
+		/* Header row grows by the island inset; side padding keeps the
+		   panes clear of the landscape notch (62px each side on
+		   iPhone 16 Pro — sidebar rows measured at x=14 without it). */
+		grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr;
+		padding-bottom: calc(var(--footer-h) + var(--safe-bottom, 0px));
+		padding-left: var(--safe-left, 0px);
+		padding-right: var(--safe-right, 0px);
 		background: var(--bg);
 	}
 
@@ -421,6 +445,12 @@
 		color: var(--warn);
 		margin-right: 4px;
 	}
+	@media (pointer: coarse) {
+		.tab-banner-action,
+		.tab-banner-dismiss {
+			min-height: 44px;
+		}
+	}
 	.tab-banner-action {
 		padding: 6px 14px;
 		font-size: 12px;
@@ -442,12 +472,17 @@
 	.tab-banner-dismiss:hover {
 		color: var(--text);
 	}
+	.detail-back {
+		display: none;
+	}
 	.topbar {
 		display: grid;
 		grid-template-columns: 240px 1fr auto;
 		align-items: center;
 		gap: 16px;
-		padding: 0 18px;
+		/* Content sits below the Dynamic Island; the bar's blurred
+		   background still paints up under the status bar. */
+		padding: var(--safe-top, 0px) 18px 0;
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px);
@@ -492,6 +527,29 @@
 	.kbd:hover {
 		color: var(--text);
 		border-color: var(--border-mid);
+	}
+	/* Touch devices at ANY viewport width (iPhone 16 Pro landscape is
+	   874px — outside the mobile media blocks below, but fingers are
+	   the same size): 44pt floors on the topbar controls, and no ⌘K
+	   keyboard hint where there is no ⌘ key. */
+	@media (pointer: coarse) {
+		.add-btn,
+		.lock-btn,
+		.overflow-trigger {
+			min-height: 44px;
+			min-width: 44px;
+		}
+		.search {
+			min-height: 44px;
+			padding-top: 0;
+			padding-bottom: 0;
+		}
+		.search input {
+			min-height: 44px;
+		}
+		.kbd {
+			display: none;
+		}
 	}
 
 	.right {
@@ -655,11 +713,11 @@
 	}
 	@media (max-width: 45em) {
 		.app {
-			grid-template-rows: var(--header-h) 1fr auto;
+			grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr auto;
 			padding-bottom: calc(var(--footer-h) + 56px + var(--safe-bottom));
 		}
 		.topbar {
-			padding: 0 12px;
+			padding: var(--safe-top, 0px) 12px 0;
 			gap: 8px;
 		}
 		.right {
@@ -692,6 +750,16 @@
 			display: grid;
 		}
 
+		.detail-back {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			min-height: 44px;
+			padding: 0 14px;
+			font-size: 14px;
+			font-weight: 600;
+			color: var(--accent);
+		}
 		.mobile-tabs {
 			position: fixed;
 			bottom: calc(var(--footer-h) + var(--safe-bottom));
@@ -715,7 +783,7 @@
 			padding: 6px;
 			color: var(--text-3);
 			font-family: var(--font-mono);
-			font-size: 9px;
+			font-size: 10px;
 			font-weight: 700;
 			letter-spacing: 0.08em;
 			text-transform: uppercase;

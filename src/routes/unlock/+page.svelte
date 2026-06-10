@@ -679,7 +679,10 @@
 	.screen {
 		height: 100dvh;
 		display: grid;
-		grid-template-rows: var(--header-h) 1fr;
+		/* The topbar pads itself by safe-area-inset-top — the row must
+		   grow by the same amount or the brand/toggle get squeezed up
+		   into the status-bar zone (measured on iPhone 16 Pro). */
+		grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr;
 		grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
 		background: var(--bg);
 	}
@@ -696,15 +699,22 @@
 	.screen-inner {
 		display: flex;
 		flex-direction: column;
-		justify-content: center;
+		/* `safe center`: centered when content fits, scrollable from the
+		   top when it does not (plain `center` makes overflowing tops
+		   unreachable on short landscape viewports). */
+		justify-content: safe center;
 		grid-row: 2;
 		grid-column: 1;
 		padding: clamp(20px, 5vw, 48px) clamp(16px, 5vw, 64px);
-		padding-top: max(clamp(20px, 5vw, 48px), env(safe-area-inset-top));
-		padding-bottom: max(clamp(20px, 5vw, 48px), env(safe-area-inset-bottom));
+		padding-left: max(clamp(16px, 5vw, 64px), var(--safe-left, 0px));
+		padding-right: max(clamp(16px, 5vw, 64px), var(--safe-right, 0px));
+		padding-bottom: max(clamp(20px, 5vw, 48px), var(--safe-bottom, 0px));
 		max-width: 720px;
 		gap: 18px;
 		overflow-y: auto;
+		/* Keep the focused field clear of the iOS keyboard when the
+		   browser auto-scrolls it into view. */
+		scroll-padding-bottom: 45dvh;
 	}
 	.loading {
 		font-family: var(--font-mono);
@@ -744,7 +754,9 @@
 	}
 	@media (max-width: 30em) {
 		.topbar {
-			padding: 0 14px;
+			/* padding-inline only — the base safe-top padding must survive
+			   or the brand/toggle slide under the Dynamic Island. */
+			padding-inline: 14px;
 		}
 		.lede {
 			font-size: 14px;
@@ -903,6 +915,15 @@
 	}
 	.integrity-mismatch {
 		color: var(--danger);
+	}
+	@media (pointer: coarse) {
+		.rekor-link,
+		.privacy-link {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+			margin-block: -14px;
+		}
 	}
 	.rekor-link {
 		appearance: none;

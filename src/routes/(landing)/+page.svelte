@@ -105,6 +105,24 @@
 	const trackTransform = $derived(
 		useNativeSnap ? 'none' : `translateY(calc(${-landing.currentPanel} * 100dvh))`
 	);
+
+	// Bridge store → native scroller. CTA buttons (Open Your Vault /
+	// See it work / pager dots) drive landing.currentPanel, which only
+	// the desktop translateY pager renders. In native-snap mode the
+	// browser owns scrolling — without this bridge those buttons are
+	// dead on phones. Skip when the target is already in view so
+	// scroll-driven store updates don't fight the user's momentum.
+	$effect(() => {
+		const idx = landing.currentPanel;
+		if (!useNativeSnap || !hydrated) return;
+		const id = PANEL_IDS[idx];
+		if (!id) return;
+		const el = document.getElementById(id);
+		if (!el) return;
+		const r = el.getBoundingClientRect();
+		if (Math.abs(r.top) < window.innerHeight * 0.4) return;
+		el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	});
 </script>
 
 <svelte:head>

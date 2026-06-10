@@ -78,9 +78,16 @@
 	   at desktop padding (8+12+12+8 = 40px). Bump on touch viewports;
 	   leave desktop alone so dense layouts (vault top-bar at 1024+) stay
 	   compact. */
-	html[data-vp~='mobile'] .btn,
-	html[data-vp~='tablet'] .btn {
+	:global(html[data-vp~='mobile']) .btn,
+	:global(html[data-vp~='tablet']) .btn {
 		min-height: 44px;
+	}
+	/* Capability-keyed so iPhone landscape (data-vp 'tablet' by width,
+	   but still a touch device) keeps the floor too. */
+	@media (pointer: coarse) {
+		.btn {
+			min-height: 44px;
+		}
 	}
 
 	.btn.primary {

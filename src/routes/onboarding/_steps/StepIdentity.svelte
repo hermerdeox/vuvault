@@ -9,6 +9,9 @@
 	let inputRef: HTMLInputElement | undefined = $state();
 
 	$effect(() => {
+		// Autofocus pops the keyboard over half the screen on phones —
+		// native apps let the user tap the field. Desktop keeps it.
+		if (window.matchMedia('(pointer: coarse)').matches) return;
 		setTimeout(() => inputRef?.focus(), 200);
 	});
 
@@ -46,6 +49,7 @@
 				autocomplete="off"
 				spellcheck="false"
 				value={onboarding.deviceLabel}
+				enterkeyhint="next"
 				oninput={handleInput}
 			/>
 			<div class="field-hint">Local only · 0 bytes sent · max 64 characters</div>

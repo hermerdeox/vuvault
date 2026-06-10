@@ -3,14 +3,24 @@
 
 .screen {
 	position: absolute;
-	inset: var(--header-h, 64px) 0 var(--footer-h, 56px);
+	/* The fixed header/footer grow by the device insets (Dynamic
+	   Island top, home indicator bottom) — the content box must grow
+	   by the same amount or headlines render under the header and
+	   CTAs behind the footer (measured on iPhone 16 Pro: 62px top,
+	   34px bottom). */
+	inset: calc(var(--header-h, 64px) + var(--safe-top, 0px)) 0
+		calc(var(--footer-h, 56px) + var(--safe-bottom, 0px));
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	justify-content: center;
+	/* flex-start + margin-block:auto on .screen-inner = centered when
+	   content fits, scrollable from the TOP when it does not.
+	   (justify-content: center + overflow makes overflowing tops
+	   unreachable — h1 measured at y=-13 in 16 Pro landscape.) */
+	justify-content: flex-start;
 	padding: clamp(16px, 4vw, 48px);
-	padding-top: max(clamp(16px, 4vw, 48px), env(safe-area-inset-top));
-	padding-bottom: max(clamp(16px, 4vw, 48px), env(safe-area-inset-bottom));
+	padding-left: max(clamp(16px, 4vw, 48px), var(--safe-left, 0px));
+	padding-right: max(clamp(16px, 4vw, 48px), var(--safe-right, 0px));
 	overflow-y: auto;
 	scrollbar-width: thin;
 	scrollbar-color: var(--border-mid) transparent;
@@ -30,7 +40,7 @@
 .screen-inner {
 	width: 100%;
 	max-width: 720px;
-	margin: 0 auto;
+	margin: auto;
 }
 .screen-inner.wide {
 	max-width: 920px;
@@ -42,6 +52,10 @@
 	letter-spacing: -0.035em;
 	line-height: 1;
 	margin-bottom: 16px;
+}
+:global(html[data-vp~='short']) .h1 {
+	font-size: clamp(24px, 8vh, 34px);
+	margin-bottom: 10px;
 }
 .h1 .italic-serif {
 	font-family: var(--font-serif);

@@ -112,4 +112,11 @@
 	.trust-link:focus-visible {
 		text-decoration-style: solid;
 	}
+	@media (pointer: coarse) {
+		.trust-link {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+		}
+	}
 </style>

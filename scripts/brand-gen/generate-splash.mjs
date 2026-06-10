@@ -38,7 +38,8 @@ const DEVICES = [
 	{ w: 414, h: 896, s: 3 }, // XS Max / 11 Pro Max
 	{ w: 428, h: 926, s: 3 }, // 12-14 Pro Max / 14 Plus
 	{ w: 430, h: 932, s: 3 }, // 15 Plus / 15 Pro Max / 16 Plus
-	{ w: 440, h: 956, s: 3 }, // 16 Pro Max
+	{ w: 420, h: 912, s: 3 }, // iPhone Air
+	{ w: 440, h: 956, s: 3 }, // 16 Pro Max / 17 Pro Max
 	{ w: 744, h: 1133, s: 2 }, // iPad mini 6/7
 	{ w: 768, h: 1024, s: 2 }, // iPad 9.7" (5th/6th gen), legacy minis
 	{ w: 810, h: 1080, s: 2 }, // iPad 10.2" (7th-9th gen)

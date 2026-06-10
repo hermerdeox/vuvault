@@ -13,7 +13,13 @@
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
-	padding: calc(var(--top-bar-h, 56px) + 24px) 80px 48px;
+	/* The fixed TopBar grows by safe-area-inset-top on island devices
+	   (62px on iPhone 16 Pro) — fold the same inset into the panel's
+	   top padding or headlines slide under the bar. Sides respect the
+	   landscape notch insets. */
+	padding: calc(var(--top-bar-h, 56px) + 24px + var(--safe-top, 0px))
+		max(80px, var(--safe-right, 0px)) calc(48px + var(--safe-bottom, 0px))
+		max(80px, var(--safe-left, 0px));
 	overflow: hidden;
 	z-index: 1;
 }
@@ -120,13 +126,15 @@
 
 @media (max-width: 64em) {
 	.panel {
-		padding-left: 40px;
-		padding-right: 40px;
+		padding-left: max(40px, var(--safe-left, 0px));
+		padding-right: max(40px, var(--safe-right, 0px));
 	}
 }
 @media (max-width: 45em) {
 	.panel {
-		padding: calc(var(--top-bar-h, 56px) + 16px) 24px 32px;
+		padding: calc(var(--top-bar-h, 56px) + 16px + var(--safe-top, 0px))
+			max(24px, var(--safe-right, 0px)) calc(32px + var(--safe-bottom, 0px))
+			max(24px, var(--safe-left, 0px));
 	}
 }
 @media (max-width: 30em) {
@@ -135,7 +143,7 @@
 		   bury content under the camera cutout / chrome rounded
 		   corners. The `max()` keeps a sane 18px floor on unnotched
 		   devices. */
-		padding-top: calc(var(--top-bar-h, 56px) + 12px);
+		padding-top: calc(var(--top-bar-h, 56px) + 12px + var(--safe-top, 0px));
 		padding-right: max(18px, env(safe-area-inset-right, 0px));
 		padding-bottom: 24px;
 		padding-left: max(18px, env(safe-area-inset-left, 0px));
@@ -168,8 +176,17 @@
 }
 @media (max-height: 44em) {
 	.panel {
-		padding-top: calc(var(--top-bar-h, 56px) + 32px);
+		padding-top: calc(var(--top-bar-h, 56px) + 32px + var(--safe-top, 0px));
 		padding-bottom: 16px;
 		justify-content: flex-start;
+	}
+}
+
+/* Touch devices regardless of viewport width: iPhone 16 Pro landscape
+   reports 874px (outside every mobile media block above) but fingers
+   are the same size. WCAG 2.5.5 / Apple HIG 44pt floor. */
+@media (pointer: coarse) {
+	.lbtn {
+		min-height: 44px;
 	}
 }

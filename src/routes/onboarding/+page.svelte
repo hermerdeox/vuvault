@@ -188,6 +188,14 @@
 		color: var(--text-2);
 		border-color: var(--border);
 	}
+	/* 44pt floor on any touch device — 16 Pro landscape (874px) falls
+	   outside the 30em block above but still needs it. */
+	@media (pointer: coarse) {
+		.exit {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
 
 	.stage {
 		position: relative;

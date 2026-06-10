@@ -31,7 +31,8 @@
 		z-index: 90;
 		left: 50%;
 		transform: translateX(-50%);
-		bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+		/* Above the fixed AuditFooter chrome (and the home indicator). */
+		bottom: calc(var(--footer-h, 56px) + var(--safe-bottom, 0px) + 12px);
 		display: flex;
 		align-items: center;
 		gap: 16px;
@@ -90,6 +91,12 @@
 	}
 	.later:hover {
 		color: var(--text-2);
+	}
+	@media (pointer: coarse) {
+		.apply,
+		.later {
+			min-height: 44px;
+		}
 	}
 	@media (max-width: 30em) {
 		.update-toast {

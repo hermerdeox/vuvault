@@ -64,6 +64,11 @@
 	/* Destructive confirm — uses semantic --danger token rather than --accent.
 	   Button component doesn't ship a danger variant, so this is the local
 	   variant aligned to that styling shape. */
+	@media (pointer: coarse) {
+		.confirm-danger {
+			min-height: 44px;
+		}
+	}
 	.confirm-danger {
 		display: inline-flex;
 		align-items: center;

@@ -233,9 +233,17 @@ html[data-vp~='desktop'] [data-vp-show='mobile'] {
 html[data-vp~='mobile'] .vu-bar,
 html[data-vp~='mobile'] .topbar,
 html[data-vp~='mobile'] .footer,
+html[data-vp~='mobile'] .header,
 html[data-vp~='mobile'] .mobile-tabs,
 html[data-vp~='mobile'] .palette,
-html[data-vp~='mobile'] .status-pill {
+html[data-vp~='mobile'] .status-pill,
+html[data-vp~='tablet'] .vu-bar,
+html[data-vp~='tablet'] .topbar,
+html[data-vp~='tablet'] .footer,
+html[data-vp~='tablet'] .header,
+html[data-vp~='tablet'] .mobile-tabs,
+html[data-vp~='tablet'] .palette,
+html[data-vp~='tablet'] .status-pill {
 	backdrop-filter: blur(8px) !important;
 	-webkit-backdrop-filter: blur(8px) !important;
 }
@@ -250,7 +258,14 @@ html[data-vp~='mobile'] .stack-step,
 html[data-vp~='mobile'] .price-card,
 html[data-vp~='mobile'] .trust-card,
 html[data-vp~='mobile'] .mobile-feature,
-html[data-vp~='mobile'] .compare-wrap {
+html[data-vp~='mobile'] .compare-wrap,
+html[data-vp~='tablet'] .stat-card,
+html[data-vp~='tablet'] .promise-card,
+html[data-vp~='tablet'] .stack-step,
+html[data-vp~='tablet'] .price-card,
+html[data-vp~='tablet'] .trust-card,
+html[data-vp~='tablet'] .mobile-feature,
+html[data-vp~='tablet'] .compare-wrap {
 	backdrop-filter: none !important;
 	-webkit-backdrop-filter: none !important;
 }

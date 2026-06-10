@@ -104,7 +104,8 @@
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
-		padding: 0 24px var(--safe-bottom);
+		padding: 0 max(24px, var(--safe-right, 0px)) var(--safe-bottom)
+			max(24px, var(--safe-left, 0px));
 		gap: 16px;
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
 		backdrop-filter: blur(18px);
@@ -208,6 +209,17 @@
 		min-height: 28px;
 		display: inline-flex;
 		align-items: center;
+	}
+	/* Touch devices at any viewport width: lift toward the 44pt tap
+	   floor (footer row height allows 40px without growing the bar). */
+	@media (pointer: coarse) {
+		/* html[data-vp] matches the same specificity tier as the 28px
+		   mobile/tablet cap above; being later in the file, it wins. */
+		:global(html[data-vp]) .level-badge {
+			min-height: 44px;
+			display: inline-flex;
+			align-items: center;
+		}
 	}
 
 	.suite {

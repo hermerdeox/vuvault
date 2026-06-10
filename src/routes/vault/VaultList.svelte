@@ -147,6 +147,16 @@
 	.search input::placeholder {
 		color: var(--text-3);
 	}
+	@media (pointer: coarse) {
+		.search {
+			min-height: 44px;
+			padding-top: 0;
+			padding-bottom: 0;
+		}
+		.search input {
+			min-height: 44px;
+		}
+	}
 	.count {
 		font-family: var(--font-mono);
 		font-size: 10px;
@@ -164,6 +174,17 @@
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
 		border-bottom: 1px dashed var(--border);
+	}
+	@media (pointer: coarse) {
+		.clear {
+			min-height: 44px;
+			min-width: 44px;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			margin: -16px -10px;
+			padding: 16px 10px;
+		}
 	}
 	.clear {
 		font-family: var(--font-mono);
