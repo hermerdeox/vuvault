@@ -5,7 +5,6 @@
 	import { audit } from '$lib/stores/audit.svelte';
 	import { vault } from '$lib/stores/vault.svelte';
 	import { encodeBase32 } from '$lib/crypto/secret-key';
-	import { saveAccount } from '$lib/utils/storage';
 	import { getSyncOrigin, isSyncOriginConfigured, getRpId } from '$lib/utils/env';
 	import { IconArrowRight, IconCheck, IconWarning } from '$lib/icons';
 
@@ -86,6 +85,18 @@
 	let started = $state(false);
 	let done = $state(false);
 	let errorMessage = $state<string | null>(null);
+	// Non-fatal sync-enrollment failure: the vault is provisioned and
+	// fully usable local-only; we surface the gap instead of failing.
+	let syncNotice = $state<string | null>(null);
+
+	// Screen-reader announcement for the pipeline. Polite live region:
+	// announces the step currently running, then the terminal outcome.
+	const liveStatus = $derived.by(() => {
+		if (errorMessage) return `Provisioning failed. ${errorMessage}`;
+		if (done) return 'Vault provisioned. Ready to enter your vault.';
+		const running = steps.find((s) => s.status === 'running');
+		return running ? `${running.title} — in progress` : '';
+	});
 
 	function setStep(key: string, status: ProvStatus, elapsed?: number) {
 		steps = steps.map((s) =>
@@ -134,8 +145,7 @@
 					import('$lib/services/opaque-client'),
 					import('$lib/services/sync-client')
 				]);
-			const { provisionVault, getVaultByteSize, rotateAuth, PROVISION_FORMAT_VERSION } =
-				vaultSessionMod;
+			const { provisionVault, getVaultByteSize, rotateAuth } = vaultSessionMod;
 			const { enableQuickUnlock } = await import('$lib/services/quick-unlock');
 			const { enableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
 			const { register, login, createFetchTransport } = opaqueClientMod;
@@ -213,32 +223,19 @@
 							// Re-derive the vault key with the OPAQUE export key
 							// folded in. Subsequent unlocks must run OPAQUE login
 							// to reproduce the same key — the server gates that.
+							//
+							// rotateAuth is the SINGLE writer for OPAQUE state: it
+							// persists the re-sealed vault and the account row
+							// (opaqueState/accountId/serverId/clientId, with
+							// accountSeed and createdAt carried over) in one atomic
+							// saveAccountAndVault transaction. Do not follow it
+							// with a separate saveAccount — that is a blind put
+							// which would clobber fields rotateAuth preserves and
+							// could leave the row half-enrolled if it failed.
 							await rotateAuth({
 								prfOutput: prfOutput,
 								secretKey: onboarding.secretKey!,
 								opaqueExportKey: reg.exportKey,
-								opaqueAccountId: reg.accountId,
-								opaqueServerId: serverId,
-								opaqueClientId: clientId
-							});
-							// Persist the OPAQUE metadata on the account row.
-							// `saveAccount` re-reads existing fields and merges.
-							await saveAccount({
-								deviceLabel: onboarding.deviceLabel,
-								deviceSalt: onboarding.deviceSalt!,
-								credentialId: onboarding.credentialId!,
-								credentialPublicKey:
-									onboarding.publicKey ?? new ArrayBuffer(0),
-								authMode: onboarding.authMode!,
-								// Must match what rotateAuth just sealed. Persisting a
-								// stale 2 here makes the account row claim v2 while the
-								// vault blob is v3, which forces a spurious upgrade-on-
-								// first-save that rotates the AES key out from under any
-								// document sealed beforehand.
-								formatVersion: PROVISION_FORMAT_VERSION,
-								createdAt: Date.now(),
-								plan: onboarding.plan,
-								opaqueState: 'enrolled',
 								opaqueAccountId: reg.accountId,
 								opaqueServerId: serverId,
 								opaqueClientId: clientId
@@ -283,10 +280,22 @@
 						serverId: getRpId()
 					});
 				} catch (err) {
-					setStep('opaque', 'error');
+					// Non-fatal by design: the vault is already provisioned and
+					// fully usable local-only. rotateAuth persists atomically, so
+					// a failure at any point leaves the account row in its prior
+					// consistent state — either fully enrolled or untouched
+					// ('none'). Nothing left the device in plaintext; the OPAQUE
+					// protocol only ever sent blinded material. Surface the gap
+					// and continue instead of dead-ending the whole provision.
 					const msg = err instanceof Error ? err.message : 'OPAQUE registration failed';
-					audit.push('danger', 'OPAQUE registration failed', { message: msg });
-					throw new Error(`OPAQUE registration failed: ${msg}`, { cause: err });
+					audit.push('warn', 'OPAQUE registration failed — continuing local-only', {
+						message: msg
+					});
+					syncNotice =
+						'Sync enrollment could not be completed, so sync stays off. ' +
+						'Your vault was still created and works fully on this device — ' +
+						'no secret ever left it. ' +
+						`(${msg})`;
 				}
 			} else {
 				setStep('opaque', 'skipped');
@@ -368,7 +377,7 @@
 
 <section class="screen">
 	<div class="screen-inner">
-		<Eyebrow>Step 7 of 7 · Provisioning your vault</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('provision')} · Provisioning your vault</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Sealing your vault. <span class="italic-serif">One moment.</span>
@@ -377,6 +386,8 @@
 			Running the cryptographic operations that turn your Secret Key, Touch ID, and device
 			into an encrypted vault. Each step happens locally — no server contacted.
 		</p>
+
+		<div class="sr-only" role="status" aria-live="polite">{liveStatus}</div>
 
 		<div class="stack">
 			{#each steps as step (step.key)}
@@ -421,8 +432,19 @@
 			{/each}
 		</div>
 
+		{#if syncNotice}
+			<div class="sync-notice" role="status">
+				<IconWarning size={14} stroke={2} />
+				<div>
+					<strong>Local-only mode.</strong>
+					<br />
+					{syncNotice}
+				</div>
+			</div>
+		{/if}
+
 		{#if errorMessage}
-			<div class="error-msg">
+			<div class="error-msg" role="alert">
 				<IconWarning size={14} stroke={2} />
 				<div>
 					<strong>Provisioning failed.</strong>
@@ -576,6 +598,36 @@
 	}
 	.step.done .time {
 		color: var(--success);
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	.sync-notice {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		margin: 8px 0 16px;
+		padding: 12px 14px;
+		font-size: 13px;
+		color: var(--warn);
+		background: color-mix(in srgb, var(--warn) 8%, transparent);
+		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+		border-radius: var(--radius);
+		line-height: 1.5;
+	}
+	.sync-notice strong {
+		display: inline-block;
+		margin-bottom: 2px;
 	}
 
 	.error-msg {

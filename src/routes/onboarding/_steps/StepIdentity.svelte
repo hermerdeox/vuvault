@@ -26,7 +26,7 @@
 
 <section class="screen">
 	<div class="screen-inner">
-		<Eyebrow>Step 2 of 7 · Device label</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('identity')} · Device label</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">Name <span class="italic-serif">this device.</span></h1>
 		<p class="lede">

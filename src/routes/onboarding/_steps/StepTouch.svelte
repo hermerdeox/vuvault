@@ -129,7 +129,7 @@
 
 <section class="screen">
 	<div class="screen-inner">
-		<Eyebrow>Step 4 of 7 · WebAuthn PRF · platform authenticator</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('touch')} · WebAuthn PRF · platform authenticator</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Bind Touch ID.<br /><span class="italic-serif">No password to type.</span>

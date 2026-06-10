@@ -8,7 +8,7 @@
 		PUBLIC_VAULT_VERSION,
 		BUNDLE_HASH_SHORT
 	} from '$lib/utils/env';
-	import { IconArrowRight, IconArrowLeft, IconRefresh, IconDownload, IconPrint, IconKey } from '$lib/icons';
+	import { IconArrowRight, IconArrowLeft, IconRefresh, IconDownload, IconPrint, IconKey, IconWarning } from '$lib/icons';
 
 	// Format the canonical bundle hash for the human-readable Emergency
 	// Kit (groups of 8) so it tracks every release rather than the
@@ -25,6 +25,10 @@
 	let bitsShown = $state(0);
 	let generating = $state(false);
 	let timestamp = $state<string>('awaiting generation…');
+	// The Secret Key is unrecoverable if lost — a save action that
+	// fails silently (blocked pop-up, sandboxed download) is a trap.
+	// Every save path either succeeds or puts its failure on screen.
+	let saveError = $state<string | null>(null);
 
 	const groups = $derived(onboarding.secretKeyEncoded ? groupChars(onboarding.secretKeyEncoded, 4) : []);
 
@@ -51,6 +55,20 @@
 		generating = false;
 	}
 
+	function triggerDownload(blob: Blob, filename: string, label: string) {
+		saveError = null;
+		try {
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = filename;
+			a.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		} catch {
+			saveError = `The ${label} download could not be started — your browser blocked it. Use Print instead, or copy the key by hand.`;
+		}
+	}
+
 	function downloadKit() {
 		if (!onboarding.secretKeyEncoded) return;
 		const content = `VuVault Emergency Kit
@@ -70,13 +88,11 @@ Do NOT write the Recovery Password on this sheet.
 Bundle SHA-384 (verify against the published GitHub release):
 ${bundleGroupedString}
 `;
-		const blob = new Blob([content], { type: 'text/plain' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `vuvault-emergency-kit-${Date.now()}.txt`;
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(url), 1000);
+		triggerDownload(
+			new Blob([content], { type: 'text/plain' }),
+			`vuvault-emergency-kit-${Date.now()}.txt`,
+			'Emergency Kit'
+		);
 	}
 
 	function downloadVuKey() {
@@ -98,19 +114,22 @@ ${bundleGroupedString}
 				bundleHashShort: BUNDLE_HASH_SHORT
 			}
 		};
-		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `vuvault-${Date.now()}.vukey`;
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(url), 1000);
+		triggerDownload(
+			new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+			`vuvault-${Date.now()}.vukey`,
+			'VuKey'
+		);
 	}
 
 	function printKey() {
 		if (!onboarding.secretKeyEncoded) return;
+		saveError = null;
 		const w = window.open('', '_blank', 'width=720,height=900');
-		if (!w) return;
+		if (!w) {
+			saveError =
+				'The print window was blocked by your browser. Allow pop-ups for this site, or use Download Emergency Kit instead.';
+			return;
+		}
 		const html = `<!doctype html><html><head><title>VuVault Secret Key</title>
 <style>body{font-family:Helvetica,Arial,sans-serif;color:#000;background:#fff;padding:32px;max-width:640px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}.sub{font-size:12px;color:#555;margin-bottom:28px}.key-box{border:2px solid #000;padding:18px 20px;border-radius:4px;margin-bottom:18px}.key{font-family:'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:1px;line-height:1.7;word-spacing:6px}.warn{border:1px solid #c00;padding:12px 16px;border-radius:4px;font-size:12px;color:#800;margin-bottom:18px}@media print{button{display:none}}</style>
 </head><body>
@@ -136,7 +155,7 @@ ${bundleGroupedString}
 
 <section class="screen">
 	<div class="screen-inner wide">
-		<Eyebrow>Step 3 of 7 · Secret Key · 256 bits</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('secret')} · Secret Key · 256 bits</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Your Secret Key. <span class="italic-serif">Generated here.</span>
@@ -187,6 +206,13 @@ ${bundleGroupedString}
 			</div>
 		</div>
 
+		{#if saveError}
+			<div class="save-error" role="alert">
+				<IconWarning size={14} stroke={2} />
+				<div>{saveError}</div>
+			</div>
+		{/if}
+
 		<label class="confirm">
 			<input
 				type="checkbox"
@@ -229,6 +255,20 @@ ${bundleGroupedString}
 
 <style>
 	@import './_screen.css';
+
+	.save-error {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		margin-bottom: 16px;
+		padding: 12px 14px;
+		font-size: 13px;
+		color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 8%, transparent);
+		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+		border-radius: var(--radius);
+		line-height: 1.5;
+	}
 
 	.secret-display {
 		margin-bottom: 24px;

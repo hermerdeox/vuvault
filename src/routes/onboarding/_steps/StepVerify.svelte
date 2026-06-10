@@ -65,7 +65,7 @@
 
 <section class="screen">
 	<div class="screen-inner wide">
-		<Eyebrow>Step 5 of 7 · Verify what you're running</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('verify')} · Verify what you're running</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Verify the build. <span class="italic-serif">Trust math, not us.</span>

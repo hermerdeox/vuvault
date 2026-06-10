@@ -33,7 +33,7 @@
 
 <section class="screen">
 	<div class="screen-inner">
-		<Eyebrow>Step 4 of 8 · Recovery Envelope</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('recovery')} · Recovery Envelope</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Add local recovery.<br /><span class="italic-serif">Still zero-knowledge.</span>

@@ -8,6 +8,21 @@
 		onboarding.plan = plan;
 	}
 
+	let freeBtn = $state<HTMLButtonElement | null>(null);
+	let paidBtn = $state<HTMLButtonElement | null>(null);
+
+	// WAI-ARIA radio-group keyboard contract: arrows move the selection.
+	// stopPropagation keeps the wizard's global arrow-key step
+	// navigation (+page.svelte) from also firing on the same keypress.
+	function handleGroupKey(e: KeyboardEvent) {
+		if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const next: Plan = onboarding.plan === 'free' ? 'paid' : 'free';
+		pick(next);
+		(next === 'free' ? freeBtn : paidBtn)?.focus();
+	}
+
 	const ctaLabel = $derived(
 		onboarding.plan === 'free' ? 'Continue with Free' : 'Continue with $25.60 / year'
 	);
@@ -15,7 +30,7 @@
 
 <section class="screen">
 	<div class="screen-inner wide">
-		<Eyebrow>Step 6 of 7 · Choose your plan · honest pricing</Eyebrow>
+		<Eyebrow>{onboarding.stepLabel('pricing')} · Choose your plan · honest pricing</Eyebrow>
 
 		<h1 class="h1" style="margin-top: 24px;">
 			Free, or <span class="italic-serif">$25.60 a year.</span>
@@ -26,10 +41,16 @@
 			in Tier 3. No per-user multipliers, no surprise upsells. Cancel anytime.
 		</p>
 
-		<div class="grid">
+		<div class="grid" role="radiogroup" aria-label="Choose your plan">
 			<button
 				class="price free"
 				class:selected={onboarding.plan === 'free'}
+				role="radio"
+				aria-checked={onboarding.plan === 'free'}
+				aria-label="Free forever plan, $0, local-only"
+				tabindex={onboarding.plan === 'free' ? 0 : -1}
+				bind:this={freeBtn}
+				onkeydown={handleGroupKey}
 				onclick={() => pick('free')}
 			>
 				<div class="label">Free forever</div>
@@ -47,6 +68,12 @@
 			<button
 				class="price"
 				class:selected={onboarding.plan === 'paid'}
+				role="radio"
+				aria-checked={onboarding.plan === 'paid'}
+				aria-label="Unlimited plan, $25.60 per year, roadmap access"
+				tabindex={onboarding.plan === 'paid' ? 0 : -1}
+				bind:this={paidBtn}
+				onkeydown={handleGroupKey}
 				onclick={() => pick('paid')}
 			>
 				<div class="label">Unlimited</div>

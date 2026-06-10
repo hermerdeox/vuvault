@@ -1,5 +1,5 @@
 /**
- * Onboarding state machine — 7 steps from "Start free" to vault unlocked.
+ * Onboarding state machine — 8 steps from "Start free" to vault unlocked.
  *
  * Step order:
  *   1. welcome     - claim & 3 cards
@@ -97,6 +97,15 @@ class OnboardingState {
 	});
 
 	currentIndex = $derived(STEPS.indexOf(this.current));
+
+	/**
+	 * "Step N of M" copy for the eyebrow labels, derived from STEPS so
+	 * the counters can never drift from the real step count again
+	 * (they used to be hardcoded and disagreed: "of 7" vs "of 8").
+	 */
+	stepLabel(step: StepId): string {
+		return `Step ${STEPS.indexOf(step) + 1} of ${STEPS.length}`;
+	}
 
 	/**
 	 * Whether `step` is currently reachable. Backwards navigation is
