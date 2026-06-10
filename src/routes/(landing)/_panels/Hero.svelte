@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { landing } from '$lib/stores/landing.svelte';
-	import { PRICE } from '$lib/data/pricing';
 
 	function startFree() {
 		landing.last();
@@ -11,6 +10,64 @@
 </script>
 
 <section class="panel hero">
+	<svg
+		class="hero-safe"
+		data-vp-show="desktop"
+		aria-hidden="true"
+		viewBox="0 0 400 400"
+		fill="none"
+		stroke="currentColor"
+		stroke-linecap="round"
+	>
+		<!-- body + door frame -->
+		<rect x="8" y="8" width="384" height="384" rx="20" stroke-width="2" />
+		<rect x="34" y="34" width="332" height="332" rx="12" stroke-width="1.5" />
+		<!-- feet -->
+		<path d="M78 392v14h40v-14" stroke-width="1.5" />
+		<path d="M282 392v14h40v-14" stroke-width="1.5" />
+		<!-- corner bolts -->
+		<circle cx="62" cy="62" r="7" stroke-width="1.5" />
+		<circle cx="338" cy="62" r="7" stroke-width="1.5" />
+		<circle cx="62" cy="338" r="7" stroke-width="1.5" />
+		<circle cx="338" cy="338" r="7" stroke-width="1.5" />
+		<!-- combination dial -->
+		<circle cx="200" cy="200" r="78" stroke-width="2" />
+		<circle cx="200" cy="200" r="60" stroke-width="1.5" />
+		<circle cx="200" cy="200" r="7" stroke-width="1.5" />
+		<g stroke-width="1">
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(0 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(30 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(60 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(90 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(120 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(150 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(180 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(210 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(240 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(270 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(300 200 200)" />
+			<line x1="200" y1="126" x2="200" y2="136" transform="rotate(330 200 200)" />
+		</g>
+		<!-- spoke wheel -->
+		<g class="safe-wheel" stroke-width="1.5">
+			<g transform="rotate(0 200 200)">
+				<line x1="200" y1="193" x2="200" y2="152" />
+				<circle cx="200" cy="147" r="5" />
+			</g>
+			<g transform="rotate(120 200 200)">
+				<line x1="200" y1="193" x2="200" y2="152" />
+				<circle cx="200" cy="147" r="5" />
+			</g>
+			<g transform="rotate(240 200 200)">
+				<line x1="200" y1="193" x2="200" y2="152" />
+				<circle cx="200" cy="147" r="5" />
+			</g>
+		</g>
+		<!-- handle bar -->
+		<line x1="318" y1="158" x2="318" y2="242" stroke-width="2" />
+		<line x1="296" y1="200" x2="311" y2="200" stroke-width="1.5" />
+	</svg>
+
 	<div class="panel-inner">
 		<div class="eyebrow accent">
 			<span class="dot"></span>
@@ -62,7 +119,7 @@
 				>
 					<path d="M5 12h14M12 5l7 7-7 7" />
 				</svg>
-				Start free · {PRICE}
+				Open Your Vault
 			</button>
 			<button class="lbtn lg" onclick={seeItWork}>
 				<span data-show="user">See it work</span>
@@ -132,6 +189,46 @@
 	.hero {
 		text-align: center;
 		align-items: center;
+	}
+	.hero-safe {
+		position: absolute;
+		left: 0;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		width: clamp(280px, 30vw, 560px);
+		height: auto;
+		color: var(--text-3);
+		opacity: 0.28;
+		pointer-events: none;
+		user-select: none;
+		animation: safe-slide 1.6s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+	}
+	.hero-safe :global(.safe-wheel) {
+		transform-box: view-box;
+		transform-origin: 200px 200px;
+		animation: safe-wheel-turn 2s cubic-bezier(0.3, 1.15, 0.5, 1) 0.55s both;
+	}
+	@keyframes safe-slide {
+		from {
+			transform: translate(-104%, -50%);
+		}
+		to {
+			transform: translate(-50%, -50%);
+		}
+	}
+	@keyframes safe-wheel-turn {
+		from {
+			transform: rotate(-240deg);
+		}
+		to {
+			transform: rotate(0deg);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.hero-safe,
+		.hero-safe :global(.safe-wheel) {
+			animation: none;
+		}
 	}
 	.hero-headline {
 		font-size: clamp(36px, 9vw, 96px);
