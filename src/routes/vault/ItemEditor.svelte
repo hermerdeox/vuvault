@@ -82,6 +82,11 @@
 	let cardNumber = $state('');
 	let cardExpiry = $state('');
 	let cardCvc = $state('');
+	let billingAddress = $state('');
+	let billingCity = $state('');
+	let billingState = $state('');
+	let billingZip = $state('');
+	let billingCountry = $state('');
 
 	// Card intelligence: live network detection + formatting +
 	// auto-advance (number → expiry → CVC). All local (utils/card).
@@ -209,6 +214,11 @@
 		cardNumber = '';
 		cardExpiry = '';
 		cardCvc = '';
+		billingAddress = '';
+		billingCity = '';
+		billingState = '';
+		billingZip = '';
+		billingCountry = '';
 		noteBody = '';
 		identityName = '';
 		identityEmail = '';
@@ -282,6 +292,11 @@
 				cardNumber = item.cardNumber ?? '';
 				cardExpiry = item.cardExpiry ?? '';
 				cardCvc = item.cardCvc ?? '';
+				billingAddress = item.billingAddress ?? '';
+				billingCity = item.billingCity ?? '';
+				billingState = item.billingState ?? '';
+				billingZip = item.billingZip ?? '';
+				billingCountry = item.billingCountry ?? '';
 				break;
 			case 'note':
 				noteBody = item.noteBody ?? '';
@@ -336,6 +351,11 @@
 					cardNumber: cardNumber.trim() || undefined,
 					cardExpiry: cardExpiry.trim() || undefined,
 					cardCvc: cardCvc.trim() || undefined,
+					billingAddress: billingAddress.trim() || undefined,
+					billingCity: billingCity.trim() || undefined,
+					billingState: billingState.trim() || undefined,
+					billingZip: billingZip.trim() || undefined,
+					billingCountry: billingCountry.trim() || undefined,
 					subtitle: cardNumber
 						? `•••• ${cardNumber.replace(/\s/g, '').slice(-4)}`
 						: undefined
@@ -744,6 +764,64 @@
 							{#if err('cardCvc')}
 								<div class="field-err" id={errId('cardCvc')}>{err('cardCvc')}</div>
 							{/if}
+						</div>
+					</div>
+
+					<div class="section-label">Billing information <span class="optional">optional</span></div>
+					<div class="field">
+						<label for="ie-bill-addr">Street address</label>
+						<input
+							id="ie-bill-addr"
+							type="text"
+							bind:value={billingAddress}
+							autocomplete="address-line1"
+							enterkeyhint="next"
+							placeholder="1234 Market Street, Apt 5"
+						/>
+					</div>
+					<div class="grid-2">
+						<div class="field">
+							<label for="ie-bill-city">City</label>
+							<input
+								id="ie-bill-city"
+								type="text"
+								bind:value={billingCity}
+								autocomplete="address-level2"
+								enterkeyhint="next"
+							/>
+						</div>
+						<div class="field">
+							<label for="ie-bill-state">State / Region</label>
+							<input
+								id="ie-bill-state"
+								type="text"
+								bind:value={billingState}
+								autocomplete="address-level1"
+								enterkeyhint="next"
+							/>
+						</div>
+					</div>
+					<div class="grid-2">
+						<div class="field">
+							<label for="ie-bill-zip">Postal code</label>
+							<input
+								id="ie-bill-zip"
+								type="text"
+								bind:value={billingZip}
+								autocomplete="postal-code"
+								enterkeyhint="next"
+								class="mono"
+							/>
+						</div>
+						<div class="field">
+							<label for="ie-bill-country">Country</label>
+							<input
+								id="ie-bill-country"
+								type="text"
+								bind:value={billingCountry}
+								autocomplete="country-name"
+								enterkeyhint="done"
+							/>
 						</div>
 					</div>
 				{:else if selectedKind === 'note'}
@@ -1208,6 +1286,27 @@
 	.row input,
 	.row textarea {
 		flex: 1;
+	}
+	.section-label {
+		margin: 18px 0 2px;
+		padding-top: 16px;
+		border-top: 1px dashed var(--border);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--text-3);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.section-label .optional {
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		text-transform: none;
+		color: var(--text-3);
+		opacity: 0.7;
 	}
 	.card-num-wrap {
 		position: relative;

@@ -384,13 +384,54 @@
 					</div>
 				{/if}
 			{:else if item.kind === 'card'}
-				<div class="cc-host">
-					<CreditCard
-						cardholder={item.cardholder}
-						cardNumber={item.cardNumber}
-						cardExpiry={item.cardExpiry}
-						revealed={Boolean(revealedFields.cardNumber)}
-					/>
+				<div class="card-hero">
+					<div class="cc-host">
+						<CreditCard
+							cardholder={item.cardholder}
+							cardNumber={item.cardNumber}
+							cardExpiry={item.cardExpiry}
+							revealed={Boolean(revealedFields.cardNumber)}
+						/>
+					</div>
+					<aside class="billing">
+						<div class="billing-head">Billing information</div>
+						{#if item.billingAddress || item.billingCity || item.billingState || item.billingZip || item.billingCountry}
+							<address class="billing-block">
+								{#if item.cardholder}<div class="billing-line name">{item.cardholder}</div>{/if}
+								{#if item.billingAddress}<div class="billing-line">{item.billingAddress}</div>{/if}
+								{#if item.billingCity || item.billingState || item.billingZip}
+									<div class="billing-line">
+										{[item.billingCity, item.billingState].filter(Boolean).join(', ')}
+										{item.billingZip ?? ''}
+									</div>
+								{/if}
+								{#if item.billingCountry}<div class="billing-line country">{item.billingCountry}</div>{/if}
+							</address>
+							<button
+								class="billing-copy"
+								onclick={() =>
+									copyValue(
+										'billing address',
+										[
+											item.billingAddress,
+											[item.billingCity, item.billingState].filter(Boolean).join(', ') +
+												(item.billingZip ? ' ' + item.billingZip : ''),
+											item.billingCountry
+										]
+											.filter((l) => l && l.trim())
+											.join('\n')
+									)}
+							>
+								<IconCopy size={12} stroke={1.6} />
+								Copy address
+							</button>
+						{:else}
+							<div class="billing-empty">
+								No billing information on file.
+								<span>Use Edit to add the card's billing address.</span>
+							</div>
+						{/if}
+					</aside>
 				</div>
 				{#if item.cardholder}
 					<div class="field">
@@ -982,6 +1023,105 @@
 		margin-bottom: 18px;
 	}
 	.cc-host {
+		flex: 0 1 460px;
+		min-width: 0;
+	}
+	.card-hero {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: stretch;
+		gap: 22px;
 		margin-bottom: 22px;
+	}
+	.billing {
+		flex: 1 1 240px;
+		min-width: 220px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 18px 20px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+	}
+	.billing-head {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--text-3);
+	}
+	.billing-head::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+	}
+	.billing-block {
+		font-style: normal;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		flex: 1;
+	}
+	.billing-line {
+		font-size: 14px;
+		color: var(--text);
+		line-height: 1.45;
+	}
+	.billing-line.name {
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		font-size: 13px;
+	}
+	.billing-line.country {
+		color: var(--text-2);
+		font-family: var(--font-mono);
+		font-size: 12px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+	.billing-copy {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-2);
+		background: var(--bg-elev);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		transition: var(--transition);
+	}
+	.billing-copy:hover {
+		color: var(--text);
+		border-color: var(--border-mid);
+	}
+	@media (pointer: coarse) {
+		.billing-copy {
+			min-height: 44px;
+		}
+	}
+	.billing-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		justify-content: center;
+		font-size: 13px;
+		color: var(--text-2);
+	}
+	.billing-empty span {
+		font-size: 12px;
+		color: var(--text-3);
 	}
 </style>

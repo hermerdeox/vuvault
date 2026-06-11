@@ -73,6 +73,34 @@ describe('vault-codec', () => {
 		expect(() => deserializeItems(payload)).toThrow(/title must be a string/);
 	});
 
+	it('round-trips card billing fields and drops unknown ones', () => {
+		const card = {
+			id: 'c1',
+			kind: 'card',
+			createdAt: 1,
+			updatedAt: 2,
+			title: 'Sapphire',
+			cardholder: 'DIMITRI LOPEZ',
+			cardNumber: '4111 1111 1111 1111',
+			cardExpiry: '12/29',
+			cardCvc: '423',
+			billingAddress: '1234 Market Street, Apt 5',
+			billingCity: 'San Francisco',
+			billingState: 'CA',
+			billingZip: '94103',
+			billingCountry: 'United States',
+			billingPhone: 'should-be-dropped'
+		} as never;
+		const out = deserializeItems(serializeItems([card]));
+		const restored = out[0] as Record<string, unknown>;
+		expect(restored.billingAddress).toBe('1234 Market Street, Apt 5');
+		expect(restored.billingCity).toBe('San Francisco');
+		expect(restored.billingState).toBe('CA');
+		expect(restored.billingZip).toBe('94103');
+		expect(restored.billingCountry).toBe('United States');
+		expect('billingPhone' in restored).toBe(false);
+	});
+
 	it('round-trips a document item with attachment metadata', () => {
 		const doc: DocumentItem = {
 			id: 'doc-1',

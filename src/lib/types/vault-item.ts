@@ -52,6 +52,12 @@ export interface CardItem extends ItemBase {
 	cardNumber?: string;
 	cardExpiry?: string;
 	cardCvc?: string;
+	/** Billing address associated with the card — all optional. */
+	billingAddress?: string;
+	billingCity?: string;
+	billingState?: string;
+	billingZip?: string;
+	billingCountry?: string;
 }
 
 export interface NoteItem extends ItemBase {

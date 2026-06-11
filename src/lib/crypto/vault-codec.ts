@@ -127,7 +127,12 @@ function validateItem(raw: unknown, idx: number): VaultItem {
 				cardholder: asString(obj.cardholder),
 				cardNumber: asString(obj.cardNumber),
 				cardExpiry: asString(obj.cardExpiry),
-				cardCvc: asString(obj.cardCvc)
+				cardCvc: asString(obj.cardCvc),
+				billingAddress: asString(obj.billingAddress),
+				billingCity: asString(obj.billingCity),
+				billingState: asString(obj.billingState),
+				billingZip: asString(obj.billingZip),
+				billingCountry: asString(obj.billingCountry)
 			} as CardItem;
 		case 'note':
 			return {
