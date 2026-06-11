@@ -92,7 +92,7 @@ describe('vault-codec', () => {
 			billingPhone: 'should-be-dropped'
 		} as never;
 		const out = deserializeItems(serializeItems([card]));
-		const restored = out[0] as Record<string, unknown>;
+		const restored = out[0] as unknown as Record<string, unknown>;
 		expect(restored.billingAddress).toBe('1234 Market Street, Apt 5');
 		expect(restored.billingCity).toBe('San Francisco');
 		expect(restored.billingState).toBe('CA');
