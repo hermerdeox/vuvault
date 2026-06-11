@@ -1,7 +1,17 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { landing } from '$lib/stores/landing.svelte';
+	import { viewport } from '$lib/stores/viewport.svelte';
 
 	function startFree() {
+		// Desktop: straight to the login page (/unlock routes new
+		// visitors on to onboarding). Mobile keeps the in-page tour —
+		// the final panel carries the full pitch before commitment.
+		if (viewport.isDesktop) {
+			void goto(resolve('/unlock'));
+			return;
+		}
 		landing.last();
 	}
 	function seeItWork() {
