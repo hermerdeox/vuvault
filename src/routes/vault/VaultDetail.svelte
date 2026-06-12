@@ -385,7 +385,8 @@
 				{/if}
 			{:else if item.kind === 'card'}
 				<div class="card-hero">
-					<div class="cc-host">
+					<div class="card-col">
+						<div class="cc-host">
 						<CreditCard
 							cardholder={item.cardholder}
 							cardNumber={item.cardNumber}
@@ -432,8 +433,9 @@
 							</div>
 						{/if}
 					</aside>
-				</div>
-				{#if item.cardholder}
+					</div>
+					<div class="card-fields">
+					{#if item.cardholder}
 					<div class="field">
 						<div class="key">Cardholder</div>
 						<div class="row">
@@ -501,6 +503,8 @@
 							</div>
 						</div>
 					{/if}
+				</div>
+					</div>
 				</div>
 			{:else if item.kind === 'note'}
 				{#if item.noteBody}
@@ -1023,19 +1027,29 @@
 		margin-bottom: 18px;
 	}
 	.cc-host {
-		flex: 0 1 460px;
 		min-width: 0;
 	}
 	.card-hero {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: stretch;
-		gap: 22px;
-		margin-bottom: 22px;
+		align-items: flex-start;
+		gap: 24px;
+		margin-bottom: 8px;
+	}
+	.card-col {
+		flex: 0 1 440px;
+		min-width: 300px;
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+	}
+	/* Desktop: the field rows live to the RIGHT of the card; below
+	   ~900px content width they wrap underneath naturally. */
+	.card-fields {
+		flex: 1 1 340px;
+		min-width: 300px;
 	}
 	.billing {
-		flex: 1 1 240px;
-		min-width: 220px;
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
