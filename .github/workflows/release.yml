@@ -431,8 +431,57 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          PUBLIC_BUNDLE_HASH: ${{ env.PUBLIC_BUNDLE_HASH }}
         run: |
           set -euo pipefail
+
+          # SvelteKit's $env/dynamic/public is served at RUNTIME from the
+          # deployed Worker's environment (as /_app/env.js), NOT inlined
+          # from the build. The in-page bundle-integrity verifier
+          # (verifyBundleIntegrity) and the sync client both read it, so
+          # PUBLIC_BUNDLE_HASH (this release's pass-2 digest) and
+          # PUBLIC_SYNC_ORIGIN MUST reach the deployed runtime as Pages
+          # env vars or the integrity tripwire runs in placeholder mode
+          # and sync/OPAQUE stay unwired for every production user.
+          #
+          # `wrangler pages deploy --branch=main` resolves the
+          # `production` named environment and uploads
+          # [env.production.vars] to the deployment runtime (verified
+          # against wrangler 4.90.0; proven live: the [env.production.vars]
+          # PUBLIC_VAULT_VERSION is what production /_app/env.js serves).
+          # These two are deliberately NOT committed — a manual deploy
+          # must never ship a placeholder hash — so inject them here, into
+          # [env.production.vars] (the block that governs production) AND
+          # [vars] (kept in sync to silence Wrangler's non-inheritance
+          # warning), right before deploy. The mutated wrangler.toml lives
+          # only in the ephemeral CI working tree and is never committed.
+          if [ -z "${PUBLIC_BUNDLE_HASH:-}" ] || [ "$PUBLIC_BUNDLE_HASH" = "9f4c7d2e8b16a4f122e0d5c83a7e91b4" ]; then
+            echo "::error::refusing to deploy — PUBLIC_BUNDLE_HASH is empty or the dev placeholder"
+            exit 1
+          fi
+          if [ -z "${PUBLIC_SYNC_ORIGIN:-}" ]; then
+            echo "::error::refusing to deploy — PUBLIC_SYNC_ORIGIN is empty"
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'wrangler.toml';
+          let toml = fs.readFileSync(path, 'utf8');
+          const lines =
+            `PUBLIC_BUNDLE_HASH = "${process.env.PUBLIC_BUNDLE_HASH}"\n` +
+            `PUBLIC_SYNC_ORIGIN = "${process.env.PUBLIC_SYNC_ORIGIN}"\n`;
+          for (const header of ['[vars]\n', '[env.production.vars]\n']) {
+            if (!toml.includes(header)) {
+              throw new Error(`wrangler.toml is missing the ${header.trim()} block`);
+            }
+            toml = toml.replace(header, header + lines);
+          }
+          fs.writeFileSync(path, toml);
+          console.log(
+            'Injected PUBLIC_BUNDLE_HASH + PUBLIC_SYNC_ORIGIN into wrangler.toml [vars] + [env.production.vars]'
+          );
+          NODE
+
           npx wrangler pages deploy .svelte-kit/cloudflare \
             --project-name=vuvault \
             --branch=main \
@@ -568,6 +617,55 @@ jobs:
             );
           }
           console.log(`post-deploy-smoke: bundle-hash OK (${liveAggregate.slice(0, 16)}\u2026)`);
+
+          // Runtime-env wiring gate. The in-page integrity verifier and
+          // the sync client read $env/dynamic/public, served at runtime
+          // as /_app/env.js. The manifest check above CANNOT see this \u2014
+          // it reads the CI runner's env, not the deployed runtime. A
+          // deploy that fails to wire PUBLIC_BUNDLE_HASH leaves the
+          // tripwire in placeholder mode (no-silent-update invariant
+          // void); a missing PUBLIC_SYNC_ORIGIN silently unwires
+          // sync/OPAQUE for every production user. Pages env propagation
+          // can lag the asset deploy, so poll.
+          const PLACEHOLDER_BUNDLE_HASH = '9f4c7d2e8b16a4f122e0d5c83a7e91b4';
+          let runtimeEnv = null;
+          for (let attempt = 1; attempt <= 6; attempt++) {
+            const envRes = await fetch(`${origin}/_app/env.js`, { cache: 'no-store' });
+            if (envRes.ok) {
+              const text = await envRes.text();
+              const m = text.match(/export const env\s*=\s*(\{[\s\S]*?\})/);
+              if (m) {
+                try {
+                  runtimeEnv = JSON.parse(m[1]);
+                } catch {
+                  /* keep polling \u2014 partial/edge response */
+                }
+              }
+            }
+            if (runtimeEnv && runtimeEnv.PUBLIC_BUNDLE_HASH === expectedBundleHash) break;
+            if (attempt < 6) await new Promise((r) => setTimeout(r, 10000));
+          }
+          if (!runtimeEnv) {
+            throw new Error('post-deploy-smoke: could not fetch/parse /_app/env.js after retries');
+          }
+          if (runtimeEnv.PUBLIC_BUNDLE_HASH === PLACEHOLDER_BUNDLE_HASH) {
+            throw new Error(
+              'post-deploy-smoke: runtime PUBLIC_BUNDLE_HASH is the placeholder \u2014 in-page bundle-integrity verification is DISABLED in production (no-silent-update invariant void)'
+            );
+          }
+          if (runtimeEnv.PUBLIC_BUNDLE_HASH !== expectedBundleHash) {
+            throw new Error(
+              `post-deploy-smoke: runtime PUBLIC_BUNDLE_HASH mismatch \u2014 /_app/env.js has "${runtimeEnv.PUBLIC_BUNDLE_HASH ?? '(absent)'}", expected "${expectedBundleHash}". The deployed runtime env is not wired to this release.`
+            );
+          }
+          if (!runtimeEnv.PUBLIC_SYNC_ORIGIN) {
+            throw new Error(
+              'post-deploy-smoke: runtime PUBLIC_SYNC_ORIGIN is absent \u2014 sync and OPAQUE registration are silently unwired for every production user'
+            );
+          }
+          console.log(
+            `post-deploy-smoke: runtime env wired (bundle hash matches release; sync origin = ${runtimeEnv.PUBLIC_SYNC_ORIGIN})`
+          );
 
           // Burst rate-limit probe: production sets
           // OPAQUE_RATE_LIMIT_MODE='fail-closed' in [env.production.vars]
