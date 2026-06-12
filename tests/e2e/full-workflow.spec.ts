@@ -117,7 +117,7 @@ test.describe('full vault workflow', () => {
 		await page.locator('#ie-username').fill('r-lopez');
 		await page.locator('#ie-password').fill(LOGIN_PASSWORD);
 		await page.locator('#ie-url').fill('https://github.com');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.list-pane')).toContainText('GitHub');
 
 		await selectListItem(page, 'GitHub');
@@ -134,7 +134,7 @@ test.describe('full vault workflow', () => {
 		await page.locator('#ie-num').fill(CARD_NUMBER);
 		await page.locator('#ie-exp').fill(CARD_EXPIRY);
 		await page.locator('#ie-cvc').fill(CARD_CVC);
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.list-pane')).toContainText('Visa');
 
 		await selectListItem(page, 'Visa');
@@ -160,7 +160,7 @@ test.describe('full vault workflow', () => {
 		await expect(summary).toContainText('lease.txt');
 		await expect(summary).toContainText('text/plain');
 		await page.locator('#ie-doc-desc').fill('Greenville office, 24 months');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.list-pane')).toContainText('Lease');
 
 		await selectListItem(page, 'Lease');

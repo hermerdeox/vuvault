@@ -12,6 +12,12 @@
 		networkLabel
 	} from '$lib/utils/card';
 	import { searchInstitutions } from '$lib/data/us-institutions';
+	import CreditCardForm from './CreditCardForm.svelte';
+	import {
+		validateAddressLine,
+		suggestAddressLine,
+		joinAddressLine
+	} from '$lib/utils/address';
 	import { vault, type VaultItem, type ItemKind } from '$lib/stores/vault.svelte';
 	import type { VaultItemPayload } from '$lib/types/vault-item';
 	import { audit } from '$lib/stores/audit.svelte';
@@ -89,9 +95,64 @@
 	let billingZip = $state('');
 	let billingCountry = $state('');
 
-	// Card intelligence: live network detection + formatting +
-	// auto-advance (number → expiry → CVC). All local (utils/card).
-	const cardNetwork = $derived(detectNetwork(cardNumber));
+	// Single-line billing input with LOCAL autocomplete + validation
+	// (utils/address — no API, no dependency). Parsed into the stored
+	// billing fields at save time.
+	let billingLine = $state('');
+	let billingOpen = $state(false);
+	let billingActive = $state(-1);
+	const billingSuggestions = $derived(
+		selectedKind === 'card' && billingOpen ? suggestAddressLine(billingLine) : []
+	);
+	const billingStatus = $derived(
+		billingLine.trim() ? validateAddressLine(billingLine) : null
+	);
+
+	function billingSelect(line: string) {
+		billingLine = line;
+		billingOpen = false;
+		billingActive = -1;
+		billingRef?.focus();
+	}
+	let billingRef = $state<HTMLInputElement | undefined>();
+
+	function onBillingKeydown(e: KeyboardEvent) {
+		if (billingOpen && e.key === 'Escape') {
+			e.stopPropagation();
+			billingOpen = false;
+			billingActive = -1;
+			return;
+		}
+		if (!billingOpen || billingSuggestions.length === 0) return;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			billingActive = (billingActive + 1) % billingSuggestions.length;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			billingActive = billingActive <= 0 ? billingSuggestions.length - 1 : billingActive - 1;
+		} else if (e.key === 'Enter' && billingActive >= 0) {
+			e.preventDefault();
+			billingSelect(billingSuggestions[billingActive]!);
+		} else if (e.key === 'Escape') {
+			e.stopPropagation();
+			billingOpen = false;
+			billingActive = -1;
+		} else if (e.key === 'Tab') {
+			billingOpen = false;
+			billingActive = -1;
+		}
+	}
+
+	// Shift+S saves from anywhere in the modal except while typing —
+	// matching the visible ⇧S hint on the Save to vault button.
+	function onEditorShortcut(e: KeyboardEvent) {
+		if (e.key !== 'S' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+		const t = e.target as HTMLElement | null;
+		const tag = t?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return;
+		e.preventDefault();
+		save();
+	}
 
 	// Institution typeahead on the card title — top-250 US banks /
 	// credit unions / issuers, all local data, max 10 results that
@@ -115,6 +176,14 @@
 			e.preventDefault();
 			return;
 		}
+		if (instOpen && e.key === 'Escape') {
+			// Swallow it even with zero matches: Escape dismisses the
+			// dropdown state, not the whole modal.
+			e.stopPropagation();
+			instOpen = false;
+			instActive = -1;
+			return;
+		}
 		if (!instOpen || instMatches.length === 0) return;
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
@@ -125,7 +194,13 @@
 		} else if (e.key === 'Enter' && instActive >= 0) {
 			e.preventDefault();
 			instSelect(instMatches[instActive]!);
-		} else if (e.key === 'Escape' || e.key === 'Tab') {
+		} else if (e.key === 'Escape') {
+			// Swallow it: Escape with an open dropdown dismisses the
+			// dropdown, not the whole modal.
+			e.stopPropagation();
+			instOpen = false;
+			instActive = -1;
+		} else if (e.key === 'Tab') {
 			instOpen = false;
 			instActive = -1;
 		}
@@ -258,6 +333,8 @@
 		billingState = '';
 		billingZip = '';
 		billingCountry = '';
+		billingLine = '';
+		billingOpen = false;
 		noteBody = '';
 		identityName = '';
 		identityEmail = '';
@@ -336,6 +413,7 @@
 				billingState = item.billingState ?? '';
 				billingZip = item.billingZip ?? '';
 				billingCountry = item.billingCountry ?? '';
+				billingLine = joinAddressLine(item);
 				break;
 			case 'note':
 				noteBody = item.noteBody ?? '';
@@ -390,11 +468,17 @@
 					cardNumber: cardNumber.trim() || undefined,
 					cardExpiry: cardExpiry.trim() || undefined,
 					cardCvc: cardCvc.trim() || undefined,
-					billingAddress: billingAddress.trim() || undefined,
-					billingCity: billingCity.trim() || undefined,
-					billingState: billingState.trim() || undefined,
-					billingZip: billingZip.trim() || undefined,
-					billingCountry: billingCountry.trim() || undefined,
+					...(() => {
+						if (!billingLine.trim()) return {};
+						const v = validateAddressLine(billingLine);
+						return {
+							billingAddress: v.parsed.street || undefined,
+							billingCity: v.parsed.city || undefined,
+							billingState: v.parsed.state || undefined,
+							billingZip: v.parsed.zip || undefined,
+							billingCountry: v.valid ? 'United States' : billingCountry.trim() || undefined
+						};
+					})(),
 					subtitle: cardNumber
 						? `•••• ${cardNumber.replace(/\s/g, '').slice(-4)}`
 						: undefined
@@ -570,6 +654,8 @@
 			.join(' ')
 	);
 </script>
+
+<svelte:window onkeydown={onEditorShortcut} />
 
 <Modal {open} title={mode === 'create' ? 'Add to vault' : 'Edit item'} {onClose} size="md">
 	{#if !selectedKind}
@@ -754,156 +840,80 @@
 						{/if}
 					</div>
 				{:else if selectedKind === 'card'}
-					<div class="field">
-						<label for="ie-holder">Cardholder</label>
-						<input
-							id="ie-holder"
-							type="text"
-							bind:value={cardholder}
-							autocomplete="off"
-							autocapitalize="characters"
-							enterkeyhint="next"
-							placeholder="Name on card"
+					<div class="ccf-host">
+						<CreditCardForm
+							bind:cardholder
+							bind:cardNumber
+							bind:cardExpiry
+							bind:cardCvc
 						/>
 					</div>
-					<div class="field">
-						<label for="ie-num">Card number</label>
-						<div class="card-num-wrap">
-							<input
-								id="ie-num"
-								type="text"
-								value={cardNumber}
-								oninput={onCardNumberInput}
-								inputmode="numeric"
-								autocomplete="off"
-								enterkeyhint="next"
-								placeholder="1234 5678 9012 3456"
-								class="mono"
-								aria-invalid={err('cardNumber') !== null}
-								aria-describedby={describedBy('cardNumber')}
-							/>
-							{#if cardNetwork !== 'unknown'}
-								<span class="network-badge">{networkLabel(cardNetwork)}</span>
-							{/if}
-						</div>
-						{#if err('cardNumber')}
-							<div class="field-err" id={errId('cardNumber')}>{err('cardNumber')}</div>
-						{/if}
-					</div>
-					<div class="grid-2">
-						<div class="field">
-							<label for="ie-exp">Expiry</label>
-							<input
-								id="ie-exp"
-								type="text"
-								value={cardExpiry}
-								oninput={onCardExpiryInput}
-								bind:this={cardExpiryRef}
-								placeholder="MM/YY"
-								inputmode="numeric"
-								autocomplete="off"
-								enterkeyhint="next"
-								maxlength="5"
-								class="mono"
-								aria-invalid={err('cardExpiry') !== null}
-								aria-describedby={describedBy('cardExpiry')}
-							/>
-							{#if err('cardExpiry')}
-								<div class="field-err" id={errId('cardExpiry')}>{err('cardExpiry')}</div>
-							{/if}
-						</div>
-						<div class="field">
-							<label for="ie-cvc">CVC</label>
-							<div class="row">
-								<input
-									id="ie-cvc"
-									type={showCvc ? 'text' : 'password'}
-									value={cardCvc}
-									oninput={onCardCvcInput}
-									bind:this={cardCvcRef}
-									inputmode="numeric"
-									autocomplete="off"
-									enterkeyhint="done"
-									maxlength={cvcLengthFor(cardNumber)}
-									class="mono"
-									aria-invalid={err('cardCvc') !== null}
-									aria-describedby={describedBy('cardCvc')}
-								/>
-								<button
-									type="button"
-									class="ico-btn"
-									onclick={() => revealFor('cardCvc', (visible) => (showCvc = visible), showCvc)}
-									aria-label={showCvc ? 'Hide CVC' : 'Reveal CVC'}
-								>
-									{#if showCvc}
-										<IconEyeOff size={14} stroke={1.6} />
-									{:else}
-										<IconEye size={14} stroke={1.6} />
-									{/if}
-								</button>
-							</div>
-							{#if err('cardCvc')}
-								<div class="field-err" id={errId('cardCvc')}>{err('cardCvc')}</div>
-							{/if}
-						</div>
-					</div>
+					{#if err('cardNumber')}
+						<div class="field-err">{err('cardNumber')}</div>
+					{/if}
+					{#if err('cardExpiry')}
+						<div class="field-err">{err('cardExpiry')}</div>
+					{/if}
+					{#if err('cardCvc')}
+						<div class="field-err">{err('cardCvc')}</div>
+					{/if}
 
-					<div class="section-label">Billing information <span class="optional">optional</span></div>
+					<div class="section-label">Billing address <span class="optional">optional · one line</span></div>
 					<div class="field">
-						<label for="ie-bill-addr">Street address</label>
-						<input
-							id="ie-bill-addr"
-							type="text"
-							bind:value={billingAddress}
-							autocomplete="address-line1"
-							enterkeyhint="next"
-							placeholder="1234 Market Street, Apt 5"
-						/>
-					</div>
-					<div class="grid-2">
-						<div class="field">
-							<label for="ie-bill-city">City</label>
+						<label for="ie-billing">Street, City, State ZIP</label>
+						<div class="inst-wrap">
 							<input
-								id="ie-bill-city"
+								id="ie-billing"
 								type="text"
-								bind:value={billingCity}
-								autocomplete="address-level2"
-								enterkeyhint="next"
-							/>
-						</div>
-						<div class="field">
-							<label for="ie-bill-state">State / Region</label>
-							<input
-								id="ie-bill-state"
-								type="text"
-								bind:value={billingState}
-								autocomplete="address-level1"
-								enterkeyhint="next"
-							/>
-						</div>
-					</div>
-					<div class="grid-2">
-						<div class="field">
-							<label for="ie-bill-zip">Postal code</label>
-							<input
-								id="ie-bill-zip"
-								type="text"
-								bind:value={billingZip}
-								autocomplete="postal-code"
-								enterkeyhint="next"
-								class="mono"
-							/>
-						</div>
-						<div class="field">
-							<label for="ie-bill-country">Country</label>
-							<input
-								id="ie-bill-country"
-								type="text"
-								bind:value={billingCountry}
-								autocomplete="country-name"
+								bind:value={billingLine}
+								bind:this={billingRef}
+								placeholder="1234 Market Street, San Francisco, CA 94103"
+								autocomplete="off"
+								spellcheck="false"
 								enterkeyhint="done"
+								role="combobox"
+								aria-expanded={billingOpen && billingSuggestions.length > 0}
+								aria-controls="billing-listbox"
+								aria-autocomplete="list"
+								aria-activedescendant={billingActive >= 0 ? `billing-opt-${billingActive}` : undefined}
+								onfocus={() => (billingOpen = true)}
+								oninput={() => {
+									billingOpen = true;
+									billingActive = -1;
+								}}
+								onkeydown={onBillingKeydown}
+								onblur={() => setTimeout(() => (billingOpen = false), 120)}
 							/>
+							{#if billingOpen && billingSuggestions.length > 0}
+								<ul class="inst-list" id="billing-listbox" role="listbox" aria-label="Address suggestions">
+									{#each billingSuggestions as line, i (line)}
+										<li
+											id="billing-opt-{i}"
+											role="option"
+											aria-selected={i === billingActive}
+											class="inst-opt"
+											class:active={i === billingActive}
+										>
+											<button
+												type="button"
+												tabindex="-1"
+												onmousedown={(e) => {
+													e.preventDefault();
+													billingSelect(line);
+												}}
+											>
+												{line}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 						</div>
+						{#if billingStatus}
+							<div class="billing-status" class:ok={billingStatus.valid} role="status">
+								{billingStatus.valid ? '✓ Valid US address' : billingStatus.hint}
+							</div>
+						{/if}
 					</div>
 				{:else if selectedKind === 'note'}
 					<div class="field">
@@ -1184,7 +1194,7 @@
 				onclick={save}
 				disabled={!title.trim() || (attemptedSave && !validation.ok)}
 			>
-				{mode === 'create' ? 'Add to vault' : 'Save changes'}
+				Save to vault <kbd class="save-kbd">⇧S</kbd>
 			</button>
 		{:else}
 			<button class="btn ghost" onclick={onClose}>Cancel</button>
@@ -1410,6 +1420,30 @@
 			min-height: 44px;
 		}
 	}
+	.ccf-host {
+		display: flex;
+		justify-content: center;
+		margin: 4px 0 14px;
+	}
+	.billing-status {
+		margin-top: 6px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--text-3);
+	}
+	.billing-status.ok {
+		color: var(--success);
+	}
+	.save-kbd {
+		margin-left: 8px;
+		padding: 2px 7px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		border-radius: var(--radius-xs);
+		background: color-mix(in srgb, var(--bg) 25%, transparent);
+		border: 1px solid color-mix(in srgb, var(--bg) 40%, transparent);
+	}
 	.section-label {
 		margin: 18px 0 2px;
 		padding-top: 16px;
@@ -1431,41 +1465,26 @@
 		color: var(--text-3);
 		opacity: 0.7;
 	}
-	.card-num-wrap {
-		position: relative;
-		display: flex;
-		align-items: center;
-	}
-	.card-num-wrap input {
-		flex: 1;
-		padding-right: 120px;
-	}
-	.network-badge {
-		position: absolute;
-		right: 10px;
+	.section-label {
+		margin: 18px 0 2px;
+		padding-top: 16px;
+		border-top: 1px dashed var(--border);
 		font-family: var(--font-mono);
 		font-size: 10px;
 		font-weight: 700;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.12em;
 		text-transform: uppercase;
-		padding: 4px 10px;
-		border-radius: 999px;
-		color: var(--accent);
-		background: var(--accent-dim);
-		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-		pointer-events: none;
-		white-space: nowrap;
-		animation: badge-in 200ms ease;
+		color: var(--text-3);
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
-	@keyframes badge-in {
-		from {
-			opacity: 0;
-			transform: translateX(4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(0);
-		}
+	.section-label .optional {
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		text-transform: none;
+		color: var(--text-3);
+		opacity: 0.7;
 	}
 	@media (pointer: coarse) {
 		.row-btn,

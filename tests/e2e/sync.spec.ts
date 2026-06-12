@@ -46,7 +46,7 @@ test.describe('vault flows · sync', () => {
 		await page.locator('#ie-title').fill('m3-sync-test-item');
 		await page.locator('#ie-username').fill('sync-user');
 		await page.locator('#ie-password').fill('correct-horse-battery-staple');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.getByText('m3-sync-test-item')).toBeVisible();
 
 		await page.getByRole('button', { name: /Sync ·/ }).click();
@@ -99,7 +99,7 @@ test.describe('vault flows · sync', () => {
 		await expect(summary).toContainText(/pushed to server/i, {
 			timeout: 20_000
 		});
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.list-pane')).toContainText('m3-sync-doc');
 
 		// Force a full vault sync so the parent vault blob (with the

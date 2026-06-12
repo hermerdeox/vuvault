@@ -55,7 +55,7 @@ test.describe('vault flows · CRUD', () => {
 		await page.locator('#ie-username').fill('r-lopez');
 		await page.locator('#ie-password').fill('Tr0ub4dor&3-Lemon-Sky-Forest');
 		await page.locator('#ie-url').fill('https://github.com');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.list-pane')).toContainText('GitHub');
 		await page.locator('.list-pane button.item').first().click();
 		await expect(page.locator('.detail')).toContainText('GitHub');
@@ -68,7 +68,7 @@ test.describe('vault flows · CRUD', () => {
 		await page.locator('#ie-title').fill('Evil');
 		await page.locator('#ie-username').fill('attacker');
 		await page.locator('#ie-url').fill('javascript:alert(1)');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 		await expect(page.locator('.field-err')).toContainText(
 			'URL does not look valid'
 		);
@@ -79,7 +79,7 @@ test.describe('vault flows · CRUD', () => {
 		await page.getByRole('button', { name: 'Add item' }).click();
 		await page.getByRole('button', { name: /^Login$/ }).click();
 		// Title is empty by default — the primary CTA is disabled.
-		await expect(page.getByRole('button', { name: 'Add to vault' })).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Save to vault' })).toBeDisabled();
 	});
 });
 
@@ -121,7 +121,7 @@ test.describe('vault flows · command palette', () => {
 		await page.locator('#ie-title').fill('GitHub');
 		await page.locator('#ie-username').fill('r-lopez');
 		await page.locator('#ie-password').fill('Tr0ub4dor&3-Lemon-Sky-Forest');
-		await page.getByRole('button', { name: 'Add to vault' }).click();
+		await page.getByRole('button', { name: 'Save to vault' }).click();
 	});
 
 	test('Cmd+K opens the palette with combobox a11y', async ({ page }) => {
