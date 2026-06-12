@@ -706,7 +706,9 @@
 
 	.panes {
 		display: grid;
-		grid-template-columns: 240px 320px 1fr;
+		/* List pane widened 15% (320 → 368px); the 1fr detail column
+		   to its right absorbs the difference. */
+		grid-template-columns: 240px 368px 1fr;
 		min-height: 0;
 		overflow: hidden;
 		height: 100%;
@@ -731,7 +733,7 @@
 			display: none;
 		}
 		.panes {
-			grid-template-columns: 200px 280px 1fr;
+			grid-template-columns: 200px 322px 1fr;
 		}
 	}
 	@media (max-width: 45em) {
