@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Button from '$lib/components/Button.svelte';
 	import Eyebrow from '$lib/components/Eyebrow.svelte';
 	import { onboarding } from '$lib/stores/onboarding.svelte';
@@ -377,6 +378,26 @@
 			onboarding.provisioned = true;
 			done = true;
 		} catch (err) {
+			// A vault already exists on this device. The single-writer guard
+			// in saveAccountAndVault refused to overwrite it — this is the
+			// race the route guards can't fully close (a re-entrant
+			// provisioning effect, a stale onboarding tab, or a console
+			// `goto` that skipped load()). Route to unlock rather than
+			// dead-ending on a "Restart onboarding" loop that would just hit
+			// the same guard. Detect by stable `code` so we don't have to
+			// statically import the storage module into the wizard.
+			if (
+				err &&
+				typeof err === 'object' &&
+				(err as { code?: string }).code === 'account-exists'
+			) {
+				audit.push(
+					'info',
+					'A vault already exists on this device — routing to unlock instead of re-provisioning'
+				);
+				await goto('/unlock');
+				return;
+			}
 			errorMessage = err instanceof Error ? err.message : 'Provisioning failed';
 			audit.push('danger', errorMessage);
 		} finally {

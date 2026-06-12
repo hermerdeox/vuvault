@@ -523,15 +523,47 @@ export async function saveExistingAccountAndVault(
 }
 
 /**
+ * Thrown by `saveAccountAndVault` when a singleton account already
+ * exists and the caller did not opt into overwriting it. The fresh-
+ * provision path (`provisionVault`) must NEVER clobber an existing
+ * vault — a stale onboarding tab, a re-entrant provisioning effect, or
+ * a console-driven `goto` that skips the route guard would otherwise
+ * silently destroy the user's data. Carries a stable `code` so callers
+ * across a dynamic-import boundary can branch without importing the class.
+ */
+export class AccountExistsError extends Error {
+	readonly code = 'account-exists' as const;
+	constructor(message = 'A vault already exists on this device.') {
+		super(message);
+		this.name = 'AccountExistsError';
+	}
+}
+
+/**
  * Atomic provision: account row + vault row written together. Either
  * both land or neither does; prevents the partial-state where
  * `account.count() > 0` but no decryptable blob exists.
+ *
+ * Refuses to overwrite an existing account unless `allowOverwrite` is
+ * set. The existence check runs INSIDE the read-write transaction, so
+ * the check-and-write is atomic: there is no window between "no account
+ * exists" and the `put` for a concurrent provision to slip through. The
+ * route-level `hasAccount()` guards are advisory UX; this is the
+ * authoritative single-writer guarantee. Legitimate overwriters
+ * (recovery rebind, auth rotation) pass `{ allowOverwrite: true }`.
  */
 export async function saveAccountAndVault(
 	account: Omit<AccountRecord, 'id'>,
-	blob: Omit<VaultBlob, 'id'>
+	blob: Omit<VaultBlob, 'id'>,
+	opts: { allowOverwrite?: boolean } = {}
 ): Promise<void> {
 	await db.transaction('rw', db.account, db.vault, async () => {
+		if (!opts.allowOverwrite) {
+			const existing = await db.account.get('singleton');
+			if (existing) {
+				throw new AccountExistsError();
+			}
+		}
 		await db.account.put({ id: 'singleton', ...account });
 		await db.vault.put({ id: 'singleton', ...blob });
 	});

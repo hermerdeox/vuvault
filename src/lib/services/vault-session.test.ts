@@ -87,7 +87,8 @@ import {
 	saveDocumentBlob,
 	getDocumentBlob,
 	deleteDocumentBlob,
-	listDocumentBlobIds
+	listDocumentBlobIds,
+	AccountExistsError
 } from '$lib/utils/storage';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
@@ -252,6 +253,68 @@ describe('vault-session — production mode', () => {
 		await expect(openVault({ secretKey: SECRET_KEY_WRONG })).rejects.toThrow(
 			/decryption failed/i
 		);
+	});
+
+	it('refuses to overwrite an existing vault on a second provision (no silent clobber)', async () => {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({
+			credentialId,
+			salt: deviceSalt
+		})) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'first',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+
+		// Persist a real item so we can prove the blob is untouched.
+		await saveItems([
+			{
+				id: 'i1',
+				kind: 'login',
+				title: 'GitHub',
+				username: 'u',
+				password: 'p',
+				url: 'https://github.com',
+				createdAt: 1,
+				updatedAt: 1
+			}
+		]);
+		const vaultBefore = await db.vault.get('singleton');
+		const accountBefore = await db.account.get('singleton');
+
+		// A second provision with DIFFERENT material (e.g. a re-entrant
+		// onboarding effect or a stale tab) must be refused — never allowed
+		// to clobber the singleton rows and orphan the existing vault.
+		const cred2 = freshCredentialId();
+		const salt2 = generateDeviceSalt();
+		const prf2 = (await evaluatePRF({ credentialId: cred2, salt: salt2 })) as Uint8Array;
+		await expect(
+			provisionVault({
+				deviceLabel: 'second',
+				secretKey: SECRET_KEY_WRONG,
+				credentialId: cred2,
+				credentialPublicKey: new ArrayBuffer(0),
+				authMode: 'production',
+				prfOutput: prf2,
+				deviceSalt: salt2
+			})
+		).rejects.toBeInstanceOf(AccountExistsError);
+
+		// The original account + vault rows are byte-for-byte intact...
+		expect(await db.vault.get('singleton')).toEqual(vaultBefore);
+		expect(await db.account.get('singleton')).toEqual(accountBefore);
+
+		// ...and the original Secret Key still opens it with the saved item.
+		lockSession();
+		const opened = await openVault({ secretKey: SECRET_KEY });
+		expect(opened).toHaveLength(1);
+		expect(opened[0]?.title).toBe('GitHub');
 	});
 
 	it('opens with a Recovery Envelope after passkey loss and rebinds a new passkey', async () => {

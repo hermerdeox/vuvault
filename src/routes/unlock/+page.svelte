@@ -359,24 +359,58 @@
 			let secretKey: Uint8Array | null = null;
 			let prfOutput: Uint8Array | null = null;
 			try {
-				const { openQuickUnlock } = await import('$lib/services/quick-unlock');
-				const quick = await openQuickUnlock();
-				secretKey = quick.secretKey;
-				prfOutput = quick.prfOutput;
-				await unlockWithSecretKey(secretKey, 'quick', prfOutput);
-			} catch (err) {
-				if (secretKey) secretKey.fill(0);
-				if (prfOutput) prfOutput.fill(0);
+				const { openQuickUnlock, QuickUnlockCacheError } = await import(
+					'$lib/services/quick-unlock'
+				);
+				try {
+					const quick = await openQuickUnlock();
+					secretKey = quick.secretKey;
+					prfOutput = quick.prfOutput;
+					await unlockWithSecretKey(secretKey, 'quick', prfOutput);
+				} catch (err) {
+					if (secretKey) secretKey.fill(0);
+					if (prfOutput) prfOutput.fill(0);
+
+					// Only a genuine cache invalidation (the cache was deleted)
+					// forces the user onto their Emergency Key. A dismissed
+					// Touch ID prompt, a timeout, or the wrong device is
+					// recoverable — keep quick unlock offered so a single
+					// accidental Cancel doesn't send the user hunting for a
+					// 256-bit key they rarely need on a trusted device.
+					const cacheGone = err instanceof QuickUnlockCacheError;
+					if (cacheGone) {
+						quickUnlockAvailable = false;
+						useEmergencyKey = true;
+						quickUnlockMessage =
+							'Trusted-device quick unlock is no longer valid here. Use your Emergency Key to unlock.';
+						errorMessage =
+							err instanceof Error ? err.message : 'Quick unlock cache was cleared.';
+					} else {
+						// Stay in quick-unlock mode; the cache is intact.
+						quickUnlockMessage =
+							'Touch ID was cancelled or didn’t complete. Try again, or use your Emergency Key.';
+						errorMessage =
+							err instanceof Error && /PRF output/i.test(err.message)
+								? 'Touch ID was cancelled or the device didn’t respond. Try again.'
+								: err instanceof Error
+									? `Touch ID quick unlock failed: ${err.message}`
+									: 'Touch ID quick unlock failed. Try again, or use your Emergency Key.';
+					}
+					audit.push('warn', 'Trusted-device quick unlock failed', {
+						cacheCleared: cacheGone ? 'yes' : 'no',
+						message: err instanceof Error ? err.message : 'quick unlock failed'
+					});
+					unlocking = false;
+				}
+			} catch (importErr) {
+				// The quick-unlock module itself failed to load — fall back
+				// to the Emergency Key path rather than dead-ending.
 				quickUnlockAvailable = false;
 				useEmergencyKey = true;
-				quickUnlockMessage =
-					'Touch ID quick unlock failed. Use your Emergency Key to unlock this device.';
 				errorMessage =
-					err instanceof Error
-						? `Touch ID quick unlock failed: ${err.message}`
-						: 'Touch ID quick unlock failed. Use your Emergency Key instead.';
-				audit.push('warn', 'Trusted-device quick unlock failed', {
-					message: err instanceof Error ? err.message : 'quick unlock failed'
+					'Could not load the quick-unlock module. Use your Emergency Key to unlock.';
+				audit.push('warn', 'Quick-unlock module failed to load', {
+					message: importErr instanceof Error ? importErr.message : 'import failed'
 				});
 				unlocking = false;
 			}

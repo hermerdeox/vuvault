@@ -18,6 +18,25 @@ import {
 	type AccountRecord
 } from '$lib/utils/storage';
 
+/**
+ * Thrown by `openQuickUnlock` only when the cached ciphertext itself is
+ * no longer usable — an AES-GCM authentication failure under a correctly
+ * resolved PRF, which means the cache is stale (passkey re-registered),
+ * tampered, or corrupt. In that one case the cache is deleted before the
+ * throw. Every OTHER failure (the user dismissed the Touch ID prompt, the
+ * authenticator returned no PRF, a timeout) propagates as a plain Error
+ * and leaves the cache intact — an accidental Cancel must never destroy
+ * trusted-device quick unlock. The `code` lets the unlock UI branch
+ * across the dynamic-import boundary.
+ */
+export class QuickUnlockCacheError extends Error {
+	readonly code = 'quick-unlock-cache-invalid' as const;
+	constructor(message: string, options?: { cause?: unknown }) {
+		super(message, options);
+		this.name = 'QuickUnlockCacheError';
+	}
+}
+
 const QUICK_UNLOCK_VERSION = 1;
 const SECRET_KEY_LEN = 32;
 const PRF_OUTPUT_LEN = 32;
@@ -130,13 +149,39 @@ export async function openQuickUnlock(): Promise<{
 	let prfOutput: Uint8Array | null = null;
 	let key: Uint8Array | null = null;
 	try {
+		// PRF resolution can fail for transient, NON-destructive reasons:
+		// the user dismissed the Touch ID / passkey prompt (WebAuthn
+		// NotAllowedError, which `evaluatePRF` surfaces as a null output),
+		// a timeout, or the wrong device. None of these indict the cached
+		// ciphertext, so they must propagate untouched — deleting here is
+		// exactly the "self-destruct on Cancel" bug. (The old code matched
+		// resolvePrfOutput's "Authenticator did not return a PRF output"
+		// message on /auth/i and wiped the cache on every cancellation.)
 		prfOutput = await resolvePrfOutput(account);
 		key = deriveQuickUnlockKey(account, prfOutput);
-		const plaintext = gcm(key, record.nonce, makeAad(account)).decrypt(record.ciphertext);
+
+		// From here the PRF is valid, so an AES-GCM failure DOES indict the
+		// cache: the only causes are a changed PRF (re-registered passkey),
+		// tampering, or corruption. Self-destruct so the stale cache can be
+		// cleanly re-enrolled, and raise a typed error the UI can recognize.
+		let plaintext: Uint8Array;
+		try {
+			plaintext = gcm(key, record.nonce, makeAad(account)).decrypt(record.ciphertext);
+		} catch (err) {
+			await deleteQuickUnlock();
+			throw new QuickUnlockCacheError(
+				'Quick unlock is no longer valid on this device and was cleared. Unlock with your Secret Key.',
+				{ cause: err }
+			);
+		}
 		if (plaintext.length !== SECRET_KEY_LEN) {
 			zeroize(plaintext);
-			throw new Error('Quick unlock cache decrypted to an invalid Secret Key length.');
+			await deleteQuickUnlock();
+			throw new QuickUnlockCacheError(
+				'Quick unlock cache decrypted to an invalid Secret Key length and was cleared.'
+			);
 		}
+
 		await saveQuickUnlock({
 			version: record.version,
 			enabled: record.enabled,
@@ -149,11 +194,6 @@ export async function openQuickUnlock(): Promise<{
 			secretKey: plaintext,
 			prfOutput: prfOutput.slice()
 		};
-	} catch (err) {
-		if (err instanceof Error && /decrypt|invalid|auth/i.test(err.message)) {
-			await deleteQuickUnlock();
-		}
-		throw err;
 	} finally {
 		zeroize(prfOutput);
 		zeroize(key);

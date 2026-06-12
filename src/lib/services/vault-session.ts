@@ -1195,12 +1195,19 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		accountSeed: previousAccount.accountSeed
 	};
 
-	await saveAccountAndVault(nextAccount, {
-		header,
-		nonce: sealed.nonce,
-		ciphertext: sealed.ciphertext,
-		updatedAt: now
-	});
+	// Recovery rebind legitimately replaces the existing account row
+	// (new passkey/device bound to the recovered vault), so it opts into
+	// overwriting — unlike the fresh-provision path.
+	await saveAccountAndVault(
+		nextAccount,
+		{
+			header,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext,
+			updatedAt: now
+		},
+		{ allowOverwrite: true }
+	);
 
 	// The rebind changes vaultKey, which moves the inventory's bootstrap
 	// address. Re-init the inventory session on the new key, then rebuild
@@ -1680,12 +1687,18 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 					: account.opaqueClientId
 	};
 
-	await saveAccountAndVault(nextAccount, {
-		header: newHeader,
-		nonce: sealed.nonce,
-		ciphertext: sealed.ciphertext,
-		updatedAt: Date.now()
-	});
+	// Auth rotation re-seals the existing account in place, so it opts
+	// into overwriting — the fresh-provision path never does.
+	await saveAccountAndVault(
+		nextAccount,
+		{
+			header: newHeader,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext,
+			updatedAt: Date.now()
+		},
+		{ allowOverwrite: true }
+	);
 
 	// Only the vaultKey (the wrapping key) rotates. `aesKey` is the
 	// unchanged data key — it stays live and MUST NOT be zeroized; the

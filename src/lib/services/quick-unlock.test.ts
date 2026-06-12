@@ -26,7 +26,8 @@ import {
 	disableQuickUnlock,
 	enableQuickUnlock,
 	hasQuickUnlock,
-	openQuickUnlock
+	openQuickUnlock,
+	QuickUnlockCacheError
 } from './quick-unlock';
 
 const SECRET_KEY = Uint8Array.from({ length: 32 }, (_, i) => i);
@@ -88,7 +89,8 @@ describe('quick-unlock', () => {
 			credentialId: freshCredentialId()
 		});
 
-		await expect(openQuickUnlock()).rejects.toThrow();
+		// A genuine cache invalidation raises the typed error AND deletes.
+		await expect(openQuickUnlock()).rejects.toBeInstanceOf(QuickUnlockCacheError);
 		expect(await getQuickUnlock()).toBeUndefined();
 	});
 
@@ -103,8 +105,49 @@ describe('quick-unlock', () => {
 			deviceSalt: generateDeviceSalt()
 		});
 
-		await expect(openQuickUnlock()).rejects.toThrow();
+		await expect(openQuickUnlock()).rejects.toBeInstanceOf(QuickUnlockCacheError);
 		expect(await getQuickUnlock()).toBeUndefined();
+	});
+
+	it('keeps the cache when the passkey prompt is cancelled (transient PRF failure)', async () => {
+		const { prfOutput } = await provisionProductionAccount();
+		await enableQuickUnlock(SECRET_KEY, { prfOutput });
+		expect(await hasQuickUnlock()).toBe(true);
+
+		// Simulate the user dismissing the Touch ID / passkey prompt:
+		// evaluatePRF swallows the WebAuthn NotAllowedError and yields null,
+		// which resolvePrfOutput turns into a thrown Error. This must NOT
+		// be treated as a cache invalidation.
+		(evaluatePRF as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+		const err = await openQuickUnlock().then(
+			() => null,
+			(e) => e
+		);
+		expect(err).toBeInstanceOf(Error);
+		expect(err).not.toBeInstanceOf(QuickUnlockCacheError);
+
+		// The cache survives a cancellation — one accidental Cancel must not
+		// force a full Secret-Key unlock on a trusted device.
+		expect(await getQuickUnlock()).toBeTruthy();
+		expect(await hasQuickUnlock()).toBe(true);
+
+		// And the very next genuine attempt still works end-to-end.
+		const opened = await openQuickUnlock();
+		expect(opened.secretKey).toEqual(SECRET_KEY);
+		opened.secretKey.fill(0);
+		opened.prfOutput.fill(0);
+	});
+
+	it('keeps the cache when the authenticator rejects (timeout/abort)', async () => {
+		const { prfOutput } = await provisionProductionAccount();
+		await enableQuickUnlock(SECRET_KEY, { prfOutput });
+
+		(evaluatePRF as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+			new DOMException('The operation either timed out or was not allowed', 'NotAllowedError')
+		);
+		await expect(openQuickUnlock()).rejects.not.toBeInstanceOf(QuickUnlockCacheError);
+		expect(await getQuickUnlock()).toBeTruthy();
+		expect(await hasQuickUnlock()).toBe(true);
 	});
 
 	it('does not enable for demo accounts', async () => {
