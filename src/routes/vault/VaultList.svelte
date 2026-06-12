@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { vault, type VaultItem } from '$lib/stores/vault.svelte';
+
+	type Props = {
+		onAdd?: () => void;
+	};
+	let { onAdd }: Props = $props();
 	import {
 		IconKey,
 		IconCard,
@@ -50,6 +55,25 @@
 </script>
 
 <div class="list-pane">
+	{#if onAdd}
+		<button class="add-btn" onclick={onAdd} aria-label="Add item">
+			<svg
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				width="14"
+				height="14"
+				stroke-width="2.2"
+				aria-hidden="true"
+			>
+				<line x1="12" y1="5" x2="12" y2="19" />
+				<line x1="5" y1="12" x2="19" y2="12" />
+			</svg>
+			<span>Add new</span>
+		</button>
+	{/if}
 	<div class="search">
 		<IconSearch size={14} stroke={1.6} />
 		<input
@@ -75,7 +99,7 @@
 				{#if vault.items.length === 0}
 					<div class="empty-title">Vault is empty</div>
 					<div class="empty-body">
-						Click the <strong>+</strong> button in the top bar to add your first item.
+						Use the <strong>Add new</strong> button above to add your first item.
 					</div>
 				{:else if vault.categoryFilter === 'weak'}
 					<div class="empty-title">No weak passwords</div>
@@ -130,6 +154,30 @@
 		border-right: 1px solid var(--border);
 		overflow: hidden;
 		height: 100%;
+	}
+	.add-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 7px;
+		margin: 10px 14px 4px;
+		padding: 9px 12px;
+		/* Primary pane action: hold the 44px tap floor on every input
+		   modality (the mobile e2e floor check runs without touch
+		   emulation, and a taller primary CTA reads better anyway). */
+		min-height: 44px;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		background: var(--accent);
+		color: var(--bg);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		transition: var(--transition);
+	}
+	.add-btn:hover {
+		filter: brightness(1.1);
+		transform: translateY(-1px);
 	}
 	.search {
 		display: flex;

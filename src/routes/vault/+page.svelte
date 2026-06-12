@@ -27,7 +27,6 @@
 	import AuditFooter from '$lib/components/AuditFooter.svelte';
 	import {
 		IconSearch,
-		IconPlus,
 		IconKey,
 		IconLock,
 		IconRefresh,
@@ -197,10 +196,6 @@
 			>
 				<IconShield size={14} stroke={1.6} />
 			</button>
-			<button class="add-btn" onclick={openCreateEditor} aria-label="Add item">
-				<IconPlus size={14} stroke={2.2} />
-				<span>Add</span>
-			</button>
 			<span class="overflow-target"><ThemeToggle /></span>
 			<button
 				class="lock-btn"
@@ -313,7 +308,7 @@
 
 	<main class="panes" data-mobile-pane={vault.mobilePane}>
 		<div class="pane sidebar-pane"><VaultSidebar /></div>
-		<div class="pane list-pane-wrap"><VaultList /></div>
+		<div class="pane list-pane-wrap"><VaultList onAdd={openCreateEditor} /></div>
 		<div class="pane detail-pane">
 			<button
 				class="detail-back"
@@ -556,7 +551,6 @@
 	   the same size): 44pt floors on the topbar controls, and no ⌘K
 	   keyboard hint where there is no ⌘ key. */
 	@media (pointer: coarse) {
-		.add-btn,
 		.lock-btn,
 		.overflow-trigger {
 			min-height: 44px;
@@ -673,7 +667,6 @@
 		color: var(--text-2);
 	}
 
-	.add-btn,
 	.lock-btn {
 		display: inline-flex;
 		align-items: center;
@@ -686,14 +679,6 @@
 		color: var(--text-2);
 		background: var(--surface);
 		transition: var(--transition);
-	}
-	.add-btn {
-		background: var(--accent);
-		color: var(--bg);
-		border-color: var(--accent);
-	}
-	.add-btn:hover {
-		filter: brightness(1.1);
 	}
 	.lock-btn:hover:not(:disabled) {
 		color: var(--text);
@@ -821,12 +806,10 @@
 		}
 	}
 	@media (max-width: 30em) {
-		/* Below 480px the Add/Lock labels join the icon-only group. */
-		.add-btn span,
+		/* Below 480px the Lock label joins the icon-only group. */
 		.lock-btn span {
 			display: none;
 		}
-		.add-btn,
 		.lock-btn {
 			padding: 0;
 			width: 44px;
