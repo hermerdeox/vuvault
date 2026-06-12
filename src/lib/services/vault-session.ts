@@ -1270,19 +1270,24 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 	const account = await getAccount();
 	if (!account) throw new Error('saveItems: account row missing');
 
-	const targetVersion = PROVISION_FORMAT_VERSION; // always upgrade-on-write to v2
+	const targetVersion = PROVISION_FORMAT_VERSION; // upgrade-on-write to the current format
 	const upgrading = account.formatVersion !== targetVersion;
 	const plaintext = serializeItems(items);
 
-	// `targetVersion` is fixed to v2 in this build. Earlier prototypes
-	// kept a v1 write branch here; that's now dead code. If a future
-	// milestone adds v3, this is the call site that branches on it.
-
-	// v2 path: rotate / fresh AES key, re-wrap, re-seal.
+	// Choose the AES data key. The KEY must change ONLY when the vault
+	// has no wrapped data key yet — i.e. the very first save after a v1
+	// unlock, or a freshly-opened recovery session (`aesKey === null`).
+	//
+	// A v2→v3 upgrade is padding-ONLY (same vaultKey derivation, same
+	// data key, the blob layer just adds bucketed padding). Minting a
+	// fresh AES key on that upgrade would silently orphan every document
+	// blob AND the Recovery Envelope — both are sealed under this same
+	// `aesKey` and are NOT re-encrypted here — permanently bricking them
+	// on the first item edit after the build update. So reuse the
+	// existing key across the upgrade and re-wrap it under the (already
+	// derived) vaultKey below.
 	let activeAesKey = aesKey;
-	if (upgrading || !activeAesKey) {
-		// First save after a v1 unlock (or recovery path): generate a
-		// fresh AES key and adopt v2 going forward.
+	if (!activeAesKey) {
 		activeAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
 	}
 	const wrapped = wrapAesKey(vaultKey, account.deviceSalt, activeAesKey);
@@ -1564,8 +1569,22 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		version: PROVISION_FORMAT_VERSION
 	});
 
-	// Decrypt the current items with the OLD aesKey, then re-encrypt
-	// with a fresh AES key wrapped under the NEW vaultKey.
+	// Re-wrap the EXISTING AES data key under the new vaultKey. We do
+	// NOT mint a fresh data key.
+	//
+	// rotateAuth changes the WRAPPING factors (master password / OPAQUE
+	// / passkey-derived vaultKey) — it does not change deviceSalt or
+	// credentialId (carried over verbatim in `nextAccount` below). The
+	// document blobs and the Recovery Envelope are sealed/wrapped under
+	// this same `aesKey` with an AAD built from deviceSalt+credentialId,
+	// all unchanged. Rotating the data key here would orphan every
+	// attachment and silently break the Recovery Envelope (which wraps
+	// the data key directly). Keeping the data key and re-wrapping it is
+	// the correct KEK rotation — an attacker who couldn't derive the old
+	// vaultKey could never unwrap the data key, so it never needs to
+	// rotate for a factor change. This mirrors rebindRecoveredVault,
+	// which also keeps the data key (it only re-seals documents because
+	// IT changes deviceSalt/credentialId, which we do not).
 	const currentRow = await getVault();
 	if (!currentRow) throw new Error('rotateAuth: vault row missing');
 	if (!aesKey) {
@@ -1586,8 +1605,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		account.formatVersion
 	);
 
-	const newAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
-	const wrapped = wrapAesKey(newVaultKey, account.deviceSalt, newAesKey);
+	const wrapped = wrapAesKey(newVaultKey, account.deviceSalt, aesKey);
 	const newHeader = serializeWrappedKey(wrapped);
 	const newAad = makeAad(
 		PROVISION_FORMAT_VERSION,
@@ -1596,7 +1614,7 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		account.credentialId,
 		newHeader
 	);
-	const sealed = sealBlob(newAesKey, plaintext, newAad, PROVISION_FORMAT_VERSION);
+	const sealed = sealBlob(aesKey, plaintext, newAad, PROVISION_FORMAT_VERSION);
 	zeroize(plaintext);
 
 	const now = Date.now();
@@ -1669,10 +1687,12 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		updatedAt: Date.now()
 	});
 
+	// Only the vaultKey (the wrapping key) rotates. `aesKey` is the
+	// unchanged data key — it stays live and MUST NOT be zeroized; the
+	// re-sealed vault blob, the document blobs, and the Recovery
+	// Envelope all remain valid under it.
 	zeroize(vaultKey);
-	zeroize(aesKey);
 	vaultKey = newVaultKey;
-	aesKey = newAesKey;
 	// The rotated vaultKey moves the inventory's bootstrap address; the
 	// next save re-establishes the remote inventory there. The old
 	// address is orphaned and reference-GC'd.

@@ -970,6 +970,105 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 		const accAfter = await db.account.get('singleton');
 		expect(accAfter?.masterPasswordEnabled).toBe(true);
 	});
+
+	// --- Regression: key rotation must NOT orphan attachments or the
+	// Recovery Envelope (critical data-loss audit finding). rotateAuth
+	// rotates the WRAPPING key only; the data key stays live, so
+	// documents and the envelope (both sealed under it) survive. ---
+
+	async function provisionForRotate(): Promise<{ mpk: Uint8Array; prfOutput: Uint8Array }> {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({ credentialId, salt: deviceSalt })) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'rotate-docs',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+		const mpk = new Uint8Array(32);
+		mpk.fill(0x7e);
+		return { mpk, prfOutput };
+	}
+
+	it('keeps documents decryptable after a master-password rotation', async () => {
+		const { mpk, prfOutput } = await provisionForRotate();
+		const docPlain = new TextEncoder().encode('passport scan — confidential');
+		const sealed = await sealDocument(docPlain);
+
+		await rotateAuth({
+			prfOutput,
+			secretKey: SECRET_KEY,
+			masterPasswordKey: mpk,
+			masterPasswordSalt: new Uint8Array(16).fill(0x11),
+			masterPasswordParams: { memoryKiB: 1024, iterations: 2, parallelism: 1, tagLength: 32 }
+		});
+
+		// The document — sealed under the data key BEFORE the rotation —
+		// must still open. (Old code minted a fresh data key here and
+		// bricked it.)
+		const opened = await openDocument({
+			blobId: sealed.blobId,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext
+		});
+		expect(new TextDecoder().decode(opened)).toBe('passport scan — confidential');
+	});
+
+	it('keeps the Recovery Envelope valid after a master-password rotation', async () => {
+		const { mpk, prfOutput } = await provisionForRotate();
+		const recoveryPassword = 'Jasper! Maple! Lantern! Orchid!';
+		const envelope = await sealActiveRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword
+		});
+
+		await rotateAuth({
+			prfOutput,
+			secretKey: SECRET_KEY,
+			masterPasswordKey: mpk,
+			masterPasswordSalt: new Uint8Array(16).fill(0x22),
+			masterPasswordParams: { memoryKiB: 1024, iterations: 2, parallelism: 1, tagLength: 32 }
+		});
+
+		lockSession();
+		// The envelope wraps the data key directly; the post-rotation
+		// vault blob is re-sealed under that SAME data key, so recovery
+		// must still decrypt it. (Old code re-sealed under a fresh key
+		// and silently bricked the envelope.)
+		const items = await openVaultWithRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword,
+			envelope
+		});
+		expect(Array.isArray(items)).toBe(true);
+	});
+
+	it('keeps documents decryptable across a v2→v3 upgrade-on-save', async () => {
+		await provisionForRotate();
+		const docPlain = new TextEncoder().encode('lease.pdf — confidential');
+		const sealed = await sealDocument(docPlain);
+
+		// Force the upgrade-on-save path with a live data key by marking
+		// the account row as the older format (the exact condition that
+		// used to mint a fresh AES key and orphan the document).
+		const acc = await db.account.get('singleton');
+		await db.account.put({ ...acc!, formatVersion: 2 });
+
+		await saveItems([
+			{ id: 'i1', kind: 'note', title: 'n', noteBody: 'x', createdAt: 1, updatedAt: 1 }
+		]);
+
+		const opened = await openDocument({
+			blobId: sealed.blobId,
+			nonce: sealed.nonce,
+			ciphertext: sealed.ciphertext
+		});
+		expect(new TextDecoder().decode(opened)).toBe('lease.pdf — confidential');
+	});
 });
 
 // --- Sync-fallback parity (Workstream D2) -------------------------
