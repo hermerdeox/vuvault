@@ -22,10 +22,11 @@
 		<span class="brand-pill">v0 · 2030 stack</span>
 	</div>
 
-	<div></div>
+	<div class="topbar-center">
+		<AudienceToggle />
+	</div>
 
 	<div class="nav-actions">
-		<AudienceToggle />
 		<a href="/blueprint" class="lbtn whitepaper">Whitepaper</a>
 		<button class="lbtn primary" onclick={jumpToFinal}>Start free</button>
 		<ThemeToggle />
@@ -42,7 +43,11 @@
 		height: calc(var(--top-bar-h, 56px) + env(safe-area-inset-top, 0px));
 		padding-top: env(safe-area-inset-top, 0px);
 		display: grid;
-		grid-template-columns: auto 1fr auto;
+		/* Symmetric side tracks keep the audience toggle on the true
+		   viewport centerline (auto sides centered it on the cell,
+		   ~70px off at 1600px). fr minimums fall back gracefully when
+		   a side's content outgrows its share on narrow desktops. */
+		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
 		/* Padding honors landscape-notch insets so the brand and CTAs
 		   stay clear of the iPhone notch / Dynamic Island. */
@@ -55,6 +60,14 @@
 		border-bottom: 1px solid var(--border);
 	}
 
+	.topbar-center {
+		display: flex;
+		justify-content: center;
+		min-width: 0;
+	}
+	.nav-actions {
+		justify-self: end;
+	}
 	.brand {
 		display: flex;
 		align-items: center;
