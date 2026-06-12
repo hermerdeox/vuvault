@@ -11,6 +11,7 @@
 		stripDigits,
 		networkLabel
 	} from '$lib/utils/card';
+	import { searchInstitutions } from '$lib/data/us-institutions';
 	import { vault, type VaultItem, type ItemKind } from '$lib/stores/vault.svelte';
 	import type { VaultItemPayload } from '$lib/types/vault-item';
 	import { audit } from '$lib/stores/audit.svelte';
@@ -91,6 +92,44 @@
 	// Card intelligence: live network detection + formatting +
 	// auto-advance (number → expiry → CVC). All local (utils/card).
 	const cardNetwork = $derived(detectNetwork(cardNumber));
+
+	// Institution typeahead on the card title — top-250 US banks /
+	// credit unions / issuers, all local data, max 10 results that
+	// narrow as the user types. ARIA combobox + roving active option.
+	let instOpen = $state(false);
+	let instActive = $state(-1);
+	const instMatches = $derived(
+		selectedKind === 'card' && instOpen ? searchInstitutions(title) : []
+	);
+
+	function instSelect(name: string) {
+		title = name;
+		instOpen = false;
+		instActive = -1;
+	}
+
+	function onTitleKeydown(e: KeyboardEvent) {
+		if (selectedKind !== 'card') return;
+		if (!instOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+			instOpen = true;
+			e.preventDefault();
+			return;
+		}
+		if (!instOpen || instMatches.length === 0) return;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			instActive = (instActive + 1) % instMatches.length;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			instActive = instActive <= 0 ? instMatches.length - 1 : instActive - 1;
+		} else if (e.key === 'Enter' && instActive >= 0) {
+			e.preventDefault();
+			instSelect(instMatches[instActive]!);
+		} else if (e.key === 'Escape' || e.key === 'Tab') {
+			instOpen = false;
+			instActive = -1;
+		}
+	}
 	let cardExpiryRef = $state<HTMLInputElement | undefined>();
 	let cardCvcRef = $state<HTMLInputElement | undefined>();
 
@@ -570,16 +609,58 @@
 
 			<div class="field">
 				<label for="ie-title">Title</label>
-				<input
-					id="ie-title"
-					type="text"
-					bind:value={title}
-					placeholder="Display name"
-					autocomplete="off"
-					maxlength="200"
-					aria-invalid={err('title') !== null}
-					aria-describedby={describedBy('title')}
-				/>
+				<div class="inst-wrap">
+					<input
+						id="ie-title"
+						type="text"
+						bind:value={title}
+						placeholder={selectedKind === 'card' ? 'Bank or institution name' : 'Display name'}
+						autocomplete="off"
+						maxlength="200"
+						role={selectedKind === 'card' ? 'combobox' : undefined}
+						aria-expanded={selectedKind === 'card' ? instOpen && instMatches.length > 0 : undefined}
+						aria-controls={selectedKind === 'card' ? 'inst-listbox' : undefined}
+						aria-autocomplete={selectedKind === 'card' ? 'list' : undefined}
+						aria-activedescendant={instActive >= 0 ? `inst-opt-${instActive}` : undefined}
+						onfocus={() => {
+							if (selectedKind === 'card') instOpen = true;
+						}}
+						oninput={() => {
+							if (selectedKind === 'card') {
+								instOpen = true;
+								instActive = -1;
+							}
+						}}
+						onkeydown={onTitleKeydown}
+						onblur={() => setTimeout(() => (instOpen = false), 120)}
+						aria-invalid={err('title') !== null}
+						aria-describedby={describedBy('title')}
+					/>
+					{#if selectedKind === 'card' && instOpen && instMatches.length > 0}
+						<ul class="inst-list" id="inst-listbox" role="listbox" aria-label="US institutions">
+							{#each instMatches as name, i (name)}
+								<li
+									id="inst-opt-{i}"
+									role="option"
+									aria-selected={i === instActive}
+									class="inst-opt"
+									class:active={i === instActive}
+								>
+									<button
+										type="button"
+										tabindex="-1"
+										onmousedown={(e) => {
+											e.preventDefault();
+											instSelect(name);
+										}}
+									>
+										{name}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 				{#if err('title')}
 					<div class="field-err" id={errId('title')}>{err('title')}</div>
 				{/if}
@@ -1286,6 +1367,48 @@
 	.row input,
 	.row textarea {
 		flex: 1;
+	}
+	.inst-wrap {
+		position: relative;
+	}
+	.inst-list {
+		position: absolute;
+		top: calc(100% + 6px);
+		left: 0;
+		right: 0;
+		z-index: 40;
+		list-style: none;
+		margin: 0;
+		padding: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		background: var(--bg-elev);
+		border: 1px solid var(--border-mid);
+		border-radius: var(--radius);
+		box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+		max-height: 320px;
+		overflow-y: auto;
+	}
+	.inst-opt button {
+		display: block;
+		width: 100%;
+		text-align: left;
+		padding: 9px 12px;
+		font-size: 13px;
+		color: var(--text-2);
+		border-radius: var(--radius-sm);
+		transition: var(--transition);
+	}
+	.inst-opt button:hover,
+	.inst-opt.active button {
+		background: var(--accent-dim);
+		color: var(--accent);
+	}
+	@media (pointer: coarse) {
+		.inst-opt button {
+			min-height: 44px;
+		}
 	}
 	.section-label {
 		margin: 18px 0 2px;
