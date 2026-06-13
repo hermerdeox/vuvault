@@ -1,6 +1,6 @@
 # VuVault Brand Assets
 
-Generated: 2026-05-11T17:58:12.473Z
+Generated: 2026-06-13T22:52:18.182Z
 
 ## Structure
 
@@ -28,8 +28,13 @@ manifest-snippets/
 
 ## Design Decisions
 
-- **Glyph:** Geometric vault door with keyhole + rotary handle
-- **Accent:** Off-white / steel gray (#f5f5f0 → #808080 → #505050)
-- **Halo:** Cyan canonical (#00d4ff) — unified VU brand element
-- **Background:** Deep navy radial (#0c1828 → #02060d)
-- **Dial ring, comet, dome highlight:** Present (brand-mandated)
+- **Glyph:** Circular brushed-steel safe dial (combination lock) with a
+  cyan-lit keyhole at center and a cyan index marker at 12 o'clock.
+  Chosen over the prior rounded-square vault door, which read as an
+  opaque white square inside the rounded-square tile at small sizes.
+- **Steel:** Cool brushed-steel gradient (#eef3f9 → #8b97a8 → #3a4452) —
+  metallic, never pure-white, so it does not flatten into a sticker.
+- **Keyhole / accent:** Cyan canonical (#00d4ff) — the unified VU brand
+  element and the icon's focal point, visible down to 16px.
+- **Background:** Deep navy radial (#12243f → #03070f) with a top cyan
+  dome wash.

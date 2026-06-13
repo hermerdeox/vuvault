@@ -50,24 +50,19 @@ async function resizePng(pngBuffer, width, height) {
 }
 
 // ─── Monochrome variant (white glyph on transparent) ──────────
-function buildMonochromeSvg(masterSvg) {
-  // Strip backgrounds, keep only the glyph shape, fill white
+// A clean white safe-dial silhouette the OS can tint (manifest
+// `purpose: monochrome`). Mirrors the master's dial geometry.
+function buildMonochromeSvg() {
+  const teeth = Array.from({ length: 24 }, (_, i) =>
+    `<g transform="rotate(${i * 15})"><rect x="-7" y="-368" width="14" height="34" rx="5"/></g>`
+  ).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <g transform="translate(512,480)">
-    <rect x="-175" y="-205" width="350" height="410" rx="32" fill="#ffffff"/>
-    <rect x="-155" y="-185" width="310" height="370" rx="20" fill="none"
-          stroke="#ffffff" stroke-width="2" stroke-opacity="0.5"/>
-    <line x1="50" y1="10" x2="155" y2="10" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
-    <circle cx="155" cy="10" r="28" fill="none" stroke="#ffffff" stroke-width="10"/>
-    <circle cx="-20" cy="-40" r="32" fill="#000000"/>
-    <rect x="-30" y="-40" width="20" height="70" rx="4" fill="#000000"/>
-    <rect x="-175" y="-120" width="20" height="8" rx="2" fill="#ffffff" opacity="0.6"/>
-    <rect x="-175" y="-60" width="20" height="8" rx="2" fill="#ffffff" opacity="0.6"/>
-    <rect x="-175" y="0" width="20" height="8" rx="2" fill="#ffffff" opacity="0.6"/>
-    <rect x="-175" y="60" width="20" height="8" rx="2" fill="#ffffff" opacity="0.6"/>
-    <rect x="-175" y="120" width="20" height="8" rx="2" fill="#ffffff" opacity="0.6"/>
-    <rect x="148" y="-180" width="18" height="30" rx="4" fill="#ffffff" opacity="0.4"/>
-    <rect x="148" y="150" width="18" height="30" rx="4" fill="#ffffff" opacity="0.4"/>
+  <g transform="translate(512,512)" fill="#ffffff">
+    <g>${teeth}</g>
+    <circle r="305" fill="none" stroke="#ffffff" stroke-width="78"/>
+    <path d="M 0 -300 l 16 30 l -32 0 Z"/>
+    <circle cx="0" cy="-22" r="50"/>
+    <path d="M -20 8 L -34 118 Q -34 138 0 138 Q 34 138 34 118 L 20 8 Z"/>
   </g>
 </svg>`;
 }
@@ -196,48 +191,47 @@ function buildIco(pngBuffers) {
 }
 
 // ─── Wordmark SVG ─────────────────────────────────────────────
-function buildWordmarkSvg(masterSvgContent) {
+function buildWordmarkSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" width="480" height="120">
   <defs>
-    <linearGradient id="wGlyph" x1="50%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="50%" stop-color="#c8c8c0"/>
-      <stop offset="100%" stop-color="#505050"/>
+    <linearGradient id="wSteel" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#e6ecf3"/>
+      <stop offset="55%" stop-color="#9aa6b6"/>
+      <stop offset="100%" stop-color="#4a5562"/>
     </linearGradient>
   </defs>
   <rect width="480" height="120" fill="transparent"/>
-  <!-- Mini icon placeholder (60×60) -->
-  <g transform="translate(30,30) scale(0.0586)">
-    <!-- Simplified squircle + glyph at small scale -->
-    <rect width="1024" height="1024" rx="228" fill="#050a14"/>
-    <g transform="translate(512,480)">
-      <rect x="-175" y="-205" width="350" height="410" rx="32" fill="url(#wGlyph)"/>
-      <circle cx="-20" cy="-40" r="32" fill="#0c1828"/>
-      <rect x="-30" y="-40" width="20" height="70" rx="4" fill="#0c1828"/>
-      <line x1="50" y1="10" x2="155" y2="10" stroke="url(#wGlyph)" stroke-width="14" stroke-linecap="round"/>
-      <circle cx="155" cy="10" r="28" fill="none" stroke="url(#wGlyph)" stroke-width="10"/>
+  <!-- Mini safe-dial icon (84×84) -->
+  <g transform="translate(18,18)">
+    <rect width="84" height="84" rx="20" fill="#071427"/>
+    <g transform="translate(42,42)">
+      <circle r="26" fill="none" stroke="url(#wSteel)" stroke-width="7.5"/>
+      <circle r="21" fill="#121c2b"/>
+      <circle cy="-5" r="6" fill="#22cfff"/>
+      <path d="M -2.7 -1 L -4.4 11.5 Q -4.4 14.5 0 14.5 Q 4.4 14.5 4.4 11.5 L 2.7 -1 Z" fill="#22cfff"/>
     </g>
   </g>
-  <text x="115" y="76" font-family="'Inter', system-ui, sans-serif" font-weight="900" font-size="48" letter-spacing="-1" fill="#ffffff">VuVault</text>
+  <text x="124" y="76" font-family="'Inter', system-ui, sans-serif" font-weight="900" font-size="48" letter-spacing="-1" fill="#ffffff">VuVault</text>
 </svg>`;
 }
 
 // ─── Updated favicon.svg for /static ──────────────────────────
+// Simplified safe-dial: a steel ring + cyan keyhole, legible at 16px.
 function buildFaviconSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <defs>
-    <linearGradient id="fg" x1="50%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#808080"/>
+    <linearGradient id="fsteel" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#e6ecf3"/>
+      <stop offset="55%" stop-color="#9aa6b6"/>
+      <stop offset="100%" stop-color="#4a5562"/>
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="7" fill="#050a14"/>
-  <g transform="translate(16,15)">
-    <rect x="-8" y="-9.5" width="16" height="19" rx="2.5" fill="url(#fg)"/>
-    <circle cx="-1" cy="-2" r="2.5" fill="#050a14"/>
-    <rect x="-2.2" y="-2" width="2.4" height="5" rx="0.5" fill="#050a14"/>
-    <line x1="3" y1="0.5" x2="7" y2="0.5" stroke="url(#fg)" stroke-width="1.5" stroke-linecap="round"/>
-    <circle cx="7" cy="0.5" r="2.2" fill="none" stroke="url(#fg)" stroke-width="1.2"/>
+  <rect width="32" height="32" rx="7" fill="#071427"/>
+  <g transform="translate(16,16)">
+    <circle r="10" fill="none" stroke="url(#fsteel)" stroke-width="3"/>
+    <circle r="8" fill="#121c2b"/>
+    <circle cy="-2" r="2.4" fill="#22cfff"/>
+    <path d="M -1.1 -0.4 L -1.8 4.6 Q -1.8 5.8 0 5.8 Q 1.8 5.8 1.8 4.6 L 1.1 -0.4 Z" fill="#22cfff"/>
   </g>
 </svg>`;
 }
@@ -373,7 +367,7 @@ async function main() {
     version: '1.0.0',
     generated_at: new Date().toISOString(),
     decisions: {
-      glyph: 'vault-door (geometric safe with keyhole + handle)',
+      glyph: 'safe-dial (circular brushed-steel combination dial + cyan-lit keyhole)',
       accent: ACCENT,
       variants: ['modern'],
     },
@@ -411,11 +405,16 @@ manifest-snippets/
 
 ## Design Decisions
 
-- **Glyph:** Geometric vault door with keyhole + rotary handle
-- **Accent:** Off-white / steel gray (#f5f5f0 → #808080 → #505050)
-- **Halo:** Cyan canonical (#00d4ff) — unified VU brand element
-- **Background:** Deep navy radial (#0c1828 → #02060d)
-- **Dial ring, comet, dome highlight:** Present (brand-mandated)
+- **Glyph:** Circular brushed-steel safe dial (combination lock) with a
+  cyan-lit keyhole at center and a cyan index marker at 12 o'clock.
+  Chosen over the prior rounded-square vault door, which read as an
+  opaque white square inside the rounded-square tile at small sizes.
+- **Steel:** Cool brushed-steel gradient (#eef3f9 → #8b97a8 → #3a4452) —
+  metallic, never pure-white, so it does not flatten into a sticker.
+- **Keyhole / accent:** Cyan canonical (#00d4ff) — the unified VU brand
+  element and the icon's focal point, visible down to 16px.
+- **Background:** Deep navy radial (#12243f → #03070f) with a top cyan
+  dome wash.
 `;
   writeFileSync(join(OUT, 'README.md'), readme);
 

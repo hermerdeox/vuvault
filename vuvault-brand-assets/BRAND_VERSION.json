@@ -1,9 +1,9 @@
 {
   "app": "VuVault",
   "version": "1.0.0",
-  "generated_at": "2026-05-11T17:58:12.473Z",
+  "generated_at": "2026-06-13T22:52:18.182Z",
   "decisions": {
-    "glyph": "vault-door (geometric safe with keyhole + handle)",
+    "glyph": "safe-dial (circular brushed-steel combination dial + cyan-lit keyhole)",
     "accent": "#f5f5f0",
     "variants": [
       "modern"

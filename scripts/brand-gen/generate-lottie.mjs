@@ -216,91 +216,73 @@ function domeLayer() {
 }
 
 function glyphLayer() {
-  // Vault door body as a rounded rect shape
-  const vaultBody = {
-    c: true,
-    v: [[-71.5, -102.5], [71.5, -102.5], [71.5, 102.5], [-71.5, 102.5]],
-    i: [[0, -8], [8, 0], [0, 8], [-8, 0]],
-    o: [[-8, 0], [0, -8], [8, 0], [0, 8]]
-  };
-
+  // Safe-dial face + cyan keyhole (matches the new icon master). Sits
+  // centered inside the dial ring drawn by dialLayer().
   return {
     ty: 4, nm: "Vault Glyph", sr: 1, ks: {
       o: kf(16, 26, 0, 100), r: { a: 0, k: 0 },
-      p: { a: 0, k: [CX, CY - 16, 0] }, a: { a: 0, k: [0, 0, 0] },
+      p: { a: 0, k: [CX, CY, 0] }, a: { a: 0, k: [0, 0, 0] },
       s: scaleOvershoot(16, 26, 30, 60, 105, 100)
     },
     ao: 0, ip: 16, op: TOTAL_FRAMES, st: 16, bm: 0,
     shapes: [
-      // Vault door body
+      // Gunmetal dial face
       {
         ty: "gr", it: [
-          { ty: "rc", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [175, 205] }, r: { a: 0, k: 16 } },
-          {
-            ty: "gf", t: 1,
-            s: { a: 0, k: [0, -102] }, e: { a: 0, k: [0, 102] },
-            g: { p: 3, k: { a: 0, k: [0, 1, 1, 1, 0.5, 0.78, 0.78, 0.75, 1, 0.31, 0.31, 0.31] } },
-            o: { a: 0, k: 100 }
-          },
+          { ty: "el", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [250, 250] } },
+          { ty: "fl", c: { a: 0, k: [0.11, 0.16, 0.23, 1] }, o: { a: 0, k: 100 } },
           { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "body"
+        ], nm: "face"
       },
-      // Inner frame
+      // Steel rim around the face
       {
         ty: "gr", it: [
-          { ty: "rc", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [155, 185] }, r: { a: 0, k: 10 } },
-          { ty: "st", c: { a: 0, k: [1, 1, 1, 1] }, o: { a: 0, k: 25 }, w: { a: 0, k: 1 } },
+          { ty: "el", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [250, 250] } },
+          { ty: "st", c: { a: 0, k: [0.66, 0.72, 0.80, 1] }, o: { a: 0, k: 85 }, w: { a: 0, k: 8 } },
           { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "frame"
+        ], nm: "face_rim"
+      }
+    ]
+  };
+}
+
+// The keyhole is its own top layer: shape groups nested inside the glyph
+// layer above did not paint in lottie-web, but standalone layers (dial,
+// halo, dome) render reliably. Drawn last in source = first in the layer
+// array below = topmost.
+function keyholeLayer() {
+  return {
+    ty: 4, nm: "Keyhole", sr: 1, ks: {
+      o: kf(18, 28, 0, 100), r: { a: 0, k: 0 },
+      p: { a: 0, k: [CX - 2, CY + 4, 0] }, a: { a: 0, k: [0, 0, 0] },
+      s: scaleOvershoot(18, 28, 32, 50, 110, 100)
+    },
+    ao: 0, ip: 18, op: TOTAL_FRAMES, st: 18, bm: 0,
+    shapes: [
+      // Soft cyan glow
+      {
+        ty: "gr", it: [
+          { ty: "el", p: { a: 0, k: [0, -6] }, s: { a: 0, k: [104, 104] } },
+          { ty: "fl", c: { a: 0, k: [0, 0.83, 1, 1] }, o: kf(22, 32, 0, 30) },
+          { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
+        ], nm: "glow"
       },
       // Keyhole circle
       {
         ty: "gr", it: [
-          { ty: "el", p: { a: 0, k: [-10, -20] }, s: { a: 0, k: [32, 32] } },
-          { ty: "fl", c: { a: 0, k: [0.047, 0.094, 0.157, 1] }, o: { a: 0, k: 90 } },
+          { ty: "el", p: { a: 0, k: [0, -16] }, s: { a: 0, k: [54, 54] } },
+          { ty: "fl", c: { a: 0, k: [0.22, 0.88, 1, 1] }, o: { a: 0, k: 100 } },
           { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "keyhole_circle"
+        ], nm: "k_circle"
       },
       // Keyhole slot
       {
         ty: "gr", it: [
-          { ty: "rc", p: { a: 0, k: [-10, 15] }, s: { a: 0, k: [10, 35] }, r: { a: 0, k: 2 } },
-          { ty: "fl", c: { a: 0, k: [0.047, 0.094, 0.157, 1] }, o: { a: 0, k: 90 } },
+          { ty: "rc", p: { a: 0, k: [0, 24] }, s: { a: 0, k: [28, 74] }, r: { a: 0, k: 14 } },
+          { ty: "fl", c: { a: 0, k: [0.22, 0.88, 1, 1] }, o: { a: 0, k: 100 } },
           { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "keyhole_slot"
-      },
-      // Keyhole glow ring
-      {
-        ty: "gr", it: [
-          { ty: "el", p: { a: 0, k: [-10, -20] }, s: { a: 0, k: [22, 22] } },
-          { ty: "st", c: { a: 0, k: [0, 0.83, 1, 1] }, o: kf(22, 30, 0, 50), w: { a: 0, k: 1 } },
-          { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "keyhole_glow"
-      },
-      // Handle bar
-      {
-        ty: "gr", it: [
-          { ty: "sh", ks: { a: 0, k: { c: false, v: [[25, 5], [77.5, 5]], i: [[0, 0], [0, 0]], o: [[0, 0], [0, 0]] } } },
-          { ty: "st", c: { a: 0, k: [0.78, 0.78, 0.75, 1] }, o: { a: 0, k: 100 }, w: { a: 0, k: 7 }, lc: 2 },
-          { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "handle_bar"
-      },
-      // Handle wheel
-      {
-        ty: "gr", it: [
-          { ty: "el", p: { a: 0, k: [77.5, 5] }, s: { a: 0, k: [28, 28] } },
-          { ty: "st", c: { a: 0, k: [0.78, 0.78, 0.75, 1] }, o: { a: 0, k: 100 }, w: { a: 0, k: 5 } },
-          { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: "handle_wheel"
-      },
-      // Bolt indicators (5 small rects on left)
-      ...[-60, -30, 0, 30, 60].map((yOff, i) => ({
-        ty: "gr", it: [
-          { ty: "rc", p: { a: 0, k: [-87.5, yOff] }, s: { a: 0, k: [10, 4] }, r: { a: 0, k: 1 } },
-          { ty: "fl", c: { a: 0, k: [1, 1, 1, 1] }, o: { a: 0, k: 15 } },
-          { ty: "tr", p: { a: 0, k: [0, 0] }, a: { a: 0, k: [0, 0] }, s: { a: 0, k: [100, 100] }, r: { a: 0, k: 0 }, o: { a: 0, k: 100 } }
-        ], nm: `bolt_${i}`
-      }))
+        ], nm: "k_slot"
+      }
     ]
   };
 }
@@ -345,6 +327,7 @@ const lottie = {
   assets: [],
   layers: [
     // Render order: back to front (Lottie renders top layer first)
+    keyholeLayer(),
     glyphLayer(),
     haloLayer(),
     domeLayer(),
