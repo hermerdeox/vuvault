@@ -484,6 +484,41 @@ jobs:
             --branch=main \
             --commit-hash="${{ github.sha }}"
 
+      - name: Purge the runtime-env edge cache
+        # /_app/env.js is now marked no-store at the origin (build-manifest
+        # _headers), but a response cached BEFORE that header shipped can
+        # linger at the Cloudflare edge for its TTL (observed max-age=14400
+        # = 4h). That stale env.js keeps serving the PREVIOUS release's
+        # PUBLIC_BUNDLE_HASH, so the integrity gate below mismatches the
+        # freshly-deployed bundle. Purge it so the new release's runtime env
+        # is served immediately. Best-effort: if the API token lacks
+        # Zone:Read / Cache Purge the step warns and continues — the
+        # no-store header heals it on the next cache TTL regardless.
+        if: github.event_name == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+        run: |
+          set -uo pipefail
+          host=$(printf '%s' "$PUBLIC_SYNC_ORIGIN" | sed -E 's#^https?://##; s#/.*$##')
+          zone=$(curl -fsS "https://api.cloudflare.com/client/v4/zones?name=${host}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write(JSON.parse(d).result?.[0]?.id||'')}catch{process.stdout.write('')}})") || zone=""
+          if [ -z "${zone}" ]; then
+            echo "::warning::could not resolve a zone id for ${host} (token may lack Zone:Read) — skipping edge purge; no-store will heal on cache TTL"
+            exit 0
+          fi
+          resp=$(curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/${zone}/purge_cache" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"files\":[\"${PUBLIC_SYNC_ORIGIN}/_app/env.js\",\"${PUBLIC_SYNC_ORIGIN}/_app/immutable/bundle-manifest.json\"]}") || resp=""
+          if printf '%s' "$resp" | grep -q '"success":true'; then
+            echo "Purged ${PUBLIC_SYNC_ORIGIN}/_app/env.js from the edge"
+            sleep 6
+          else
+            echo "::warning::edge cache purge did not succeed (${resp:-no response}) — a manual purge of /_app/env.js may be needed if the smoke below fails"
+          fi
+
       - name: Post-deploy production smoke
         if: github.event_name == 'release'
         env:
