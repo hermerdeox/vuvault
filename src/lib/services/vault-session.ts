@@ -96,7 +96,8 @@ import {
 	inventorySetVaultBlob,
 	inventoryAddDocumentBlob,
 	inventoryPullVault,
-	inventoryLatestIndex
+	inventoryLatestIndex,
+	inventoryKeepAlive
 } from './inventory-session';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 
@@ -298,6 +299,63 @@ async function pullBlobFromServer(): Promise<BlobBytes | null> {
 	};
 }
 
+/**
+ * Decrypt a pulled remote whole-vault blob with the active vaultKey,
+ * persist it locally as the authoritative vault, and swap the in-memory
+ * DEK to the one wrapped in the remote header. The pull paths guarantee
+ * the remote is strictly newer than what this session holds, so adopting
+ * it is the correct last-writer-wins resolution.
+ *
+ * The remote blob carries its OWN wrapped-key header; we unwrap it with
+ * our vaultKey rather than assuming the remote was sealed under our
+ * current DEK. After a successful open we point `aesKey` at the remote's
+ * DEK and zeroize the previous one, so the next `saveItems` re-seals
+ * against the header we just persisted — never a stale key that would
+ * brick the round-trip.
+ *
+ * Throws if the remote cannot be opened with our keys (a blob from a
+ * different account, or a tampered AAD); callers treat that as "keep
+ * local" and never destroy the local copy.
+ */
+async function promoteRemoteBlob(
+	account: AccountRecord,
+	remote: BlobBytes
+): Promise<VaultItem[]> {
+	if (!vaultKey) throw new Error('promoteRemoteBlob: no active vault key');
+	const remoteAad = makeAad(
+		account.formatVersion,
+		account.authMode,
+		account.deviceSalt,
+		account.credentialId,
+		remote.header
+	);
+	const remoteWrapped = deserializeWrappedKey(remote.header);
+	const remoteAesKey = unwrapAesKey(vaultKey, account.deviceSalt, remoteWrapped);
+	try {
+		const remotePlaintext = openBlob(
+			remoteAesKey,
+			remote.nonce,
+			remote.ciphertext,
+			remoteAad,
+			account.formatVersion
+		);
+		const remoteItems = deserializeItems(remotePlaintext);
+		await saveVault({
+			header: remote.header,
+			nonce: remote.nonce,
+			ciphertext: remote.ciphertext,
+			updatedAt: Date.now()
+		});
+		const previousAesKey = aesKey;
+		aesKey = remoteAesKey;
+		if (previousAesKey && previousAesKey !== remoteAesKey) zeroize(previousAesKey);
+		return remoteItems;
+	} catch (err) {
+		zeroize(remoteAesKey);
+		throw err;
+	}
+}
+
 export async function syncNow(): Promise<SyncNowResult> {
 	if (!isSyncWired()) {
 		return { status: 'not-wired', message: 'Sync server not configured.' };
@@ -310,13 +368,36 @@ export async function syncNow(): Promise<SyncNowResult> {
 	}
 	const account = await getAccount();
 	if (!account) return { status: 'failed', message: 'Account row missing.' };
-	if (account.formatVersion !== PROVISION_FORMAT_VERSION) {
+	if (account.formatVersion < 2) {
 		return {
 			status: 'failed',
-			message: 'Sync requires a formatVersion 2 vault. Save once to upgrade.'
+			message: 'Sync requires a v2 or newer vault. Save once to upgrade.'
 		};
 	}
 	try {
+		// PULL BEFORE PUSH. The previous order pushed the local vault
+		// first, which let a stale device overwrite — and then DELETE
+		// (via the superseded-blob cleanup) — a newer vault another
+		// device had pushed. Reconcile first: if the server is strictly
+		// ahead, adopt and promote its vault instead of clobbering it.
+		// Only when we are at-or-ahead of the server do we push, so a
+		// push can never destroy newer remote data.
+		const remote = await pullBlobFromServer();
+		if (remote) {
+			const remoteItems = await promoteRemoteBlob(account, remote);
+			// Re-assert every live blob reference so the server-side GC
+			// does not reap a current blob we simply didn't re-upload.
+			await inventoryKeepAlive();
+			return {
+				status: 'promoted',
+				message: 'Pulled newer vault from sync server.',
+				sequenceClock: Number(inventoryLatestIndex()),
+				items: remoteItems
+			};
+		}
+
+		// No newer remote → we are at-or-ahead. Safe to push the local
+		// vault (covers a prior save whose fire-and-forget push failed).
 		const localVault = await getVault();
 		if (localVault) {
 			await pushBlobToServer({
@@ -325,47 +406,8 @@ export async function syncNow(): Promise<SyncNowResult> {
 				ciphertext: localVault.ciphertext
 			});
 		}
-		const remote = await pullBlobFromServer();
-		if (!remote) {
-			return { status: 'local-newer', message: 'No newer remote vault found.' };
-		}
-		const remoteAad = makeAad(
-			account.formatVersion,
-			account.authMode,
-			account.deviceSalt,
-			account.credentialId,
-			remote.header
-		);
-		const remoteWrapped = deserializeWrappedKey(remote.header);
-		const remoteAesKey = unwrapAesKey(vaultKey, account.deviceSalt, remoteWrapped);
-		try {
-			const remotePlaintext = openBlob(
-				remoteAesKey,
-				remote.nonce,
-				remote.ciphertext,
-				remoteAad,
-				account.formatVersion
-			);
-			const remoteItems = deserializeItems(remotePlaintext);
-			await saveVault({
-				header: remote.header,
-				nonce: remote.nonce,
-				ciphertext: remote.ciphertext,
-				updatedAt: Date.now()
-			});
-			const previousAesKey = aesKey;
-			aesKey = remoteAesKey;
-			if (previousAesKey && previousAesKey !== remoteAesKey) zeroize(previousAesKey);
-			return {
-				status: 'promoted',
-				message: 'Pulled newer vault from sync server.',
-				sequenceClock: Number(inventoryLatestIndex()),
-				items: remoteItems
-			};
-		} catch (err) {
-			zeroize(remoteAesKey);
-			throw err;
-		}
+		await inventoryKeepAlive();
+		return { status: 'local-newer', message: 'Local vault is up to date with the sync server.' };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Sync failed.';
 		syncObserver.onPullSkipped?.({ reason: 'sync-now-failed' });
@@ -978,43 +1020,32 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	initInventorySession(newVaultKey, account.deviceSalt);
 
 	// Race the local read against a server pull. If the remote has a
-	// strictly higher sequence clock, decrypt that blob with the
-	// current vaultKey + aesKey, persist locally, and return its
-	// items. Otherwise the local plaintext wins. Pull failures
-	// (offline, server down, no remote blob yet) drop us to local.
+	// strictly higher sequence clock, decrypt that blob and adopt it;
+	// otherwise the local plaintext wins. Pull failures (offline, server
+	// down, no remote blob yet) drop us to local — never an error.
+	//
+	// Gate is `v >= 2`, NOT `v === 2`: every vault is provisioned at
+	// PROVISION_FORMAT_VERSION (currently 3) and saveItems upgrades v2→v3,
+	// so the old `v === 2` check made the unlock-pull dead code for every
+	// live vault — a returning user (or second device) silently kept stale
+	// local data and never adopted newer synced state. v2-envelope vaults
+	// (v2 and v3) share the wrapped-key header that `promoteRemoteBlob`
+	// unwraps, so both are eligible.
 	let items = deserializeItems(plaintext);
-	if (account.authMode === 'production' && v === 2) {
+	if (account.authMode === 'production' && v >= 2 && newAesKey) {
 		try {
 			const remote = await pullBlobFromServer();
-			if (remote && newAesKey) {
-				const remoteAad = makeAad(
-					account.formatVersion,
-					account.authMode,
-					account.deviceSalt,
-					account.credentialId,
-					remote.header
-				);
+			if (remote) {
 				try {
-					const remotePlaintext = openBlob(
-						newAesKey,
-						remote.nonce,
-						remote.ciphertext,
-						remoteAad,
-						account.formatVersion
-					);
-					const remoteItems = deserializeItems(remotePlaintext);
-					await saveVault({
-						header: remote.header,
-						nonce: remote.nonce,
-						ciphertext: remote.ciphertext,
-						updatedAt: Date.now()
-					});
-					items = remoteItems;
+					// Adopt the remote vault and swap to its DEK. Reusing the
+					// shared promote helper keeps unlock-pull and manual sync
+					// byte-for-byte consistent (header unwrap + aesKey swap).
+					items = await promoteRemoteBlob(account, remote);
+					await inventoryKeepAlive();
 				} catch {
-					// Remote blob couldn't be decrypted with our local
-					// keys — likely produced by a different account or
-					// a tampered AAD. Local wins and the observer was
-					// already notified by pullBlobFromServer.
+					// Remote blob couldn't be decrypted with our keys —
+					// likely a different account or tampered AAD. Local wins;
+					// pullBlobFromServer already notified the observer.
 					syncObserver.onPullSkipped?.({ reason: 'remote-decrypt-failed' });
 				}
 			}

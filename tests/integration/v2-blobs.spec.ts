@@ -480,7 +480,7 @@ describe('V1-C1/V1-C3 · GC reference-counted sweep', () => {
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
 
 		// Seed two stale blob_references and one fresh.
-		const staleSec = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000); // 30d ago
+		const staleSec = Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000); // 90d ago (past the 60d window)
 		db.blobRefs.set('11111111-1111-4111-8111-111111111111', {
 			last_seen_at: staleSec,
 			bytes: 100
@@ -525,7 +525,7 @@ describe('V1-C1/V1-C3 · GC reference-counted sweep', () => {
 		const db = e.AUTH_DB as unknown as FakeD1;
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
 
-		const staleSec = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+		const staleSec = Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000);
 		db.invRefs.set('aaaaaaaaaaaaaaaaaaaaaaaaaa', { last_seen_at: staleSec, bytes: 100 });
 		await r2.put('v2/inv/aaaaaaaaaaaaaaaaaaaaaaaaaa.bin', new Uint8Array([1]));
 

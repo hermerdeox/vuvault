@@ -13,12 +13,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { gcV2Now } from './r2-gc';
+import { gcV2Now, touchV2BlobReferences } from './r2-gc';
 import type { Env, R2Bucket } from './env';
 
 const DAY_SEC = 24 * 60 * 60;
 const NOW_SEC = Math.floor(Date.now() / 1000);
-const STALE_SEC = NOW_SEC - 30 * DAY_SEC; // well past the 14-day window
+const STALE_SEC = NOW_SEC - 90 * DAY_SEC; // well past the 60-day window
 const FRESH_SEC = NOW_SEC; // just refreshed — must survive
 
 class FakeR2 {
@@ -61,6 +61,15 @@ class FakeStmt {
 			this.db.blobRefs.delete(this.args[0] as string);
 		} else if (this.sql.includes('DELETE FROM inv_references')) {
 			this.db.invRefs.delete(this.args[0] as string);
+		} else if (this.sql.includes('UPDATE blob_references SET last_seen_at')) {
+			// Keep-alive touch: refresh an EXISTING row to "now"; unknown
+			// ids match nothing (changes = 0), so no phantom row is minted.
+			const id = this.args[0] as string;
+			if (this.db.blobRefs.has(id)) {
+				this.db.blobRefs.set(id, NOW_SEC);
+				return Promise.resolve({ meta: { changes: 1 } });
+			}
+			return Promise.resolve({ meta: { changes: 0 } });
 		}
 		return Promise.resolve({ meta: { changes: 1 } });
 	}
@@ -153,5 +162,50 @@ describe('r2-gc · gcV2Now', () => {
 
 		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0 });
 		expect(db.blobRefs.size).toBe(1);
+	});
+});
+
+describe('r2-gc · touchV2BlobReferences (keep-alive heartbeat)', () => {
+	const LIVE = '55555555-5555-4555-8555-555555555555';
+
+	it('refreshes a stale-but-live reference so the next sweep spares it', async () => {
+		const db = new FakeD1();
+		// Live blob the client hasn't re-fetched in a long time — as-is it
+		// would be collected on the next sweep (this is the data-loss bug).
+		db.blobRefs.set(LIVE, STALE_SEC);
+		const r2 = new FakeR2();
+
+		// Case-insensitive match: the client may send an upper-case UUID.
+		const touched = await touchV2BlobReferences(envWith(db, r2), [LIVE.toUpperCase()]);
+		expect(touched).toBe(1);
+
+		// Now that last_seen_at is fresh, the sweep must NOT collect it.
+		const result = await gcV2Now(envWith(db, r2));
+		expect(result.v2BlobsDeleted).toBe(0);
+		expect(db.blobRefs.has(LIVE)).toBe(true);
+		expect(r2.deletedKeys).toHaveLength(0);
+	});
+
+	it('is a no-op for an unknown id — never mints a phantom reference', async () => {
+		const db = new FakeD1();
+		const r2 = new FakeR2();
+
+		const touched = await touchV2BlobReferences(envWith(db, r2), [
+			'66666666-6666-4666-8666-666666666666'
+		]);
+		expect(touched).toBe(0);
+		expect(db.blobRefs.size).toBe(0);
+	});
+
+	it('counts only the references that actually existed', async () => {
+		const db = new FakeD1();
+		db.blobRefs.set(LIVE, STALE_SEC);
+		const r2 = new FakeR2();
+
+		const touched = await touchV2BlobReferences(envWith(db, r2), [
+			LIVE,
+			'77777777-7777-4777-8777-777777777777' // not present
+		]);
+		expect(touched).toBe(1);
 	});
 });

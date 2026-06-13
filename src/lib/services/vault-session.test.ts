@@ -63,6 +63,7 @@ import {
 	provisionVault,
 	openVault,
 	saveItems,
+	syncNow,
 	lockSession,
 	isSessionActive,
 	generateDeviceSalt,
@@ -78,7 +79,8 @@ import {
 	CurrentMasterPasswordIncorrect
 } from './vault-session';
 import { attachDocumentFile } from './document-blobs';
-import { setSessionToken } from './sync-client';
+import { setSessionToken, fetchV2Blob } from './sync-client';
+import { inventoryVaultBlobId } from './inventory-session';
 import {
 	db,
 	validateAccountRow,
@@ -151,7 +153,18 @@ function makeV2RecordingFetch(urls: string[]): typeof fetch {
 				if (!hit) return jr(404, 'not found');
 				return jr(200, { blobId: id, ...hit, updatedAt: clock++ });
 			}
-			if (method === 'DELETE') return jr(200, { blobId: id, deletedAt: clock++ });
+			if (method === 'DELETE') {
+				// Actually remove it so a later GET 404s — lets tests prove
+				// whether a blob was destroyed by the sync path.
+				blobStore.delete(id);
+				return jr(200, { blobId: id, deletedAt: clock++ });
+			}
+		}
+		const keepalive = url.match(/\/api\/v2\/keepalive$/);
+		if (keepalive && method === 'POST') {
+			const ids = (JSON.parse(String(init?.body ?? '{}')).blobIds ?? []) as string[];
+			const touched = ids.filter((id) => blobStore.has(id)).length;
+			return jr(200, { touched });
 		}
 		const inv = url.match(/\/api\/v2\/inv\/([^/?#]+)$/);
 		if (inv) {
@@ -1466,5 +1479,163 @@ describe('document blob crypto', () => {
 				createdAt: 1
 			})
 		).toThrow(/nonce must be 12 bytes/);
+	});
+});
+
+// -----------------------------------------------------------------------------
+// Destructive-sync regressions (HIGH audit finding #3)
+// -----------------------------------------------------------------------------
+//
+// Two-"device" simulations against ONE shared in-memory v2 server
+// (makeV2RecordingFetch keeps its blob + inventory stores across calls
+// within a test). They lock down the three data-loss paths:
+//
+//   1. unlock-pull was gated on `v === 2`, but every vault is v3, so a
+//      returning device never adopted newer synced state.
+//   2. syncNow pushed the local vault BEFORE pulling, letting a stale
+//      device overwrite — and DELETE (via the superseded-blob cleanup) —
+//      a newer remote vault.
+//   3. live blob references must be re-asserted on sync so the GC can't
+//      reap a current blob the client didn't re-upload this cycle.
+
+describe('vault-session — destructive-sync regressions (finding #3)', () => {
+	const REAL_TOKEN = 'a'.repeat(64);
+
+	const itemA: VaultItem = {
+		id: 'a',
+		kind: 'note',
+		title: 'A',
+		createdAt: 1,
+		updatedAt: 1,
+		noteBody: 'alpha'
+	};
+	const itemB: VaultItem = {
+		id: 'b',
+		kind: 'note',
+		title: 'B',
+		createdAt: 2,
+		updatedAt: 2,
+		noteBody: 'bravo'
+	};
+
+	// saveItems pushes fire-and-forget; drain the queued upload chain
+	// (PUT blob → PUT inv → DELETE prev) so the shared server settles.
+	async function flush(): Promise<void> {
+		for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+	}
+
+	async function provisionAndLogin(): Promise<void> {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({ credentialId, salt: deviceSalt })) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'sync-device',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+		setSessionToken(REAL_TOKEN);
+	}
+
+	beforeEach(() => {
+		mockSyncOrigin = 'https://sync.test.invalid';
+	});
+	afterEach(() => {
+		setSessionToken(null);
+		mockSyncOrigin = '';
+	});
+
+	it('unlock-pull adopts a newer remote vault for a v3 vault (gate was dead at v===2)', async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = makeV2RecordingFetch([]);
+		try {
+			await provisionAndLogin();
+			expect(currentFormatVersion()).toBe(PROVISION_FORMAT_VERSION);
+			expect(PROVISION_FORMAT_VERSION).toBeGreaterThanOrEqual(3);
+
+			await saveItems([itemA]);
+			await flush();
+			const staleVaultRow = await db.vault.get('singleton'); // [A]
+			await saveItems([itemA, itemB]); // server advances to [A, B]
+			await flush();
+
+			// Make this device stale: restore its local row to the [A]
+			// snapshot, as if it never persisted [A, B] locally.
+			await db.vault.put(staleVaultRow!);
+
+			// Re-unlock. The v>=2 fix fires the unlock-pull on the v3 vault,
+			// sees the newer server vault, and adopts [A, B]. (lockSession
+			// drops the sync token, so re-assert it as a real OPAQUE unlock
+			// would before opening.)
+			lockSession();
+			setSessionToken(REAL_TOKEN);
+			const opened = await openVault({ secretKey: SECRET_KEY });
+			expect(opened.map((i) => i.title).sort()).toEqual(['A', 'B']);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it('stale syncNow promotes the newer remote instead of clobbering and deleting it', async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = makeV2RecordingFetch([]);
+		try {
+			await provisionAndLogin();
+			await saveItems([itemA]); // server: blob1 [A], index 1
+			await flush();
+			const staleVaultRow = await db.vault.get('singleton');
+			await saveItems([itemA, itemB]); // server: blob2 [A, B], index 2
+			await flush();
+			const newerBlobId = inventoryVaultBlobId()!; // blob2
+			expect(newerBlobId).toBeTruthy();
+
+			// Force this device stale: restore local vault to [A] and rebuild
+			// a fresh, un-pulled session (token off so openVault skips its
+			// pull — we want syncNow itself to perform the reconcile).
+			await db.vault.put(staleVaultRow!);
+			lockSession();
+			setSessionToken(null);
+			await openVault({ secretKey: SECRET_KEY }); // local [A]; no pull
+			setSessionToken(REAL_TOKEN);
+
+			// Manual sync. Pull-before-push must ADOPT the newer [A, B] and
+			// must NOT push [A] over it or delete blob2.
+			const result = await syncNow();
+			expect(result.status).toBe('promoted');
+			if (result.status === 'promoted') {
+				expect(result.items.map((i) => i.title).sort()).toEqual(['A', 'B']);
+			}
+
+			// The newer remote blob survives — never destroyed by a stale push.
+			const stillThere = await fetchV2Blob(newerBlobId);
+			expect(stillThere.ok).toBe(true);
+		} finally {
+			globalThis.fetch = originalFetch;
+			setSessionToken(null);
+		}
+	});
+
+	it('re-asserts live blob references via a keep-alive on every sync', async () => {
+		const urls: string[] = [];
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = makeV2RecordingFetch(urls);
+		try {
+			await provisionAndLogin();
+			await saveItems([itemA]);
+			await flush();
+
+			urls.length = 0; // focus on the sync below
+			const result = await syncNow();
+			expect(['promoted', 'local-newer']).toContain(result.status);
+
+			// The sync issued a keep-alive POST naming the live vault blob,
+			// so the GC sees a fresh last_seen_at even with no re-upload.
+			expect(urls.some((u) => /\/api\/v2\/keepalive$/.test(u))).toBe(true);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });

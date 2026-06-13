@@ -460,3 +460,27 @@ export async function fetchV2Inventory(
 		isV2InvResponse
 	);
 }
+
+function isKeepAliveResponse(value: unknown): value is { touched: number } {
+	return isRecord(value) && hasNumber(value, 'touched');
+}
+
+/**
+ * Re-assert a batch of live blob references so the server-side GC does
+ * not reap blobs that are still current but were not re-uploaded or
+ * re-downloaded this cycle (notably document blobs, which are only
+ * fetched on open). The server refreshes `last_seen_at` for each
+ * matching reference WITHOUT transferring the blob bytes — a cheap
+ * heartbeat. No account binding crosses the wire; the IDs are the same
+ * account-free UUIDs already grouped under this session token, so this
+ * stays within the V1-C1/V1-C3 model. Best-effort at the call site.
+ */
+export async function keepAliveV2(
+	blobIds: string[]
+): Promise<SyncResult<{ touched: number }>> {
+	return call<{ touched: number }>(
+		'/api/v2/keepalive',
+		{ method: 'POST', body: JSON.stringify({ blobIds }) },
+		isKeepAliveResponse
+	);
+}

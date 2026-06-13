@@ -58,6 +58,7 @@ import {
 import {
 	uploadV2Inventory,
 	fetchV2Inventory,
+	keepAliveV2,
 	isSyncWired,
 	hasSession
 } from './sync-client';
@@ -294,6 +295,30 @@ export async function inventoryRemoveDocumentBlob(blobId: string): Promise<boole
 	active.docBlobIds = active.docBlobIds.filter((id) => id !== blobId);
 	if (active.docBlobIds.length !== before) active.version += 1n;
 	return persist(active);
+}
+
+/**
+ * Re-assert every live blob reference this inventory tracks (the current
+ * whole-vault blob + all attached document blobs) so the server-side GC
+ * does not reap a blob that is still current. Vault blobs are refreshed
+ * naturally on push/pull, but document blobs are only touched when the
+ * user opens them — without this heartbeat a never-opened attachment
+ * ages out of `blob_references` and gets collected while still live.
+ *
+ * Called at the explicit sync points (unlock-pull, manual sync), never
+ * on the hot mutate path. Best-effort: a failure never blocks sync.
+ */
+export async function inventoryKeepAlive(): Promise<void> {
+	if (!active || !isSyncWired() || !hasSession()) return;
+	const liveIds: string[] = [];
+	if (active.vaultBlobId !== null) liveIds.push(active.vaultBlobId);
+	liveIds.push(...active.docBlobIds);
+	if (liveIds.length === 0) return;
+	try {
+		await keepAliveV2(liveIds);
+	} catch {
+		// Heartbeat only — a failed keep-alive is harmless this cycle.
+	}
 }
 
 /**
