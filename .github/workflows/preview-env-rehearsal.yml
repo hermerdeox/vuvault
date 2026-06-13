@@ -1,0 +1,173 @@
+name: Preview env-wiring rehearsal
+
+# Manual, production-safe rehearsal that PROVES the runtime-env wiring
+# mechanism the release workflow depends on: `wrangler pages secret put`
+# -> Pages project deployment_configs.<env>.env_vars -> the deployed
+# Worker's /_app/env.js. It targets the PREVIEW environment and a
+# throwaway preview branch only, so it never touches production config or
+# the live production deployment.
+#
+# Run it before cutting a release whenever the deploy/env mechanism
+# changes:  gh workflow run preview-env-rehearsal.yml
+#
+# Green here means: a value set via `pages secret put` reaches the
+# deployed /_app/env.js. The release workflow does the identical thing on
+# the production env, so a green rehearsal de-risks the real cut.
+
+on:
+  workflow_dispatch:
+    inputs:
+      marker:
+        description: 'Test value to set as PUBLIC_BUNDLE_HASH on preview (96-hex recommended; must not be the dev placeholder)'
+        required: false
+        default: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-env-rehearsal
+  cancel-in-progress: true
+
+jobs:
+  rehearse:
+    name: prove pages secret put reaches /_app/env.js
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+      MARKER: ${{ github.event.inputs.marker }}
+      PREVIEW_BRANCH: env-rehearsal
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Use Node from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Guard inputs
+        run: |
+          set -euo pipefail
+          if [ -z "${MARKER:-}" ] || [ "$MARKER" = "9f4c7d2e8b16a4f122e0d5c83a7e91b4" ]; then
+            echo "::error::marker is empty or the dev placeholder — pick a distinct test value"
+            exit 1
+          fi
+          if [ -z "${PUBLIC_SYNC_ORIGIN:-}" ]; then
+            echo "::error::vars.PUBLIC_SYNC_ORIGIN is not set on the repo"
+            exit 1
+          fi
+
+      - name: Build a deployable bundle
+        # The bundle just needs to exist to deploy; the rehearsal asserts
+        # on the RUNTIME env (/_app/env.js), which comes from the Pages
+        # project vars, not from what the build baked in.
+        run: npm run build
+        env:
+          PUBLIC_BUNDLE_HASH: ${{ github.event.inputs.marker }}
+          PUBLIC_VAULT_VERSION: 0.1.0
+          PUBLIC_ENABLE_DEMO_AUTH: 'false'
+
+      - name: Warm up the preview deployment config
+        # `pages secret put --env=preview` PATCHes
+        # deployment_configs.preview and reads its existing
+        # wrangler_config_hash. On a project that has never had a preview
+        # deployment that config may be unpopulated, so materialize it with
+        # one preview deploy BEFORE the first secret put. (Harmless if the
+        # preview env already exists — it just refreshes it.) This also
+        # makes the real test below an exact set-then-deploy of an existing
+        # env, mirroring production.
+        run: |
+          set -euo pipefail
+          npx wrangler pages deploy .svelte-kit/cloudflare \
+            --project-name=vuvault \
+            --branch="$PREVIEW_BRANCH" >/dev/null 2>&1 || true
+          echo "Warmed up deployment_configs.preview"
+
+      - name: Set PREVIEW env on the Pages project
+        # Identical call to the release deploy step, but --env=preview so
+        # production deployment_configs are never touched.
+        run: |
+          set -euo pipefail
+          printf '%s' "$MARKER" \
+            | npx wrangler pages secret put PUBLIC_BUNDLE_HASH --project-name=vuvault --env=preview
+          printf '%s' "$PUBLIC_SYNC_ORIGIN" \
+            | npx wrangler pages secret put PUBLIC_SYNC_ORIGIN --project-name=vuvault --env=preview
+          echo "Set PUBLIC_BUNDLE_HASH(marker) + PUBLIC_SYNC_ORIGIN on the preview env"
+
+      - name: Deploy to a preview branch and capture the URL
+        id: deploy
+        run: |
+          set -euo pipefail
+          out=$(npx wrangler pages deploy .svelte-kit/cloudflare \
+            --project-name=vuvault \
+            --branch="$PREVIEW_BRANCH" 2>&1 | tee /dev/stderr)
+          url=$(printf '%s\n' "$out" | grep -oE 'https://[a-z0-9._-]+\.pages\.dev' | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::could not parse a preview deployment URL from wrangler output"
+            exit 1
+          fi
+          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Preview deployment: $url"
+
+      - name: Assert the marker reached the deployed /_app/env.js
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const url = process.env.PREVIEW_URL;
+          const marker = process.env.MARKER;
+          const origin = process.env.PUBLIC_SYNC_ORIGIN;
+          let runtimeEnv = null;
+          // Pages env propagation can lag the asset deploy; poll.
+          for (let attempt = 1; attempt <= 8; attempt++) {
+            const res = await fetch(`${url}/_app/env.js`, { cache: 'no-store' });
+            if (res.ok) {
+              const text = await res.text();
+              const m = text.match(/export const env\s*=\s*(\{[\s\S]*?\})/);
+              if (m) {
+                try { runtimeEnv = JSON.parse(m[1]); } catch { /* keep polling */ }
+              }
+            }
+            if (runtimeEnv && runtimeEnv.PUBLIC_BUNDLE_HASH === marker) break;
+            if (attempt < 8) await new Promise((r) => setTimeout(r, 10000));
+          }
+          if (!runtimeEnv) {
+            throw new Error(`could not fetch/parse ${url}/_app/env.js after retries`);
+          }
+          if (runtimeEnv.PUBLIC_BUNDLE_HASH !== marker) {
+            throw new Error(
+              `MECHANISM BROKEN: /_app/env.js PUBLIC_BUNDLE_HASH = "${runtimeEnv.PUBLIC_BUNDLE_HASH ?? '(absent)'}", expected the marker "${marker}". pages secret put did NOT reach the runtime.`
+            );
+          }
+          if (!runtimeEnv.PUBLIC_SYNC_ORIGIN) {
+            throw new Error('MECHANISM BROKEN: PUBLIC_SYNC_ORIGIN absent from /_app/env.js after secret put.');
+          }
+          if (origin && runtimeEnv.PUBLIC_SYNC_ORIGIN !== origin) {
+            throw new Error(
+              `PUBLIC_SYNC_ORIGIN = "${runtimeEnv.PUBLIC_SYNC_ORIGIN}", expected "${origin}".`
+            );
+          }
+          console.log(
+            `REHEARSAL GREEN: pages secret put reaches /_app/env.js — PUBLIC_BUNDLE_HASH(marker) and PUBLIC_SYNC_ORIGIN both present at ${url}. The release deploy uses the identical mechanism on production.`
+          );
+          NODE
+
+      - name: Clean up preview env (best-effort)
+        # The rehearsal leaves a bogus marker hash + the prod sync origin
+        # in the preview env. Unset them so a later ordinary preview deploy
+        # (e.g. a PR preview) doesn't serve rehearsal values. Never fatal —
+        # the preview env is rehearsal-owned and never feeds production.
+        if: always()
+        run: |
+          set +e
+          npx wrangler pages secret delete PUBLIC_BUNDLE_HASH --project-name=vuvault --env=preview </dev/null
+          npx wrangler pages secret delete PUBLIC_SYNC_ORIGIN --project-name=vuvault --env=preview </dev/null
+          echo "Preview env cleanup attempted"
