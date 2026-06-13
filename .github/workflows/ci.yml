@@ -6,10 +6,31 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege token. Every job in this workflow only reads the repo
+# (actions/checkout) and writes build artifacts via actions/upload-artifact
+# (which authenticates with the Actions runtime token, NOT `contents`). No
+# job needs write access to repository contents, so we drop everything
+# except `contents: read`. The release workflow, which DOES sign and deploy,
+# declares its own broader permissions separately.
+permissions:
+  contents: read
+
+# Cancel superseded PR runs to reclaim runner minutes, but NEVER cancel a
+# push-to-main run: each landed commit must produce a complete set of
+# gating artifacts (.m3-e2e-passed-<sha>, .vu1-probe-passed-<sha>, sbom-<sha>)
+# that the release workflow consumes by exact SHA. Cancelling a mainline run
+# mid-flight would leave a commit without those artifacts.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   quality:
     name: lint · check · test · build
     runs-on: ubuntu-latest
+    # Generous cap well above the observed ~5–6 min; bounds a hang
+    # (stuck install, runaway test) instead of the 6-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -361,6 +382,7 @@ jobs:
     name: reproducible build verification
     runs-on: ubuntu-latest
     needs: quality
+    timeout-minutes: 20
     # Builds twice from a clean checkout with identical SOURCE_DATE_EPOCH
     # + PUBLIC_VAULT_VERSION and asserts the resulting `.bundle-digest`
     # is byte-identical. This is the public "anyone can rebuild from
@@ -400,6 +422,7 @@ jobs:
     name: playwright smoke
     runs-on: ubuntu-latest
     needs: quality
+    timeout-minutes: 20
     # E2e runs on BOTH push-to-main and pull-request events. Previously
     # this job was PR-only, which meant a fast-forward merge to main
     # could silently land an e2e regression. Mainline must stay green.
@@ -455,6 +478,9 @@ jobs:
     name: m3 d1/r2 sync e2e
     runs-on: ubuntu-latest
     needs: quality
+    # Higher cap: spins up wrangler pages dev + applies D1 migrations +
+    # Playwright. A wedged dev server is exactly what this bounds.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -580,6 +606,7 @@ jobs:
     name: vu1 probe e2e
     runs-on: ubuntu-latest
     needs: quality
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
