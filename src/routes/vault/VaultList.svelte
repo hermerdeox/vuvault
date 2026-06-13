@@ -137,9 +137,25 @@
 							<div class="sub">{item.username}</div>
 						{/if}
 					</div>
-					{#if item.favorite}
-						<div class="fav">★</div>
-					{/if}
+					<div class="trail">
+						{#if item.favorite}
+							<span class="fav">★</span>
+						{/if}
+						<svg
+							class="chev"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<path d="M9 18l6-6-6-6" />
+						</svg>
+					</div>
 				</button>
 			{/each}
 		{/if}
@@ -172,20 +188,46 @@
 		background: var(--accent);
 		color: var(--bg);
 		border: 1px solid var(--accent);
-		border-radius: var(--radius);
-		transition: var(--transition);
+		border-radius: var(--radius-lg);
+		/* Lift the accent off the black so it reads as a raised control,
+		   not a flat neon slab. */
+		box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+		transition:
+			filter 160ms var(--ease-press),
+			transform 120ms var(--ease-press),
+			box-shadow 160ms var(--ease-press);
 	}
-	.add-btn:hover {
-		filter: brightness(1.1);
-		transform: translateY(-1px);
+	@media (hover: hover) {
+		.add-btn:hover {
+			filter: brightness(1.08);
+			transform: translateY(-1px);
+			box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent);
+		}
+	}
+	.add-btn:active {
+		transform: scale(0.98);
+		filter: brightness(0.96);
+		box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 18%, transparent);
 	}
 	.search {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 10px 14px;
-		border-bottom: 1px solid var(--border);
+		/* iOS search field: a filled, rounded pill set inside the pane —
+		   not a full-bleed text row with a hairline under it. */
+		margin: 2px 14px 8px;
+		padding: 9px 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
 		color: var(--text-3);
+		transition:
+			border-color 160ms var(--ease-press),
+			background-color 160ms var(--ease-press);
+	}
+	.search:focus-within {
+		border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+		background: var(--surface-hover);
 	}
 	.search input {
 		flex: 1;
@@ -215,13 +257,12 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 8px 14px;
+		padding: 6px 16px 4px;
 		font-family: var(--font-mono);
 		font-size: 9px;
 		color: var(--text-3);
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
-		border-bottom: 1px dashed var(--border);
 	}
 	@media (pointer: coarse) {
 		.clear {
@@ -250,6 +291,8 @@
 	.items {
 		flex: 1;
 		overflow-y: auto;
+		/* Keep the rubber-band bounce inside the list, never the page. */
+		overscroll-behavior: contain;
 		padding: 6px;
 	}
 
@@ -263,24 +306,50 @@
 		text-align: left;
 		font-family: inherit;
 		color: inherit;
-		transition: var(--transition);
+		transition:
+			background-color 160ms var(--ease-press),
+			border-color 160ms var(--ease-press),
+			transform 120ms var(--ease-press),
+			box-shadow 160ms var(--ease-press);
 		width: 100%;
 		border: 1px solid transparent;
 		cursor: pointer;
 	}
-	.item:hover {
-		background: var(--surface);
-		border-color: var(--border-mid);
-		transform: translateY(-1px);
-		box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+	/* Hover-lift is a pointer affordance — gate it to real hover so a
+	   touch tap doesn't leave a row "stuck" lifted. */
+	@media (hover: hover) {
+		.item:hover {
+			background: var(--surface);
+			border-color: var(--border-mid);
+			transform: translateY(-1px);
+			box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+		}
+	}
+	/* iOS press: the row dips toward the surface under the finger. */
+	.item:active {
+		transform: scale(0.985);
+		background: var(--surface-hover);
 	}
 	.item.selected {
 		background: var(--accent-dim);
 		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 		box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 12%, transparent);
 	}
+	.trail {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	/* Disclosure chevron — shown only where a tap navigates to a
+	   separate detail pane (single-pane mobile, ≤45em below). */
+	.chev {
+		display: none;
+		color: var(--text-4);
+		flex-shrink: 0;
+	}
 	@media (prefers-reduced-motion: reduce) {
-		.item:hover {
+		.item:hover,
+		.item:active {
 			transform: none;
 		}
 	}
@@ -339,6 +408,13 @@
 	.empty-body strong {
 		color: var(--accent);
 		font-family: var(--font-mono);
+	}
+	/* Single-pane mobile: a tap opens a separate detail pane, so each
+	   row gets the iOS disclosure chevron. */
+	@media (max-width: 45em) {
+		.chev {
+			display: block;
+		}
 	}
 	@media (max-width: 30em) {
 		.item {

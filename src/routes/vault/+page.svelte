@@ -143,6 +143,11 @@
 			<BrandMark showPill="Vault" />
 		</div>
 
+		<!-- Mobile-only nav title: the desktop BrandMark column is hidden
+		     below 64em, which used to strand the right-hand controls on
+		     the left. A leading title restores a proper iOS nav bar. -->
+		<h1 class="m-title">Vault</h1>
+
 		<div class="center">
 			<div class="search">
 				<IconSearch size={14} stroke={1.6} />
@@ -362,7 +367,9 @@
 	</nav>
 </div>
 
-<AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
+<div class="vault-footer">
+	<AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
+</div>
 
 {#if editorOpen}
 	{#await importItemEditor() then mod}
@@ -487,9 +494,21 @@
 		padding: var(--safe-top, 0px) 18px 0;
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--bg) 60%, transparent);
-		backdrop-filter: blur(18px);
-		-webkit-backdrop-filter: blur(18px);
+		/* saturate() is the iOS "frosted glass" tell — the blur alone
+		   reads grey; the saturation boost lets colour bleed through. */
+		backdrop-filter: blur(20px) saturate(180%);
+		-webkit-backdrop-filter: blur(20px) saturate(180%);
 		position: relative;
+	}
+
+	/* Mobile nav title — hidden on desktop (the BrandMark column owns
+	   the leading slot there). */
+	.m-title {
+		display: none;
+		font-size: 19px;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+		color: var(--text);
 	}
 	.topbar::after {
 		content: '';
@@ -724,14 +743,42 @@
 	@media (max-width: 45em) {
 		.app {
 			grid-template-rows: calc(var(--header-h) + var(--safe-top, 0px)) 1fr auto;
-			padding-bottom: calc(var(--footer-h) + 56px + var(--safe-bottom));
+			/* Mobile reserves space for the tab bar ONLY — the audit
+			   footer is hidden on phones so the tab bar is the bottom-most
+			   chrome (iOS), not a second bar stacked under it. */
+			padding-bottom: calc(52px + var(--safe-bottom));
+		}
+		/* The audit/trust footer is desktop chrome; on phones the tab bar
+		   owns the bottom edge. (Sync + ZK status remain reachable via the
+		   top-bar actions and the /privacy page.) */
+		.vault-footer {
+			display: none;
 		}
 		.topbar {
-			padding: var(--safe-top, 0px) 12px 0;
+			/* iOS nav bar: leading title, trailing controls. The grid
+			   columns stranded the lone right-group on the left once the
+			   BrandMark + search columns went display:none. */
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: var(--safe-top, 0px) 16px 0;
 			gap: 8px;
+		}
+		.m-title {
+			display: block;
 		}
 		.right {
 			gap: 4px;
+		}
+		/* iOS nav-bar buttons are borderless tinted glyphs, not boxed
+		   chips — drop the lock button's frame on phones. */
+		.lock-btn {
+			background: transparent;
+			border-color: transparent;
+			color: var(--text-2);
+		}
+		.lock-btn:active {
+			background: var(--surface);
 		}
 		.panes {
 			grid-template-columns: 1fr;
@@ -772,37 +819,61 @@
 		}
 		.mobile-tabs {
 			position: fixed;
-			bottom: calc(var(--footer-h) + var(--safe-bottom));
+			/* Bottom-most chrome, hugging the home indicator: the bar's
+			   content is 52px tall and the safe-area inset is added as
+			   padding so the glass paints down to the screen edge. */
+			bottom: 0;
 			left: 0;
 			right: 0;
-			height: 56px;
+			height: calc(52px + var(--safe-bottom));
+			padding-bottom: var(--safe-bottom);
 			z-index: 25;
 			display: grid;
 			grid-template-columns: repeat(3, 1fr);
-			background: color-mix(in srgb, var(--bg) 70%, transparent);
-			backdrop-filter: blur(18px);
-			-webkit-backdrop-filter: blur(18px);
-			border-top: 1px solid var(--border);
+			/* Frosted iOS tab bar: denser background + saturation so the
+			   underlying content reads as glass, with a true hairline top. */
+			background: color-mix(in srgb, var(--bg) 78%, transparent);
+			backdrop-filter: blur(24px) saturate(180%);
+			-webkit-backdrop-filter: blur(24px) saturate(180%);
+			border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 		}
 		.tab {
 			display: flex;
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
-			gap: 2px;
+			gap: 3px;
 			padding: 6px;
+			/* SF-style label: sans, sentence-ish small caps via size, not
+			   the mono-uppercase block that read like a terminal. */
 			color: var(--text-3);
-			font-family: var(--font-mono);
-			font-size: 10px;
-			font-weight: 700;
-			letter-spacing: 0.08em;
-			text-transform: uppercase;
-			transition: var(--transition);
+			font-family: var(--font-sans);
+			font-size: 10.5px;
+			font-weight: 600;
+			letter-spacing: -0.01em;
+			text-transform: none;
+			transition:
+				color 160ms var(--ease-press),
+				transform 120ms var(--ease-press);
 			cursor: pointer;
 		}
+		.tab :global(svg) {
+			transition:
+				transform 200ms var(--ease-press),
+				color 160ms var(--ease-press);
+		}
+		/* iOS tab bars tint the icon + label to the accent on selection —
+		   no filled rectangle. A tiny icon lift sells the "selected" state. */
 		.tab.active {
 			color: var(--accent);
-			background: var(--accent-dim);
+			background: transparent;
+		}
+		.tab.active :global(svg) {
+			color: var(--accent);
+			transform: translateY(-1px);
+		}
+		.tab:active {
+			transform: scale(0.92);
 		}
 	}
 	@media (max-width: 30em) {

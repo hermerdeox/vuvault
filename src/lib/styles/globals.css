@@ -26,6 +26,10 @@
 	/* motion */
 	--transition: 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	--transition-slow: 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	/* iOS-style press: a fast, slightly-overshooting spring for the
+	   tap-down scale. Short enough to feel instant under the finger. */
+	--ease-press: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--press-scale: 0.97;
 
 	/* safe-area insets — iPhone 16 Pro budget */
 	--safe-top: env(safe-area-inset-top, 0px);
@@ -210,6 +214,44 @@ html[data-vp~='mobile'] [data-vp-show='desktop'],
 html[data-vp~='tablet'] [data-vp-show='mobile'],
 html[data-vp~='desktop'] [data-vp-show='mobile'] {
 	display: none;
+}
+
+/* ============================================================
+   iOS NATIVE FEEL — touch interaction layer
+   Keyed to `pointer: coarse` so it only shapes the touch
+   experience (iPhone/iPad/Samsung), never desktop hover.
+   ============================================================ */
+@media (pointer: coarse) {
+	/* The signature iOS tap response: a quick spring scale-down on
+	   press. transform-only (no layout shift), applied broadly to the
+	   interactive primitives so every control answers the finger.
+	   Component-scoped :active rules (class selectors) win where a
+	   surface wants a bespoke response. */
+	button:active,
+	[role='button']:active,
+	[role='menuitem']:active,
+	a[role='button']:active,
+	label:active,
+	summary:active {
+		transform: scale(var(--press-scale));
+		transition:
+			transform 120ms var(--ease-press),
+			background-color 120ms var(--ease-press),
+			opacity 120ms var(--ease-press);
+	}
+
+	/* Momentum scrolling + invisible overlay scrollbars — the two
+	   biggest "this is a native list" cues for any scroll region. */
+	* {
+		-webkit-overflow-scrolling: touch;
+	}
+	*::-webkit-scrollbar {
+		width: 0;
+		height: 0;
+	}
+	* {
+		scrollbar-width: none;
+	}
 }
 
 /* respect reduced motion */

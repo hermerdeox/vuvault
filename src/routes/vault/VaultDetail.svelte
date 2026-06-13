@@ -832,7 +832,11 @@
 		border: 1px solid var(--border);
 		color: var(--text-2);
 		background: var(--surface);
-		transition: var(--transition);
+		transition:
+			background-color 160ms var(--ease-press),
+			color 160ms var(--ease-press),
+			border-color 160ms var(--ease-press),
+			transform 120ms var(--ease-press);
 		cursor: pointer;
 	}
 	:global(html[data-vp~='mobile']) .head-btn,
@@ -840,13 +844,22 @@
 		min-height: 44px;
 		padding: 10px 14px;
 	}
-	.head-btn:hover {
-		background: var(--surface-hover);
-		color: var(--text);
+	@media (hover: hover) {
+		.head-btn:hover {
+			background: var(--surface-hover);
+			color: var(--text);
+		}
+		.head-btn.danger:hover {
+			color: var(--danger);
+			border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+		}
 	}
-	.head-btn.danger:hover {
+	.head-btn:active {
+		transform: scale(0.96);
+		background: var(--surface-hover);
+	}
+	.head-btn.danger:active {
 		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
 	}
 	.kind {
 		display: inline-flex;
@@ -995,9 +1008,18 @@
 		width: 44px;
 		height: 44px;
 	}
-	.ico-btn:hover {
-		background: var(--surface-hover);
-		color: var(--text);
+	@media (hover: hover) {
+		.ico-btn:hover {
+			background: var(--surface-hover);
+			color: var(--text);
+		}
+	}
+	/* Press the copy/reveal glyphs with an accent flash so a tap reads
+	   as a deliberate action (the copy success is otherwise silent). */
+	.ico-btn:active {
+		transform: scale(0.9);
+		background: var(--accent-dim);
+		color: var(--accent);
 	}
 	.hint {
 		font-family: var(--font-mono);

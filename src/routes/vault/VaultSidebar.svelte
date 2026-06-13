@@ -132,9 +132,14 @@
 		padding: 12px 14px;
 		font-size: 14px;
 	}
-	.row:hover:not(.disabled) {
-		background: var(--surface);
-		color: var(--text);
+	@media (hover: hover) {
+		.row:hover:not(.disabled) {
+			background: var(--surface);
+			color: var(--text);
+		}
+		.row:hover:not(.disabled):not(.active) {
+			transform: translateX(2px);
+		}
 	}
 	.row.active {
 		background: var(--accent-dim);
@@ -144,8 +149,9 @@
 			inset 2px 0 0 var(--accent),
 			0 0 18px color-mix(in srgb, var(--accent) 14%, transparent);
 	}
-	.row:hover:not(.disabled):not(.active) {
-		transform: translateX(2px);
+	.row:active:not(.disabled) {
+		transform: scale(0.985);
+		background: var(--surface-hover);
 	}
 	.row.disabled {
 		opacity: 0.45;
