@@ -77,7 +77,7 @@ function randomIndex(n: number): number {
 	if (n <= 0) throw new Error('randomIndex requires n > 0');
 	const limit = Math.floor(0xffffffff / n) * n;
 	const buf = new Uint32Array(1);
-	let x = 0;
+	let x: number;
 	do {
 		crypto.getRandomValues(buf);
 		x = buf[0]!;
