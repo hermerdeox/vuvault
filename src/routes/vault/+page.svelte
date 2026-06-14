@@ -36,6 +36,7 @@
 	} from '$lib/icons';
 
 	import { vault, type ItemKind, type VaultItem } from '$lib/stores/vault.svelte';
+	import { viewport } from '$lib/stores/viewport.svelte';
 	import { createAutoLockController, type AutoLockReason } from '$lib/services/auto-lock';
 
 	let editorOpen = $state(false);
@@ -148,6 +149,17 @@
 
 <BackgroundFx />
 
+{#if viewport.isMobile}
+	<!-- iOS-native mobile shell — only mounted for <720px (kept entirely
+	     out of the DOM on desktop so it can't duplicate item text in tests
+	     or screen readers). Wired to the same store + shared overlays. -->
+	<MobileShell
+		onLock={lockVault}
+		onCreateKind={openEditorForKind}
+		onEditItem={openEditEditor}
+		onOpenMasterPassword={() => (settingsOpen = true)}
+	/>
+{:else}
 <div class="app">
 	<header class="topbar">
 		<div class="left">
@@ -381,18 +393,7 @@
 <div class="vault-footer">
 	<AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
 </div>
-
-<!-- iOS-native mobile shell — shown only for data-vp~='mobile' (<720px),
-     replacing the desktop 3-pane reflow. Wired to the same store and the
-     same lazy ItemEditor / MasterPasswordSettings overlays below. -->
-<div class="mobile-shell-mount">
-	<MobileShell
-		onLock={lockVault}
-		onCreateKind={openEditorForKind}
-		onEditItem={openEditEditor}
-		onOpenMasterPassword={() => (settingsOpen = true)}
-	/>
-</div>
+{/if}
 
 {#if editorOpen}
 	{#await importItemEditor() then mod}
@@ -441,21 +442,6 @@
 {/if}
 
 <style>
-	/* Desktop ⇄ mobile swap. data-vp is set before first paint by the
-	   inline script in app.html, so this gates with no SSR flash and no
-	   {#if} double-render. <720px (xs+sm) → iOS shell; everything else →
-	   the desktop 3-pane. */
-	.mobile-shell-mount {
-		display: none;
-	}
-	:global(html[data-vp~='mobile']) .mobile-shell-mount {
-		display: contents;
-	}
-	:global(html[data-vp~='mobile']) .app,
-	:global(html[data-vp~='mobile']) .vault-footer {
-		display: none !important;
-	}
-
 	.app {
 		height: 100dvh;
 		display: grid;
