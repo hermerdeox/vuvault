@@ -25,6 +25,7 @@
 	import SplashScreen from '$lib/components/SplashScreen.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import AuditFooter from '$lib/components/AuditFooter.svelte';
+	import MobileShell from '$lib/mobile/MobileShell.svelte';
 	import {
 		IconSearch,
 		IconKey,
@@ -90,6 +91,16 @@
 		editorMode = 'edit';
 		editorInitial = item;
 		editorKind = item.kind;
+		editorNonce += 1;
+		editorOpen = true;
+	}
+
+	// Mobile add-sheet routes non-login kinds straight into the real
+	// ItemEditor (create mode) pre-seeded with the chosen kind.
+	function openEditorForKind(kind: ItemKind) {
+		editorMode = 'create';
+		editorInitial = null;
+		editorKind = kind;
 		editorNonce += 1;
 		editorOpen = true;
 	}
@@ -371,6 +382,18 @@
 	<AuditFooter fallback="Vault unlocked · 0 bytes synced · all operations local" />
 </div>
 
+<!-- iOS-native mobile shell — shown only for data-vp~='mobile' (<720px),
+     replacing the desktop 3-pane reflow. Wired to the same store and the
+     same lazy ItemEditor / MasterPasswordSettings overlays below. -->
+<div class="mobile-shell-mount">
+	<MobileShell
+		onLock={lockVault}
+		onCreateKind={openEditorForKind}
+		onEditItem={openEditEditor}
+		onOpenMasterPassword={() => (settingsOpen = true)}
+	/>
+</div>
+
 {#if editorOpen}
 	{#await importItemEditor() then mod}
 		{#key editorNonce}
@@ -418,6 +441,21 @@
 {/if}
 
 <style>
+	/* Desktop ⇄ mobile swap. data-vp is set before first paint by the
+	   inline script in app.html, so this gates with no SSR flash and no
+	   {#if} double-render. <720px (xs+sm) → iOS shell; everything else →
+	   the desktop 3-pane. */
+	.mobile-shell-mount {
+		display: none;
+	}
+	:global(html[data-vp~='mobile']) .mobile-shell-mount {
+		display: contents;
+	}
+	:global(html[data-vp~='mobile']) .app,
+	:global(html[data-vp~='mobile']) .vault-footer {
+		display: none !important;
+	}
+
 	.app {
 		height: 100dvh;
 		display: grid;

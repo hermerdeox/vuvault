@@ -181,16 +181,21 @@ test.describe('mobile · touch-target floor', () => {
 		await clearStorage(page);
 		await completeDemoOnboarding(page);
 		await waitForHydration(page);
-		await expect(page.getByRole('button', { name: 'Add item' })).toBeVisible();
 
-		await assertTouchTargetFloor(page, '.ico-btn:visible', '.ico-btn');
-		await assertTouchTargetFloor(page, '.add-btn:visible', '.add-btn');
-		await assertTouchTargetFloor(page, '.lock-btn:visible', '.lock-btn');
-		await assertTouchTargetFloor(page, '.overflow-trigger:visible', '.overflow-trigger');
-		await assertTouchTargetFloor(page, '.mobile-tabs .tab:visible', '.tab');
+		// <720px renders the iOS MobileShell (the desktop 3-pane chrome is
+		// display:none here); assert the shell's own primary chrome.
+		await expect(page.getByRole('button', { name: 'Add item' })).toBeVisible({
+			timeout: 20_000
+		});
 
-		await page.getByRole('button', { name: 'More actions' }).click();
-		await page.getByTestId('open-mp-settings-mobile').click();
+		await assertTouchTargetFloor(page, '.vv-tabbar button:visible', 'tab bar button');
+		await assertTouchTargetFloor(page, '.vv-root header button:visible', 'header button');
+
+		// The real master-password dialog is now reached via the Settings
+		// tab → Change master password (a shared overlay rendered above the
+		// shell), so the modal's 44px floor still gets exercised.
+		await page.getByRole('button', { name: 'Settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Change master password' }).click();
 		await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
 		await assertTouchTargetFloor(page, '.modal .close:visible', 'modal .close');
 		await assertTouchTargetFloor(page, '.btn.sm:visible, .btn:visible', 'Button');
