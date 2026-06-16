@@ -177,7 +177,7 @@
 				import('$lib/crypto/argon2')
 			]);
 		const { openVault } = vaultSessionMod;
-		const { login, createFetchTransport } = opaqueClientMod;
+		const { loginWithRetry, createFetchTransport, classifyOpaqueError } = opaqueClientMod;
 		const { setSessionToken } = syncClientMod;
 		const { deriveMasterPasswordKey } = argon2Mod;
 
@@ -237,7 +237,7 @@
 			if (useOpaque) {
 				const transport = createFetchTransport(getSyncOrigin());
 				const password = encodeBase32(secretKey);
-				const log = await login({
+				const log = await loginWithRetry({
 					serverId: opaqueServerId!,
 					clientId: opaqueClientId!,
 					password,
@@ -271,18 +271,25 @@
 			if (prfOutput) prfOutput.fill(0);
 			if (masterPasswordKey) masterPasswordKey.fill(0);
 			const msg = err instanceof Error ? err.message : 'OPAQUE login failed';
-			// 401 / "MAC" / "auth" → wrong password, count attempt.
-			// Other errors → server unreachable, do NOT count attempt.
-			if (/MAC|auth|wrong|401/i.test(msg)) {
+			// Classify the failure: only a wrong credential burns an attempt.
+			// Transient (network / 5xx) and rate-limit (429) failures do not.
+			const kind = classifyOpaqueError(err);
+			if (kind === 'wrong-credential') {
 				attempts += 1;
 				errorMessage = failedAttemptMessage(
 					'Sync authentication failed. The Secret Key may be wrong for this vault, or the server-side sync enrollment may not match this device.'
 				);
+			} else if (kind === 'rate-limited') {
+				errorMessage =
+					'Too many unlock attempts reached the sync server. Wait about a minute, then try again.';
+			} else if (kind === 'unavailable') {
+				errorMessage =
+					'Sync server is temporarily unavailable. Try again in a moment — or use the recovery flow to unlock locally.';
 			} else {
 				errorMessage =
-					'Sync server unreachable. Reconnect or use the recovery flow to unlock locally.';
+					'Could not complete sync sign-in. Try again — if it keeps failing, use the recovery flow to unlock locally.';
 			}
-			audit.push('warn', 'OPAQUE login failed', { message: msg });
+			audit.push('warn', 'OPAQUE login failed', { message: msg, kind });
 			unlocking = false;
 			return;
 		}

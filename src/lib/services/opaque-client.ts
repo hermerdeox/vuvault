@@ -385,6 +385,88 @@ export class OpaqueServerError extends Error {
 	}
 }
 
+/**
+ * Coarse failure taxonomy for an OPAQUE login. The unlock UI uses this to
+ * decide what to tell the user and whether to count a failed attempt.
+ *
+ *   wrong-credential — the Secret Key is wrong for this enrolment, or an
+ *                      AKE MAC failed (client- or server-side). The ONLY
+ *                      kind that should burn an unlock attempt.
+ *   rate-limited     — the sync server is throttling (HTTP 429). Transient,
+ *                      but retrying immediately makes it worse — wait.
+ *   unavailable      — a network failure (our code-0 sentinel) or a
+ *                      server-side fault (HTTP 5xx, e.g. a Cloudflare
+ *                      outage). Transient and safe to auto-retry.
+ *   unknown          — anything else, notably 4xx handshake errors like an
+ *                      expired pending-login. Not a wrong key; surface a
+ *                      generic "try again".
+ */
+export type OpaqueFailureKind =
+	| 'wrong-credential'
+	| 'rate-limited'
+	| 'unavailable'
+	| 'unknown';
+
+export function classifyOpaqueError(err: unknown): OpaqueFailureKind {
+	if (err instanceof OpaqueServerError) {
+		if (err.code === 401) return 'wrong-credential';
+		if (err.code === 429) return 'rate-limited';
+		// code 0 is our sentinel for a fetch/network failure; 5xx is a
+		// server-side fault. Both are transient and worth retrying.
+		if (err.code === 0 || err.code >= 500) return 'unavailable';
+		return 'unknown';
+	}
+	// The OPAQUE library throws a plain Error on a bad envelope/MAC during
+	// loginFinish — i.e. the wrong password — before the server ever sees
+	// KE3. Its messages contain "auth"/"wrong"/"MAC".
+	if (err instanceof Error && /MAC|auth|wrong/i.test(err.message)) {
+		return 'wrong-credential';
+	}
+	return 'unknown';
+}
+
+export interface LoginRetryConfig {
+	/** Extra attempts after the first (default 2 → up to 3 total). */
+	retries?: number;
+	/** Base linear backoff between attempts, in ms (default 400). */
+	backoffMs?: number;
+	/** Injectable delay so tests don't actually wait. */
+	sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * `login` with bounded auto-retry for TRANSIENT failures only. A
+ * Cloudflare/Worker blip (network or 5xx) self-heals across a couple of
+ * attempts instead of presenting as a hard "sync server unreachable"
+ * lockout. Wrong-credential, rate-limit, and handshake errors are NOT
+ * retried — retrying cannot help and (for rate limits) hurts. Each
+ * attempt is a fresh OPAQUE handshake (new ephemerals + requestId), so
+ * replaying the whole exchange is safe.
+ */
+export async function loginWithRetry(
+	opts: OpaqueLoginInput,
+	config: LoginRetryConfig = {}
+): Promise<OpaqueLoginResult> {
+	const retries = config.retries ?? 2;
+	const backoffMs = config.backoffMs ?? 400;
+	const sleep =
+		config.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	let lastErr: unknown;
+	for (let attempt = 0; attempt <= retries; attempt++) {
+		try {
+			return await login(opts);
+		} catch (err) {
+			lastErr = err;
+			if (attempt === retries || classifyOpaqueError(err) !== 'unavailable') {
+				throw err;
+			}
+			await sleep(backoffMs * (attempt + 1));
+		}
+	}
+	// Unreachable — the loop always returns or throws — but satisfies TS.
+	throw lastErr;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
 	let bin = '';
 	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
