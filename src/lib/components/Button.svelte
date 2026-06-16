@@ -56,8 +56,20 @@
 		border-color: var(--border-mid);
 	}
 	.btn:disabled {
-		opacity: 0.4;
+		opacity: 0.45;
 		cursor: not-allowed;
+	}
+	/* Filled variants must not vanish when disabled. A flat opacity fades
+	   their --bg-colored label toward the page background until — on the
+	   modern (black --bg) theme — a disabled white button reads as a dark,
+	   textless blob. Swap to an explicit muted skin that keeps both the
+	   button shape and its label legible, in either theme. */
+	.btn.primary:disabled,
+	.btn.accent:disabled {
+		opacity: 1;
+		background: var(--surface-strong);
+		color: var(--text-2);
+		border-color: var(--border-mid);
 	}
 
 	.btn.sm {
