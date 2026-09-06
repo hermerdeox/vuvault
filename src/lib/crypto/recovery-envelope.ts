@@ -1,10 +1,21 @@
 /**
  * Local Recovery Envelope.
  *
- * Seals the v2 vault AES key with a key derived from the user's 256-bit
+ * Seals the vault AES data key with a key derived from the user's 256-bit
  * Secret Key and a separate Recovery Password. This is deliberately
  * independent from WebAuthn PRF so it can recover after passkey loss,
  * while still keeping the server mathematically unable to decrypt.
+ *
+ * AAD note: the envelope binds the account CONTEXT (device salt,
+ * credential id, auth mode) but deliberately NOT the vault's
+ * `formatVersion`. The payload here is the format-agnostic 32-byte data
+ * key, and the vault blob's own AAD already authenticates its format.
+ * Binding it here coupled this key wrapper to a payload encoding that
+ * legitimately changes underneath it: an envelope sealed while the
+ * account row said v2 became permanently unopenable as soon as the very
+ * next `saveItems` upgraded that row to v3. `openRecoveryEnvelope` still
+ * accepts the old layout so envelopes sealed by earlier builds keep
+ * working — including ones already bricked by that drift.
  */
 import { gcm } from '@noble/ciphers/aes';
 import { hkdf } from '@noble/hashes/hkdf';
@@ -30,9 +41,17 @@ const PAYLOAD_DOMAIN = 'vuvault-recovery-envelope-payload-v1';
 export type RecoveryEnvelopeContext = {
 	deviceSalt: Uint8Array;
 	credentialId: ArrayBuffer;
-	formatVersion: number;
 	authMode: AuthMode;
 };
+
+/**
+ * Vault format versions that ever appeared in a pre-fix envelope AAD.
+ *
+ * Permanently frozen: only 1-3 ever reached this field, and envelopes
+ * sealed under the current layout carry no format version at all, so a
+ * future v4 can never extend this list. Ordered most-likely first.
+ */
+const LEGACY_AAD_FORMAT_VERSIONS = [3, 2, 1] as const;
 
 export type RecoveryEnvelopeSealed = {
 	version: 1;
@@ -67,15 +86,45 @@ function base64ToBytes(b64: string): Uint8Array {
 	return out;
 }
 
+function contextDigests(ctx: RecoveryEnvelopeContext): {
+	saltDigest: Uint8Array;
+	credDigest: Uint8Array;
+} {
+	return {
+		saltDigest: sha384(ctx.deviceSalt).slice(0, 32),
+		credDigest: sha384(new Uint8Array(ctx.credentialId)).slice(0, 32)
+	};
+}
+
+/** Current AAD layout. Carries no vault formatVersion — see the file header. */
 function makeAad(ctx: RecoveryEnvelopeContext): Uint8Array {
-	const saltDigest = sha384(ctx.deviceSalt).slice(0, 32);
-	const credDigest = sha384(new Uint8Array(ctx.credentialId)).slice(0, 32);
+	const { saltDigest, credDigest } = contextDigests(ctx);
+	const out = new Uint8Array(AAD_DOMAIN.length + 1 + 1 + saltDigest.length + credDigest.length);
+	let off = 0;
+	out.set(AAD_DOMAIN, off);
+	off += AAD_DOMAIN.length;
+	out[off++] = RECOVERY_ENVELOPE_VERSION;
+	out[off++] = ctx.authMode === 'production' ? 0x01 : 0x02;
+	out.set(saltDigest, off);
+	off += saltDigest.length;
+	out.set(credDigest, off);
+	return out;
+}
+
+/**
+ * Pre-fix AAD layout, which carried the vault formatVersion byte between
+ * the envelope version and the auth mode. Retained for read compatibility
+ * only; nothing seals with it. One byte longer than the current layout,
+ * so the two can never be confused.
+ */
+function makeLegacyAad(ctx: RecoveryEnvelopeContext, formatVersion: number): Uint8Array {
+	const { saltDigest, credDigest } = contextDigests(ctx);
 	const out = new Uint8Array(AAD_DOMAIN.length + 1 + 1 + 1 + saltDigest.length + credDigest.length);
 	let off = 0;
 	out.set(AAD_DOMAIN, off);
 	off += AAD_DOMAIN.length;
 	out[off++] = RECOVERY_ENVELOPE_VERSION;
-	out[off++] = ctx.formatVersion & 0xff;
+	out[off++] = formatVersion & 0xff;
 	out[off++] = ctx.authMode === 'production' ? 0x01 : 0x02;
 	out.set(saltDigest, off);
 	off += saltDigest.length;
@@ -201,20 +250,45 @@ export async function openRecoveryEnvelope(input: {
 	}
 	let key: Uint8Array | null = null;
 	try {
+		// The Argon2id derivation is the expensive step (256 MiB at the
+		// production preset), so it runs exactly once. Only the cheap GCM
+		// tag check is retried across candidate AADs below.
 		key = await deriveRecoveryKey({
 			secretKey: input.secretKey,
 			recoveryPassword: input.recoveryPassword,
 			salt: input.envelope.salt,
 			params: input.envelope.params
 		});
-		const payload = gcm(key, input.envelope.nonce, makeAad(input.context)).decrypt(
-			input.envelope.ciphertext
-		);
-		try {
-			return deserializePayload(payload);
-		} finally {
-			zeroize(payload);
+
+		// Current layout first, then each pre-fix layout. Every candidate
+		// differs only in public, non-secret metadata, and each attempt is
+		// still a full GCM authentication — so this widens what a VALID
+		// envelope can be read as, never what forges one.
+		const candidates: Uint8Array[] = [
+			makeAad(input.context),
+			...LEGACY_AAD_FORMAT_VERSIONS.map((v) => makeLegacyAad(input.context, v))
+		];
+
+		for (const aad of candidates) {
+			let payload: Uint8Array;
+			try {
+				payload = gcm(key, input.envelope.nonce, aad).decrypt(input.envelope.ciphertext);
+			} catch {
+				continue; // wrong layout — try the next candidate
+			}
+			// Tag verified: the key and context are correct. A malformed
+			// payload past this point is real corruption, not a mismatch,
+			// so let it throw rather than trying further candidates.
+			try {
+				return deserializePayload(payload);
+			} finally {
+				zeroize(payload);
+			}
 		}
+
+		throw new Error(
+			'Recovery Envelope did not open. Check the Secret Key and Recovery Password, and that this envelope belongs to this vault.'
+		);
 	} finally {
 		zeroize(key);
 	}

@@ -1074,7 +1074,6 @@ export async function sealActiveRecoveryEnvelope(opts: {
 		context: {
 			deviceSalt: account.deviceSalt,
 			credentialId: account.credentialId,
-			formatVersion: account.formatVersion,
 			authMode: account.authMode
 		}
 	});
@@ -1106,7 +1105,6 @@ export async function openVaultWithRecoveryEnvelope(
 		context: {
 			deviceSalt: account.deviceSalt,
 			credentialId: account.credentialId,
-			formatVersion: account.formatVersion,
 			authMode: account.authMode
 		}
 	});
