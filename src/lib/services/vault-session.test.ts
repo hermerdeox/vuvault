@@ -1145,6 +1145,39 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 		});
 		expect(new TextDecoder().decode(opened)).toBe('lease.pdf — confidential');
 	});
+
+	it('keeps the Recovery Envelope valid across a v2→v3 upgrade-on-save', async () => {
+		await provisionForRotate();
+
+		// Simulate a vault provisioned before the v3 bump — the exact
+		// population this regression targets.
+		const acc = await db.account.get('singleton');
+		await db.account.put({ ...acc!, formatVersion: 2 });
+
+		// User enables recovery WHILE the account row still says v2.
+		const recoveryPassword = 'Jasper! Maple! Lantern! Orchid!';
+		const envelope = await sealActiveRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword
+		});
+
+		// Any ordinary save upgrades the row to v3. Pre-fix, the envelope
+		// AAD was rebuilt from that mutated row on open, so this single
+		// save permanently bricked recovery with an invalid GCM tag.
+		await saveItems([
+			{ id: 'i1', kind: 'note', title: 'n', noteBody: 'x', createdAt: 1, updatedAt: 1 }
+		]);
+		expect((await db.account.get('singleton'))!.formatVersion).toBe(PROVISION_FORMAT_VERSION);
+
+		lockSession();
+
+		const items = await openVaultWithRecoveryEnvelope({
+			secretKey: SECRET_KEY,
+			recoveryPassword,
+			envelope
+		});
+		expect(items.map((i) => i.id)).toContain('i1');
+	});
 });
 
 // --- Sync-fallback parity (Workstream D2) -------------------------
