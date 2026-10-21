@@ -29,8 +29,7 @@
 		validateSsh,
 		validateSeed,
 		validateDocument,
-		labelFor,
-		DOCUMENT_FILE_MAX
+		labelFor
 	} from './item-validation';
 	import {
 		IconKey,
@@ -248,14 +247,6 @@
 	let seedPhrase = $state('');
 	let docDescription = $state('');
 	let docExternalRef = $state('');
-	let docFileName = $state<string | undefined>(undefined);
-	let docMimeType = $state<string | undefined>(undefined);
-	let docSize = $state<number | undefined>(undefined);
-	let docSha256 = $state<string | undefined>(undefined);
-	let docBlobId = $state<string | undefined>(undefined);
-	let docRemote = $state<boolean | undefined>(undefined);
-	let docAttaching = $state(false);
-	let docError = $state<string | null>(null);
 
 	let showGenerator = $state(false);
 
@@ -307,10 +298,7 @@
 				return validateDocument({
 					title,
 					docDescription,
-					docExternalRef,
-					docFileName,
-					docMimeType,
-					docSize
+					docExternalRef
 				});
 			default:
 				return { ok: false, fieldErrors: {} as Record<string, string> };
@@ -345,14 +333,6 @@
 		seedPhrase = '';
 		docDescription = '';
 		docExternalRef = '';
-		docFileName = undefined;
-		docMimeType = undefined;
-		docSize = undefined;
-		docSha256 = undefined;
-		docBlobId = undefined;
-		docRemote = undefined;
-		docAttaching = false;
-		docError = null;
 		showGenerator = false;
 		showPassword = false;
 		showCvc = false;
@@ -434,12 +414,6 @@
 			case 'document':
 				docDescription = item.docDescription ?? '';
 				docExternalRef = item.docExternalRef ?? '';
-				docFileName = item.docFileName;
-				docMimeType = item.docMimeType;
-				docSize = item.docSize;
-				docSha256 = item.docSha256;
-				docBlobId = item.docBlobId;
-				docRemote = item.docRemote;
 				break;
 		}
 	}
@@ -521,17 +495,7 @@
 					title: trimmedTitle,
 					docDescription: docDescription.trim() || undefined,
 					docExternalRef: docExternalRef.trim() || undefined,
-					docFileName,
-					docMimeType,
-					docSize,
-					docSha256,
-					docBlobId,
-					docRemote,
-					subtitle: docFileName
-						? docFileName
-						: docExternalRef.trim()
-							? 'Document (reference only)'
-							: 'Document'
+					subtitle: docExternalRef.trim() ? 'Document (reference only)' : 'Document'
 				};
 		}
 	}
@@ -572,64 +536,6 @@
 		showGenerator = false;
 	}
 
-	async function onDocumentFileChange(ev: Event) {
-		const target = ev.currentTarget as HTMLInputElement;
-		const file = target.files?.[0];
-		if (!file) return;
-		docError = null;
-		if (file.size > DOCUMENT_FILE_MAX) {
-			docError = `File is too large (max ${(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB).`;
-			target.value = '';
-			return;
-		}
-		docAttaching = true;
-		try {
-			const { attachDocumentFile } = await import('$lib/services/document-blobs');
-			const result = await attachDocumentFile(file);
-			docBlobId = result.blobId;
-			docFileName = result.fileName;
-			docMimeType = result.mimeType;
-			docSize = result.size;
-			docSha256 = result.sha256Hex;
-			docRemote = result.remote;
-			audit.push('success', `Attached document (${result.size} bytes)`, {
-				blob: result.blobId.slice(0, 8),
-				remote: result.remote ? 'pushed' : 'local'
-			});
-		} catch (err) {
-			docError = err instanceof Error ? err.message : 'Could not attach the file.';
-			audit.push('danger', `Document attach failed: ${docError}`);
-		} finally {
-			docAttaching = false;
-			target.value = '';
-		}
-	}
-
-	async function clearDocumentFile() {
-		if (!docBlobId) return;
-		const idToPurge = docBlobId;
-		try {
-			const { purgeDocumentBlob } = await import('$lib/services/document-blobs');
-			await purgeDocumentBlob(idToPurge);
-		} catch {
-			// Non-fatal — the user can still proceed without an attachment.
-		}
-		docBlobId = undefined;
-		docFileName = undefined;
-		docMimeType = undefined;
-		docSize = undefined;
-		docSha256 = undefined;
-		docRemote = undefined;
-		docError = null;
-	}
-
-	function formatDocSize(n: number | undefined): string {
-		if (typeof n !== 'number') return '';
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-	}
-
 	function err(field: string): string | null {
 		if (!attemptedSave) return null;
 		return validation.fieldErrors[field] ?? null;
@@ -643,16 +549,6 @@
 		const ids = [extra, err(field) ? errId(field) : undefined].filter(Boolean);
 		return ids.length > 0 ? ids.join(' ') : undefined;
 	}
-
-	const docFileDescribedBy = $derived(
-		[
-			'ie-doc-file-hint',
-			docError ? 'ie-doc-file-error' : undefined,
-			err('docFile') ? errId('docFile') : undefined
-		]
-			.filter(Boolean)
-			.join(' ')
-	);
 </script>
 
 <svelte:window onkeydown={onEditorShortcut} />
@@ -671,9 +567,9 @@
 				{/each}
 			</div>
 			<p class="picker-note">
-				Files attached to document items are sealed client-side with the
-				active vault key (AES-256-GCM) before they touch local storage or
-				the sync server.
+				Everything you save is sealed client-side with the active vault
+				key (AES-256-GCM) before it touches local storage or the sync
+				server.
 			</p>
 		</div>
 	{:else}
@@ -1080,77 +976,10 @@
 					<div class="info-banner">
 						<IconShield size={14} stroke={2} />
 						<div>
-							<strong>Encrypted client-side.</strong>
-							The file is sealed in your browser with the active vault key
-							(AES-256-GCM, document-scoped AAD) before it touches local
-							storage or the sync server. The server only ever holds opaque
-							ciphertext.
-						</div>
-					</div>
-					<div class="field">
-						<label for="ie-doc-file">File</label>
-						<div class="doc-attach-row">
-							<input
-								id="ie-doc-file"
-								type="file"
-								onchange={onDocumentFileChange}
-								disabled={docAttaching}
-								data-testid="document-file-input"
-								aria-invalid={Boolean(docError || err('docFile'))}
-								aria-describedby={docFileDescribedBy}
-							/>
-							{#if docAttaching}
-								<span class="hint">Encrypting…</span>
-							{/if}
-						</div>
-						{#if docFileName}
-							<div class="doc-summary" data-testid="document-summary">
-								<div class="doc-summary-row">
-									<span class="doc-key">Name</span>
-									<span class="doc-val">{docFileName}</span>
-								</div>
-								<div class="doc-summary-row">
-									<span class="doc-key">Type</span>
-									<span class="doc-val mono">{docMimeType || 'application/octet-stream'}</span>
-								</div>
-								<div class="doc-summary-row">
-									<span class="doc-key">Size</span>
-									<span class="doc-val mono">{formatDocSize(docSize)}</span>
-								</div>
-								{#if docSha256}
-									<div class="doc-summary-row">
-										<span class="doc-key">SHA-256</span>
-										<span class="doc-val mono doc-digest" title={docSha256}>
-											{docSha256.slice(0, 16)}…
-										</span>
-									</div>
-								{/if}
-								<div class="doc-summary-row">
-									<span class="doc-key">Sync</span>
-									<span class="doc-val mono">
-										{docRemote ? 'pushed to server (opaque ciphertext)' : 'local only'}
-									</span>
-								</div>
-								<button
-									type="button"
-									class="btn ghost doc-clear-btn"
-									onclick={clearDocumentFile}
-								>
-									Remove file
-								</button>
-							</div>
-						{/if}
-						{#if docError}
-							<div class="field-err" id="ie-doc-file-error" role="alert">
-								<IconWarning size={12} stroke={2} /> {docError}
-							</div>
-						{/if}
-						{#if err('docFile')}
-							<div class="field-err" id={errId('docFile')}>{err('docFile')}</div>
-						{/if}
-						<div class="hint" id="ie-doc-file-hint">
-							Maximum {(DOCUMENT_FILE_MAX / (1024 * 1024)).toFixed(1)} MB per
-							document.
+							<strong>Text-only record.</strong>
+							Describe the document and note where the original lives.
+							VuVault does not store files; this record is sealed in your
+							browser with the rest of the vault.
 						</div>
 					</div>
 					<div class="field">
@@ -1590,58 +1419,4 @@
 		cursor: not-allowed;
 	}
 
-	.doc-attach-row {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex-wrap: wrap;
-	}
-	.doc-attach-row .hint {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--text-3);
-	}
-	.doc-summary {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		padding: 10px 12px;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		font-size: 12px;
-	}
-	.doc-summary-row {
-		display: grid;
-		grid-template-columns: 80px 1fr;
-		gap: 10px;
-		align-items: center;
-	}
-	.doc-key {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--text-3);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-	.doc-val {
-		color: var(--text);
-		overflow-wrap: anywhere;
-	}
-	.doc-val.mono {
-		font-family: var(--font-mono);
-		font-size: 11px;
-	}
-	.doc-digest {
-		letter-spacing: 0.02em;
-	}
-	.doc-clear-btn {
-		align-self: flex-start;
-		margin-top: 4px;
-	}
-	.hint {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--text-3);
-	}
 </style>

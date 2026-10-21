@@ -14,23 +14,20 @@
  *      D1 row is in `blob_references(blob_id, last_seen_at, bytes)`
  *      — see migrations/0005_blob_references.sql.
  *   3. NOT emitting account_id in R2 customMetadata.
- *   4. Authenticating the request (so anonymous abuse is bounded by
- *      rate limit) but using a session-id-scoped rate-limit key
- *      rather than account-id-scoped, so the server cannot link
- *      two blob uploads to the same account from request logs.
+ *   4. Authorizing each request with a single-use anonymous token
+ *      (V0-C1, `src/lib/server/api/anon-tokens.ts`) instead of the
+ *      session token, so no request here resolves to a session or an
+ *      account — not even transiently, in memory. Abuse is bounded by
+ *      the per-session token-issuance budget plus a per-origin limit.
  *
  * Privacy/threat-model:
  *
- *   - Anyone with a valid session token AND knowledge of a blob
- *     UUID can GET the blob. UUIDs are 122 bits of randomness so
- *     guessing is computationally infeasible.
+ *   - Anyone with an unspent token AND knowledge of a blob UUID can
+ *     GET the blob. UUIDs are 122 bits of randomness so guessing is
+ *     computationally infeasible.
  *   - The blob's owner stores the UUID in their encrypted inventory
  *     (see src/lib/services/blob-inventory.ts). The server never
  *     sees the inventory in cleartext.
- *   - V1-C1 admits the Candidate 1 bootstrap-pointer leak (the
- *     deterministic first inventory address). The blob route itself
- *     does not contribute to that leak — only the inventory route
- *     does, and only at the bootstrap pointer.
  *
  * The PUT handler computes `bytes` from the wire-format buffer for
  * GC bookkeeping; no caller-supplied size hint is accepted.
@@ -38,23 +35,9 @@
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
-import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { jsonError, jsonOk, readJson, b64decode, b64encode } from '$lib/server/api/http';
-import { authenticate } from '$lib/server/api/auth-token';
-import { authenticateCapability } from '$lib/server/api/capability-auth';
+import { requireV2Access } from '$lib/server/api/anon-tokens';
 import { maybeGcV2 } from '$lib/server/api/r2-gc';
-import { v2RateLimitKey } from '$lib/server/api/v2-rate-limit-key';
-
-/**
- * Resolve a request's session via dual-auth: Bearer first
- * (V1 path), capability header second (V0 path). Used by every
- * authenticated entry point in this file.
- */
-async function resolveSession(env: Env, request: Request) {
-	const bearer = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
-	if (bearer) return bearer;
-	return authenticateCapability(env, request.headers.get('x-vu0-capability'));
-}
 
 type PutBody = {
 	nonce?: string;
@@ -62,7 +45,9 @@ type PutBody = {
 };
 
 const MAX_NONCE_BYTES = 64;
-const MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024; // 8 MiB
+// Whole-vault blobs only (file attachments were removed): the 64 KiB
+// padding floor plus power-of-two growth stays far below this.
+const MAX_CIPHERTEXT_BYTES = 2 * 1024 * 1024; // 2 MiB
 const BASE64_OVERHEAD = 4 / 3;
 const BASE64_SLACK_BYTES = 8;
 // Strict UUID v4 — matches the v1 documents route. The v4 variant
@@ -115,17 +100,13 @@ async function recordBlobReference(
 
 export const PUT: RequestHandler = async ({ request, platform, params }) => {
 	const env = platform!.env as Env;
-	const session = await resolveSession(env, request);
-	if (!session) return jsonError(401, 'unauthorized');
+	const denied = await requireV2Access(env, request);
+	if (denied) return denied;
 
 	const blobId = params.uuid;
 	if (!blobId || !UUID_RE.test(blobId)) {
 		return jsonError(400, 'invalid blob id');
 	}
-
-	const rlKey = await v2RateLimitKey(session.token);
-	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, rlKey);
-	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<PutBody>(request);
 	if (!body || typeof body.nonce !== 'string' || typeof body.ciphertext !== 'string') {
@@ -188,17 +169,13 @@ export const GET: RequestHandler = async ({ request, platform, params }) => {
 		return jsonOk({ ready: true, route: 'v2.blobs' });
 	}
 
-	const session = await resolveSession(env, request);
-	if (!session) return jsonError(401, 'unauthorized');
+	const denied = await requireV2Access(env, request);
+	if (denied) return denied;
 
 	const blobId = params.uuid;
 	if (!blobId || !UUID_RE.test(blobId)) {
 		return jsonError(400, 'invalid blob id');
 	}
-
-	const rlKey = await v2RateLimitKey(session.token);
-	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, rlKey);
-	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	let r2obj;
 	try {
@@ -237,17 +214,13 @@ export const GET: RequestHandler = async ({ request, platform, params }) => {
 
 export const DELETE: RequestHandler = async ({ request, platform, params }) => {
 	const env = platform!.env as Env;
-	const session = await resolveSession(env, request);
-	if (!session) return jsonError(401, 'unauthorized');
+	const denied = await requireV2Access(env, request);
+	if (denied) return denied;
 
 	const blobId = params.uuid;
 	if (!blobId || !UUID_RE.test(blobId)) {
 		return jsonError(400, 'invalid blob id');
 	}
-
-	const rlKey = await v2RateLimitKey(session.token);
-	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, rlKey);
-	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	try {
 		await env.VAULT_BLOBS.delete(objectKey(blobId));

@@ -523,6 +523,9 @@ jobs:
           # Match the prod-build client serverId (getRpId()='vuvault.app'); top-level wrangler.toml [vars] preview.vuvault.app would mismatch and fail the OPAQUE AKE MAC verify on login.
           OPAQUE_SERVER_ID=vuvault.app
           EOF
+          # Root for the anonymous-token keys (V0-C1). Without it
+          # /api/v0/tokens/issue answers 503 and v2 sync cannot authorize.
+          echo "AKD_SIGNING_KEY_HEX=$(openssl rand -hex 32)" >> .dev.vars
 
       - name: Start local Cloudflare Pages API
         run: |
@@ -646,6 +649,9 @@ jobs:
           # Match the prod-build client serverId (getRpId()='vuvault.app'); top-level wrangler.toml [vars] preview.vuvault.app would mismatch and fail the OPAQUE AKE MAC verify on login.
           OPAQUE_SERVER_ID=vuvault.app
           EOF
+          # Root for the anonymous-token keys (V0-C1). Without it
+          # /api/v0/tokens/issue answers 503 and v2 sync cannot authorize.
+          echo "AKD_SIGNING_KEY_HEX=$(openssl rand -hex 32)" >> .dev.vars
 
       - name: Start local Cloudflare Pages API
         run: |

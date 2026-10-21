@@ -71,17 +71,29 @@ describe('OPAQUE client + mock server round-trip', () => {
 		).rejects.toThrow();
 	});
 
-	it('login against an unknown clientId rejects at the transport layer', async () => {
+	it('login against an unknown clientId fails exactly like a wrong password (V0-C3)', async () => {
+		// The server answers an unknown clientId with a fake record, so the
+		// client gets a well-formed KE2 and fails at envelope recovery —
+		// indistinguishable from a wrong password for a real account.
 		const server = new MockOpaqueServer(SERVER_ID);
 		const transport = server.asTransport();
-		await expect(
-			login({
-				serverId: SERVER_ID,
-				clientId: 'never-registered',
-				password: 'x',
-				transport
-			})
-		).rejects.toThrow(/unknown clientId/);
+		await register({ serverId: SERVER_ID, clientId: 'dave', password: 'right-password', transport });
+		const wrong = await login({
+			serverId: SERVER_ID,
+			clientId: 'dave',
+			password: 'wrong-password',
+			transport
+		}).catch((e: unknown) => e);
+		const unknown = await login({
+			serverId: SERVER_ID,
+			clientId: 'never-registered',
+			password: 'x',
+			transport
+		}).catch((e: unknown) => e);
+		expect(unknown).toBeInstanceOf(Error);
+		expect((unknown as Error).message).toBe((wrong as Error).message);
+		expect(classifyOpaqueError(unknown)).toBe('wrong-credential');
+		expect(classifyOpaqueError(wrong)).toBe('wrong-credential');
 	});
 
 	it('stable export key across multiple successful logins', async () => {

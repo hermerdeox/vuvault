@@ -278,12 +278,38 @@ export function finalize(
 	const rInv = modInverse(r, ORDER);
 	const Z = RistPoint.fromBytes(evaluatedElement);
 	const N = Z.multiply(rInv);
+	return finalizeHash(input, N.toBytes());
+}
 
-	// Finalize per RFC 9497 §3.3.2:
-	//   issuedElement = serialize(N)
-	//   hashInput = I2OSP(len(input), 2) || input || I2OSP(32, 2) || issuedElement || "Finalize"
-	//   output = Hash(hashInput)
-	const issued = N.toBytes();
+/**
+ * Server-side unblinded evaluation (RFC 9497 §3.3.1 `Evaluate`): the
+ * same output `finalize` yields for `input`, computed directly from
+ * `sk`. This is how a redeemed anonymous token is checked — the server
+ * recomputes the PRF over the presented input instead of looking up
+ * any record of the issuance, which it never kept.
+ */
+export function evaluate(secretKey: Uint8Array, input: Uint8Array): Uint8Array {
+	const sk = secretKeyToScalar(secretKey);
+	const N = hashToGroup(input).multiply(sk);
+	return finalizeHash(input, N.toBytes());
+}
+
+/**
+ * Derive a secret key from seed material: SHA-512(seed) reduced mod the
+ * group order, in the 32-byte big-endian form `secretKeyToScalar`
+ * reads. Reducing 64 bytes (not 32) keeps the modular bias negligible.
+ */
+export function deriveSecretKey(seed: Uint8Array): Uint8Array {
+	const n = modOrder(bytesToBigInt(sha512(seed)));
+	return bigIntToBytes(n === 0n ? 1n : n, VOPRF_SCALAR_LEN);
+}
+
+/**
+ * Finalize hash per RFC 9497 §3.3.2:
+ *   hashInput = I2OSP(len(input), 2) || input || I2OSP(32, 2) || issuedElement || "Finalize"
+ *   output    = Hash(hashInput)
+ */
+function finalizeHash(input: Uint8Array, issued: Uint8Array): Uint8Array {
 	const inputLen = new Uint8Array(2);
 	new DataView(inputLen.buffer).setUint16(0, input.length, false);
 	const issuedLen = new Uint8Array(2);

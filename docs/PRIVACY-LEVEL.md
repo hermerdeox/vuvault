@@ -14,12 +14,12 @@
 
 VuVault today is best described as:
 
-> **High architectural privacy for vault contents and document file
+> **High architectural privacy for vault contents
 > bytes, with minimized relay metadata — no per-user blob inventory,
 > no persistent device set, no cross-account sequence clock; not yet
 > multi-device, not yet sharing-enabled.**
 
-If you only need a number, call it **Vu Level 1** (vault + documents
+If you only need a number, call it **Vu Level 1** (vault
 end-to-end encrypted, M3 sync gated and verified, AND relay metadata
 minimized: blobs keyed by random UUID with no account prefix, the
 latest-pointer kept in a client-side encrypted inventory the passive
@@ -36,6 +36,43 @@ account correlation at all, including unlinkable routing identifiers
 that replace the deterministic Candidate-1 bootstrap address) is the
 Tier 2+ AKD + CRDT padding work in
 [`docs/TIER2-ARCHITECTURE.md`](./TIER2-ARCHITECTURE.md).
+
+> **2026-10-19 update — file attachments removed, V0 mechanisms wired
+> into the live path (branch `feat/vu0-no-files`).**
+>
+> - **Files are gone.** Document items are text-only records inside the
+>   vault blob; the `documentBlobs` store, the per-document R2 objects
+>   and the attach/download UI are removed. The vault blob is now the
+>   only object the server stores per save.
+> - **V0-C2 — fixed size.** Every vault pads to a 64 KiB floor
+>   (`VAULT_PAD_FLOOR_BYTES`), so vaults under it are byte-identical in
+>   size on the wire; larger vaults grow by powers of two.
+> - **V0-C1 — anonymous tokens.** `/api/v2/blobs/*` and `/api/v2/inv/*`
+>   accept only single-use VOPRF tokens (`X-Vu0-Token`), never the
+>   session token, so no request resolves to an account. Issuance
+>   (`/api/v0/tokens/issue`, Bearer) records nothing about who asked.
+>   This replaces the §L09cap capability handles described in the
+>   2026-05-25 note below: those were committed to `account_id` at
+>   issuance (so the server could always resolve them) and the live
+>   client never sent them. `migrations/0010_anon_tokens.sql` drops
+>   `capability_index`.
+> - **V0-C1 — no stable address.** Each save writes its inventory to a
+>   fresh address `HKDF(vaultKey, deviceSalt, save index)`; the client
+>   never deletes or keep-alives superseded objects (that would tie old
+>   to new), and unlock no longer reads the server at all. This also
+>   fixes an unlock-pull that could overwrite a newer local vault after
+>   an offline save.
+> - **V0-C3 — no existence oracle.** An unknown clientId gets a
+>   deterministic fake-record KE2 (RFC 9807 client-enumeration defense)
+>   with the same status and length as a real account, and fails like
+>   a wrong password.
+>
+> **`CURRENT_LEVEL` stays 1.** Residuals before a Level 0 claim: the
+> OPAQUE login handshake still names the account; IP and the timing
+> between token issuance and redemption are visible at the edge; the
+> per-day token key is not anchored in the AKD log (key-consistency);
+> a manual "Sync now" read can link the reading session to the writing
+> one; and the level flip still requires the live preview probe.
 
 > **2026-05-22 Phase 2 update.** The **V1-C2** criterion ("no
 > persistent device set") **has closed**: as of the session-mint
@@ -129,13 +166,15 @@ Each row in this table maps to actual code paths exercised by
 | Guarantee | Status | Evidence |
 | --- | --- | --- |
 | Vault item plaintext never leaves the device unencrypted | ✅ shipped | [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `provisionVault` / `saveItems`; verified by [`tests/e2e/full-workflow.spec.ts`](../tests/e2e/full-workflow.spec.ts) (zero-knowledge IDB inspection) |
-| Document file plaintext never leaves the device unencrypted | ✅ shipped | [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `sealDocument` / `openDocument` with document-scoped AAD; verified by [`tests/e2e/full-workflow.spec.ts`](../tests/e2e/full-workflow.spec.ts) and the `document blob crypto` block in [`src/lib/services/vault-session.test.ts`](../src/lib/services/vault-session.test.ts) |
 | AES-256-GCM under a per-vault key wrapped in an X25519 + ML-KEM-1024 hybrid envelope | ✅ shipped | [`src/lib/services/vault-envelope.ts`](../src/lib/services/vault-envelope.ts); KAT-locked under `npm run test:fips` |
 | Argon2id (RFC 9106) optional master-password third factor | ✅ shipped | [`src/lib/crypto/argon2.ts`](../src/lib/crypto/argon2.ts), [`src/lib/crypto/argon2id-rfc9106.kat.test.ts`](../src/lib/crypto/argon2id-rfc9106.kat.test.ts) |
 | OPAQUE (RFC 9807) registration + login against D1; server never sees a password equivalent | ✅ shipped | [`src/routes/api/opaque/`](../src/routes/api/opaque/), [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts); integration tests in [`tests/integration/worker.spec.ts`](../tests/integration/worker.spec.ts) |
 | Local Recovery Envelope for passkey-loss recovery with Secret Key + Recovery Password | ✅ shipped | [`src/lib/crypto/recovery-envelope.ts`](../src/lib/crypto/recovery-envelope.ts), [`src/lib/services/recovery-envelope.ts`](../src/lib/services/recovery-envelope.ts), [`src/routes/recover/+page.svelte`](../src/routes/recover/+page.svelte) |
 | Whole-vault encrypted blob sync against R2; server stores ciphertext only, keyed by random UUID with no account prefix | ✅ shipped | [`src/routes/api/v2/blobs/[uuid]/+server.ts`](../src/routes/api/v2/blobs/[uuid]/+server.ts), [`src/routes/api/v2/inv/[addr]/+server.ts`](../src/routes/api/v2/inv/[addr]/+server.ts), [`src/lib/services/inventory-session.ts`](../src/lib/services/inventory-session.ts), [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
-| Per-document encrypted blob storage against R2; server stores ciphertext only, keyed by random UUID with no account prefix | ✅ shipped | [`src/routes/api/v2/blobs/[uuid]/+server.ts`](../src/routes/api/v2/blobs/[uuid]/+server.ts), [`src/lib/services/document-blobs.ts`](../src/lib/services/document-blobs.ts), [`tests/integration/v2-blobs.spec.ts`](../tests/integration/v2-blobs.spec.ts) |
+| Every vault blob padded to a fixed 64 KiB floor — vaults under it are indistinguishable by size (V0-C2) | ✅ shipped | [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `VAULT_PAD_FLOOR_BYTES`; [`tests/integration/v0c2-padding.spec.ts`](../tests/integration/v0c2-padding.spec.ts), on-the-wire size check in [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
+| Blob / inventory requests carry single-use anonymous VOPRF tokens, never the session token (V0-C1) | ✅ shipped | [`src/lib/server/api/anon-tokens.ts`](../src/lib/server/api/anon-tokens.ts), [`src/routes/api/v0/tokens/`](../src/routes/api/v0/tokens/), [`tests/integration/v0-anon-tokens.spec.ts`](../tests/integration/v0-anon-tokens.spec.ts), [`tests/integration/v2-blobs.spec.ts`](../tests/integration/v2-blobs.spec.ts) |
+| Fresh inventory address per save; no client deletes / keep-alives; unlock never reads the server (V0-C1) | ✅ shipped | [`src/lib/services/inventory-session.ts`](../src/lib/services/inventory-session.ts); [`src/lib/services/inventory-session.test.ts`](../src/lib/services/inventory-session.test.ts) |
+| Unknown account answered with a fake-record KE2, same status and length as a real one (V0-C3) | ✅ shipped | [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts) `fakeAccount`; [`tests/integration/worker.spec.ts`](../tests/integration/worker.spec.ts) |
 | Production rate-limit bindings fail-closed | ✅ shipped | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) `applyRateLimit` + [`env.ts`](../src/lib/server/api/env.ts) `getRateLimitMode`; mode `OPAQUE_RATE_LIMIT_MODE` is `fail-closed` in `[env.production.vars]`. Verified by [`rate-limit-d1.test.ts`](../src/lib/server/api/rate-limit-d1.test.ts) + [`.github/workflows/release.yml`](../.github/workflows/release.yml) post-deploy burst probe. |
 | Server-side session revocation on lock | ✅ shipped | [`/api/opaque/logout`](../src/routes/api/opaque/logout/+server.ts), wired into `lockSession()` in [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) as a fire-and-forget call. |
 | Per-environment OPAQUE serverIdentity (preview cannot replay against production) | ✅ shipped | [`wrangler.toml`](../wrangler.toml) `[vars]` (`preview.vuvault.app`) vs `[env.production.vars]` (`vuvault.app`); `OPAQUE_SERVER_ID` mixes into every AKE transcript via [`server-opaque.ts`](../src/lib/server/api/server-opaque.ts). |
@@ -156,11 +195,9 @@ Each row in this table maps to actual code paths exercised by
 
 | Guarantee | Status | Evidence / blocker |
 | --- | --- | --- |
-| Field-level encrypted CRDT sync (no item-shape leakage from sync deltas) | ⚠️ pending | Tier 2 (2027). Today the sync server still sees the size of the whole-vault blob and the size of each document blob. See [`docs/L07-CRDT-SYNC-PLAN.html`](./L07-CRDT-SYNC-PLAN.html) |
-| Document blob size + upload timing privacy | ⚠️ partial | Ciphertext is sealed at natural length; no padding to bucketed sizes. An on-path observer can distinguish a 4 KB note attachment from a 4 MB scan. Tier 2 design adds bucketed padding |
+| Field-level encrypted CRDT sync (no item-shape leakage from sync deltas) | ⚠️ pending | Tier 2 (2027). Today the sync server sees the size bucket of the whole-vault blob (fixed below 64 KiB). See [`docs/L07-CRDT-SYNC-PLAN.html`](./L07-CRDT-SYNC-PLAN.html) |
 | Multi-device pairing without server-side device-set knowledge | ⚠️ pending | L08 (Tier 2). Today every successful OPAQUE login mints a session token that the server logs |
 | Sharing (family / team vaults) | ⚠️ pending | L06 MLS sharing — Tier 2 (2027). The current product is single-user |
-| Cross-device document recovery without re-uploading | ⚠️ partial | The R2 fetch path for documents works when sync is wired and the user has a valid session token, but there is no UI for "this device, no local row" prompting. Today VaultDetail's download will surface a typed error and the user can re-attach |
 | Threshold / FROST account recovery | ⚠️ pending | L11 (Tier 3, 2028). Today recovery is local-only: Secret Key + Recovery Password + local/exported Recovery Envelope |
 | PIR-based breach checks (HIBP without leakage) | ⚠️ pending | L10 (Tier 2). Today no breach-check service is shipped — local "weak / reused" detection only |
 | zkSNARK selective disclosure | ⚠️ pending | L15 (Tier 4, 2029–2030) |
@@ -175,7 +212,8 @@ Each row in this table maps to actual code paths exercised by
 | Coercion of the user (rubber-hose attacks) | Cryptography does not solve consent | Plausible-deniability decoy vault is on the Tier 3 roadmap |
 | Side-channel attacks against the platform's WebCrypto implementation | Browser-vendor problem | We only call constant-time noble primitives where we control the impl |
 | Implementation bugs in our code | Defended by audits + fuzzing, not architecture | KAT-locked crypto, fail-closed production gates, deterministic E2E |
-| The account-existence oracle from OPAQUE | Unavoidable from RFC 9807 | Explicitly documented in [`docs/SECURITY.md`](./SECURITY.md) §scope |
+| The OPAQUE login handshake naming the account | The server must load the account's envelope to run OPAQUE | KE1 no longer reveals whether an account exists (fake-record KE2); after login, blob / inventory traffic carries anonymous tokens. Per-handshake unlinkability is Tier 3+ |
+| Network-level linkage (IP, token issuance-to-redemption timing) | Visible at the edge to any HTTP server | Tokens hide account identity, not the network path; an oblivious relay (OHTTP / Tor) would close it |
 | Total sync-volume / upload-cadence side channels | Inherent to operating a sync server | Out of ZK scope; explicitly documented |
 | Demo-mode onboarding (deterministic PRF) | Designed for dev / CI only | `PUBLIC_ENABLE_DEMO_AUTH` is **false** in production and verified by [`scripts/verify-production-runtime.mjs`](../scripts/verify-production-runtime.mjs); CI fails the release if it leaks |
 | `PUBLIC_M3_E2E_AUTH` HMAC shim for WebAuthn PRF | CI-only deterministic factor for the M3 sync E2E | Same release-gate as demo mode; production refuses to ship with it enabled |
@@ -183,36 +221,18 @@ Each row in this table maps to actual code paths exercised by
 
 ---
 
-## How the document-file pass changes the picture
+## File attachments removed (2026-10-19)
 
-Before this pass, a "document" in the vault stored only a description
-and an optional external reference. The plan explicitly chose to add
-real encrypted file storage rather than test the metadata-only
-placeholder. After this pass:
-
-1. **Plaintext file bytes are only present in memory** inside
-   `attachDocumentFile()` ([`src/lib/services/document-blobs.ts`](../src/lib/services/document-blobs.ts))
-   and inside the caller's `Blob` when downloading
-   ([`src/routes/vault/VaultDetail.svelte`](../src/routes/vault/VaultDetail.svelte) `downloadDocument`).
-2. **Encrypted bytes** are written to the local `documentBlobs` store
-   and uploaded as opaque blobs to `/api/v2/blobs/<blobId>` in R2 — a
-   random UUID with no account prefix, with the blob id recorded in the
-   client-side encrypted inventory rather than a per-account listing.
-3. **AES-256-GCM** seals each document with the active session AES
-   key under a **distinct AAD domain** (`vuvault-doc-aad-v1`) bound to
-   the document's UUID, the account's device salt, and the WebAuthn
-   credential id. A document blob cannot be replayed as a whole-vault
-   blob or swapped between accounts.
-4. **A SHA-256 of the plaintext** is captured at upload time, stored in
-   the encrypted vault item, and displayed in both the editor and the
-   detail view. Anyone who knows the original plaintext can verify
-   that the bytes haven't drifted.
-5. **The E2E test [`tests/e2e/full-workflow.spec.ts`](../tests/e2e/full-workflow.spec.ts)
-   programmatically inspects IndexedDB after the workflow** and asserts
-   that none of the seven plaintext secrets the user typed appear
-   anywhere in the encrypted vault blob or the encrypted document
-   blob — the shipped zero-knowledge claim against a local-disk
-   exfiltration attack.
+An earlier pass added encrypted file attachments to document items.
+They were removed to keep the product to passwords, recovery codes and
+other text secrets — and because variable-size file blobs were the
+largest size side channel left. Document items are back to text-only
+records (a description and an external reference) stored inside the
+encrypted vault blob. The Dexie `documentBlobs` table is deleted on
+upgrade (schema v6), the codec drops legacy attachment fields, and the
+server no longer receives per-document objects. The full-workflow E2E
+still inspects IndexedDB and asserts no typed secret appears in the
+encrypted vault blob, and that the blob is exactly the fixed floor.
 
 ---
 
@@ -239,10 +259,9 @@ M3_E2E=1 npm run test:e2e -- tests/e2e/sync.spec.ts
 Verifying the on-the-wire / on-disk privacy claim yourself:
 
 1. Run `npm run dev` and complete a full demo onboarding.
-2. Open DevTools → Application → IndexedDB → `vuvault` → `vault` and
-   `documentBlobs`.
+2. Open DevTools → Application → IndexedDB → `vuvault` → `vault`.
 3. Inspect the rows. Every byte you see should be opaque ciphertext
-   — no JSON, no file names, no passwords. The full-workflow E2E test
+   — no JSON, no titles, no passwords. The full-workflow E2E test
    asserts exactly this programmatically.
 
 ---

@@ -166,14 +166,12 @@ function validateItem(raw: unknown, idx: number): VaultItem {
 			return {
 				...base,
 				kind: 'document',
+				// File-attachment fields from older vaults (docBlobId,
+				// docFileName, …) are dropped here: attachments were
+				// removed, and nothing may point at a blob that no longer
+				// exists.
 				docDescription: asString(obj.docDescription),
-				docExternalRef: asString(obj.docExternalRef),
-				docBlobId: asString(obj.docBlobId),
-				docFileName: asString(obj.docFileName),
-				docMimeType: asString(obj.docMimeType),
-				docSize: typeof obj.docSize === 'number' ? obj.docSize : undefined,
-				docSha256: asString(obj.docSha256),
-				docRemote: typeof obj.docRemote === 'boolean' ? obj.docRemote : undefined
+				docExternalRef: asString(obj.docExternalRef)
 			} as DocumentItem;
 	}
 }

@@ -101,34 +101,47 @@ describe('vault-codec', () => {
 		expect('billingPhone' in restored).toBe(false);
 	});
 
-	it('round-trips a document item with attachment metadata', () => {
-		const doc: DocumentItem = {
-			id: 'doc-1',
-			kind: 'document',
-			title: 'Lease',
-			createdAt: 1_000,
-			updatedAt: 2_000,
-			docDescription: 'Greenville office',
-			docExternalRef: '',
-			docBlobId: '11111111-2222-3333-4444-555555555555',
-			docFileName: 'lease.pdf',
-			docMimeType: 'application/pdf',
-			docSize: 4096,
-			docSha256:
-				'0000000000000000000000000000000000000000000000000000000000000000',
-			docRemote: true
-		};
-		const back = deserializeItems(serializeItems([doc]));
+	it('round-trips a text-only document and drops legacy attachment fields', () => {
+		// Vaults written before file attachments were removed may still
+		// carry the old pointer fields; they must not survive a round-trip.
+		const json = new TextEncoder().encode(
+			JSON.stringify([
+				{
+					id: 'doc-1',
+					kind: 'document',
+					title: 'Lease',
+					createdAt: 1_000,
+					updatedAt: 2_000,
+					docDescription: 'Greenville office',
+					docExternalRef: 'Filing cabinet B',
+					docBlobId: '11111111-2222-3333-4444-555555555555',
+					docFileName: 'lease.pdf',
+					docMimeType: 'application/pdf',
+					docSize: 4096,
+					docSha256:
+						'0000000000000000000000000000000000000000000000000000000000000000',
+					docRemote: true
+				}
+			])
+		);
+		const payload = new Uint8Array(1 + json.length);
+		payload[0] = 0x01;
+		payload.set(json, 1);
+		const back = deserializeItems(payload);
 		expect(back).toHaveLength(1);
-		const restored = back[0]!;
+		const restored = back[0]! as DocumentItem & Record<string, unknown>;
 		expect(restored.kind).toBe('document');
-		if (restored.kind === 'document') {
-			expect(restored.docBlobId).toBe(doc.docBlobId);
-			expect(restored.docFileName).toBe('lease.pdf');
-			expect(restored.docMimeType).toBe('application/pdf');
-			expect(restored.docSize).toBe(4096);
-			expect(restored.docSha256).toHaveLength(64);
-			expect(restored.docRemote).toBe(true);
+		expect(restored.docDescription).toBe('Greenville office');
+		expect(restored.docExternalRef).toBe('Filing cabinet B');
+		for (const legacy of [
+			'docBlobId',
+			'docFileName',
+			'docMimeType',
+			'docSize',
+			'docSha256',
+			'docRemote'
+		]) {
+			expect(legacy in restored).toBe(false);
 		}
 	});
 

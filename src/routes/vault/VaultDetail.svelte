@@ -132,49 +132,6 @@
 		pendingDelete = null;
 	}
 
-	let docBusy = $state(false);
-	let docError = $state<string | null>(null);
-
-	function formatDocSize(n: number | undefined): string {
-		if (typeof n !== 'number') return '';
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-	}
-
-	async function downloadDocument(target: VaultItem) {
-		if (target.kind !== 'document' || !target.docBlobId) return;
-		docBusy = true;
-		docError = null;
-		try {
-			const { readDocumentBlob } = await import('$lib/services/document-blobs');
-			const plaintext = await readDocumentBlob(target.docBlobId);
-			const blob = new Blob([new Uint8Array(plaintext)], {
-				type: target.docMimeType || 'application/octet-stream'
-			});
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = target.docFileName || `${target.title || 'document'}.bin`;
-			a.rel = 'noopener noreferrer';
-			document.body.appendChild(a);
-			a.click();
-			a.remove();
-			// Revoke the object URL on the next tick — Chrome/Firefox
-			// both keep the download alive once a.click() returns.
-			setTimeout(() => URL.revokeObjectURL(url), 1_000);
-			audit.push('warn', `Decrypted and downloaded document`, {
-				blob: target.docBlobId.slice(0, 8)
-			});
-		} catch (err) {
-			docError =
-				err instanceof Error ? err.message : 'Could not decrypt the document.';
-			audit.push('danger', `Document download failed: ${docError}`);
-		} finally {
-			docBusy = false;
-		}
-	}
-
 	// Live TOTP ticker — uses parseTotpSeed so plain Base32 and otpauth://
 	// both work. Only LoginItem carries `totpSeed`; narrow on kind so
 	// the type system enforces it.
@@ -657,71 +614,6 @@
 					</div>
 				{/if}
 			{:else if item.kind === 'document'}
-				{#if item.docBlobId && item.docFileName}
-					<div class="field">
-						<div class="key">File</div>
-						<div class="row">
-							<div class="value">{item.docFileName}</div>
-						</div>
-					</div>
-					<div class="grid-2">
-						{#if item.docMimeType}
-							<div class="field">
-								<div class="key">Type</div>
-								<div class="row">
-									<div class="value mono">{item.docMimeType}</div>
-								</div>
-							</div>
-						{/if}
-						{#if typeof item.docSize === 'number'}
-							<div class="field">
-								<div class="key">Size</div>
-								<div class="row">
-									<div class="value mono">{formatDocSize(item.docSize)}</div>
-								</div>
-							</div>
-						{/if}
-					</div>
-					{#if item.docSha256}
-						<div class="field">
-							<div class="key">SHA-256</div>
-							<div class="row">
-								<div class="value mono" title={item.docSha256}>
-									{item.docSha256.slice(0, 32)}…
-								</div>
-								<button
-									class="ico-btn"
-									onclick={() => copyValue('sha256', item.docSha256)}
-									aria-label="Copy SHA-256"
-								>
-									<IconCopy size={14} stroke={1.6} />
-								</button>
-							</div>
-						</div>
-					{/if}
-					<div class="row-actions" data-testid="document-actions">
-						<button
-							class="head-btn"
-							onclick={() => downloadDocument(item)}
-							disabled={docBusy}
-							data-testid="download-document"
-						>
-							{docBusy ? 'Decrypting…' : 'Download'}
-						</button>
-					</div>
-					{#if docError}
-						<div class="hint warn" role="alert">{docError}</div>
-					{/if}
-				{:else}
-					<div class="info-row">
-						<IconWarning size={14} stroke={2} />
-						<div>
-							<strong>Metadata-only document.</strong>
-							This document has no attached encrypted file. Attach one from
-							Edit, or use the description / external reference below.
-						</div>
-					</div>
-				{/if}
 				{#if item.docDescription}
 					<div class="field">
 						<div class="key">Description</div>
@@ -1026,7 +918,6 @@
 		font-size: 10px;
 		color: var(--warn);
 	}
-	.info-row,
 	.health-banner {
 		display: flex;
 		gap: 10px;
@@ -1039,7 +930,6 @@
 		color: var(--text-2);
 		line-height: 1.5;
 	}
-	.info-row strong,
 	.health-banner strong {
 		color: var(--warn);
 		display: block;

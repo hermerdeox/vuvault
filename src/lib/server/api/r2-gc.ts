@@ -33,15 +33,14 @@ const GC_PROBABILITY = 0.02;
  * Age, in milliseconds, past which a reference whose `last_seen_at`
  * has not been refreshed is eligible for collection.
  *
- * A live object is re-asserted whenever it is saved, read, OR named in a
- * keep-alive batch (see `touchV2BlobReferences` + the client's
- * `inventoryKeepAlive`), so under normal use every CURRENT blob — vault
- * and document alike — keeps a fresh timestamp on each sync. The window
- * therefore only ever collects genuinely orphaned blobs (superseded
- * versions no longer in any inventory) plus the blobs of a user who has
- * not synced at all for the whole window. 60 days gives a wide safety
- * margin over a multi-week absence; the prior 14-day window could reap a
- * still-live document blob the owner simply hadn't opened in two weeks.
+ * A live object is re-asserted only by being written or read. The client
+ * no longer deletes superseded blobs/inventories or sends keep-alive
+ * batches — both would tie an old object to a new one in a single
+ * session and undo the per-save address rotation (V0-C1). Instead every
+ * superseded object simply ages out here, and the client re-uploads its
+ * current vault as a fresh save once its last push is older than half
+ * this window (`STALE_PUSH_MS` in vault-session.ts), so a live vault is
+ * never collected while the owner keeps unlocking at least every 30 days.
  */
 const V2_REF_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 
@@ -70,37 +69,6 @@ export async function gcV2Now(
 	const v2BlobsDeleted = await gcV2BlobReferences(env, cutoffSec);
 	const v2InvsDeleted = await gcV2InvReferences(env, cutoffSec);
 	return { v2BlobsDeleted, v2InvsDeleted };
-}
-
-/**
- * Refresh `last_seen_at` to now for each existing blob reference in the
- * batch — the server side of the keep-alive heartbeat. UPDATE-only by
- * design: it never INSERTs, so a keep-alive for an unknown / already-
- * collected UUID is a silent no-op and can't create a phantom reference
- * to a blob R2 doesn't hold. Returns how many references were refreshed.
- *
- * Carries no account binding (the IDs are global account-free UUIDs) and
- * is best-effort per row, so a single failing UPDATE never aborts the
- * batch or the originating request.
- */
-export async function touchV2BlobReferences(env: Env, blobIds: string[]): Promise<number> {
-	let touched = 0;
-	for (const raw of blobIds) {
-		const blobId = raw.toLowerCase();
-		try {
-			const res = await env.AUTH_DB
-				.prepare(
-					`UPDATE blob_references SET last_seen_at = unixepoch() WHERE blob_id = ?`
-				)
-				.bind(blobId)
-				.run();
-			const changes = res?.meta?.changes ?? 0;
-			if (changes > 0) touched += changes;
-		} catch {
-			// Tolerable — keep-alive is a best-effort heartbeat.
-		}
-	}
-	return touched;
 }
 
 async function gcV2BlobReferences(env: Env, cutoffSec: number): Promise<number> {
