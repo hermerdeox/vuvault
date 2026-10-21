@@ -4,6 +4,8 @@
  * Body: `{ clientId, requestId, record }` where `record` is the
  *       base64-encoded RFC 9807 registration record bytes.
  * Returns: `{ accountId }` server-allocated UUID for the new account.
+ *          409 when `clientId` is already registered: registration
+ *          never replaces an existing account's record.
  *
  * Migrated from `functions/api/opaque/register/record.ts`.
  */
@@ -62,6 +64,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 		if (msg.includes('clientId mismatch')) {
 			return jsonError(400, 'clientId mismatch');
+		}
+		if (msg.includes('already registered')) {
+			return jsonError(409, 'clientId already registered');
 		}
 		if (msg.includes('record length')) {
 			return jsonError(400, 'malformed registration record');

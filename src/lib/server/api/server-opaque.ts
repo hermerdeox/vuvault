@@ -113,7 +113,11 @@ export type PendingLogin = {
  */
 export interface OpaqueStorage {
 	getAccount(clientId: ClientIdentifier): Promise<StoredAccount | null>;
-	putAccount(clientId: ClientIdentifier, account: StoredAccount): Promise<void>;
+	/**
+	 * Store a NEW account. Returns false, writing nothing, when `clientId`
+	 * is already registered — it must never overwrite an existing record.
+	 */
+	insertAccount(clientId: ClientIdentifier, account: StoredAccount): Promise<boolean>;
 	deleteAccount(clientId: ClientIdentifier): Promise<void>;
 
 	getPendingRegistration(requestId: string): Promise<PendingRegistration | null>;
@@ -238,14 +242,20 @@ export class OpaqueServerEngine {
 		// Validate the envelope deserializes — fails fast on tampering.
 		deserializeEnvelope(envelopeBytes, this.suite);
 
+		// First registration wins. Overwriting would let anyone who knows a
+		// clientId swap in a record for a password they chose, log in as
+		// that account and lock the owner out. No app flow re-registers an
+		// existing clientId: onboarding derives it from a newly created
+		// passkey, and recovery leaves OPAQUE unenrolled.
 		const accountId = randomId();
-		await this.storage.putAccount(clientId, {
+		const inserted = await this.storage.insertAccount(clientId, {
 			accountId,
 			clientPublicKey,
 			maskingKey,
 			envelopeBytes,
 			oprfSecretKey: pending.oprfSecretKey
 		});
+		if (!inserted) throw new Error('opaque: clientId already registered');
 		return { accountId };
 	}
 

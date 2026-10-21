@@ -28,7 +28,11 @@ import {
 	loadServerIdentity
 } from '../../src/lib/server/api/d1-storage';
 import { authenticate } from '../../src/lib/server/api/auth-token';
+import { b64decode, b64encode } from '../../src/lib/server/api/http';
+import type { Env } from '../../src/lib/server/api/env';
 import { register, login } from '../../src/lib/services/opaque-client';
+import { POST as registerRequestRoute } from '../../src/routes/api/opaque/register/request/+server';
+import { POST as registerRecordRoute } from '../../src/routes/api/opaque/register/record/+server';
 
 // --- Hand-rolled D1 mock -------------------------------------------
 
@@ -101,6 +105,7 @@ class FakeD1 {
 
 	private runImpl(sql: string, args: unknown[]): number {
 		if (sql.startsWith('INSERT INTO accounts')) {
+			if (this.accounts.has(args[1] as string)) return 0;
 			this.accounts.set(args[1] as string, {
 				account_id: args[0],
 				client_public_key: args[2],
@@ -399,6 +404,92 @@ describe('Worker integration · D1 + engine round-trip', () => {
 			.loginKE3('ghost', ghostId, new Uint8Array(64))
 			.catch((e: unknown) => e);
 		expect((ghostErr as Error).message).toBe((realErr as Error).message);
+	});
+
+	it('refuses to re-register an existing clientId and keeps the owner able to log in', async () => {
+		const storage = new D1OpaqueStorage(db);
+		const engine = new OpaqueServerEngine(newIdentity(), storage);
+		const transport = {
+			registerRequest: (cid: string, req: Uint8Array) => engine.registerRequest(cid, req),
+			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
+				engine.registerRecord(cid, rid, rec),
+			loginKE1: (cid: string, ke1: Uint8Array) => engine.loginKE1(cid, ke1),
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) => engine.loginKE3(cid, rid, ke3)
+		};
+		const owner = await register({
+			serverId: SERVER_ID,
+			clientId: 'victim',
+			password: 'owner-pw',
+			transport
+		});
+		const before = await storage.getAccount('victim');
+
+		// Registration is unauthenticated: anyone who learns a clientId can
+		// run the whole flow for it with a password of their choosing.
+		await expect(
+			register({ serverId: SERVER_ID, clientId: 'victim', password: 'attacker-pw', transport })
+		).rejects.toThrow('clientId already registered');
+
+		expect(await storage.getAccount('victim')).toEqual(before);
+		const ownerLogin = await login({
+			serverId: SERVER_ID,
+			clientId: 'victim',
+			password: 'owner-pw',
+			transport
+		});
+		expect(ownerLogin.accountId).toBe(owner.accountId);
+		await expect(
+			login({ serverId: SERVER_ID, clientId: 'victim', password: 'attacker-pw', transport })
+		).rejects.toThrow();
+	});
+
+	it('answers 409 over HTTP when a registered clientId is registered again', async () => {
+		db.serverIdentity = { oprf_seed: newIdentity().serverSecretKey.slice().buffer };
+		const env = {
+			AUTH_DB: db,
+			OPAQUE_SERVER_ID: SERVER_ID,
+			OPAQUE_RATE_LIMIT_MODE: 'fail-open'
+		} as unknown as Env;
+		const post = (path: string, body: unknown) =>
+			({
+				request: new Request(`http://localhost${path}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify(body)
+				}),
+				platform: { env }
+			}) as never;
+		const statuses: number[] = [];
+		const transport = {
+			registerRequest: async (cid: string, req: Uint8Array) => {
+				const res = await registerRequestRoute(
+					post('/api/opaque/register/request', { clientId: cid, request: b64encode(req) })
+				);
+				const body = (await res.json()) as { data: { requestId: string; response: string } };
+				return { requestId: body.data.requestId, response: b64decode(body.data.response) };
+			},
+			registerRecord: async (cid: string, rid: string, rec: Uint8Array) => {
+				const res = await registerRecordRoute(
+					post('/api/opaque/register/record', {
+						clientId: cid,
+						requestId: rid,
+						record: b64encode(rec)
+					})
+				);
+				statuses.push(res.status);
+				const body = (await res.json()) as { data?: { accountId: string }; error?: string };
+				if (!res.ok) throw new Error(body.error);
+				return { accountId: body.data!.accountId };
+			},
+			loginKE1: () => Promise.reject(new Error('unused')),
+			loginKE3: () => Promise.reject(new Error('unused'))
+		};
+
+		await register({ serverId: SERVER_ID, clientId: 'c'.repeat(64), password: 'one', transport });
+		await expect(
+			register({ serverId: SERVER_ID, clientId: 'c'.repeat(64), password: 'two', transport })
+		).rejects.toThrow('clientId already registered');
+		expect(statuses).toEqual([200, 409]);
 	});
 });
 
