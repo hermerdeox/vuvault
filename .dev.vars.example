@@ -1,0 +1,10 @@
+# Local server secrets for `wrangler pages dev`. Copy to `.dev.vars`
+# (gitignored); `npm run dev:api` does that for you on first run and
+# fills in a fresh random key.
+#
+# Root for the anonymous-token keys (V0-C1) and the AKD epoch
+# signatures: 32 random bytes as 64 hex characters, e.g.
+# `openssl rand -hex 32`. Without it /api/v0/tokens/issue answers 503
+# and v2 sync cannot authorize. Production and preview each have their
+# own, set with `wrangler pages secret put AKD_SIGNING_KEY_HEX`.
+AKD_SIGNING_KEY_HEX=

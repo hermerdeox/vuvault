@@ -29,34 +29,36 @@ Stop with `lsof -ti:5173 -sTCP:LISTEN | xargs -r kill`. Don't `pkill -f vite`
 
 ## Mode B — wrangler, with the API
 
-Needs a build first, and the env vars must be set for **both** the build and
-the serve, or the client ships without a sync origin.
-
 ```bash
-PUBLIC_BUNDLE_HASH=9f4c7d2e8b16a4f122e0d5c83a7e91b4 \
-PUBLIC_VAULT_VERSION=0.1.0 PUBLIC_ENABLE_DEMO_AUTH=false \
-PUBLIC_M3_E2E_AUTH=true PUBLIC_SYNC_ORIGIN=http://localhost:8788 \
-  npm run build
-
-npx wrangler d1 migrations apply AUTH_DB --local
-node scripts/seed-opaque-identity.mjs --env=local --rotate=true
-
-OPAQUE_SERVER_ID=vuvault.app \
-  npx wrangler pages dev .svelte-kit/cloudflare --port 8788 \
-  > wrangler-pages-dev.log 2>&1 &
-for i in $(seq 1 60); do curl -fsS http://localhost:8788/api/capabilities >/dev/null && break; sleep 1; done
+npm run dev:api > dev-api.log 2>&1 &     # build + migrate + seed + serve on 8788
+for i in $(seq 1 120); do curl -fsS http://localhost:8788/api/capabilities >/dev/null && break; sleep 1; done
 ```
 
-`OPAQUE_SERVER_ID` **must** be `vuvault.app`. The client derives its server
-id from `getRpId()`; the top-level `wrangler.toml` value is
-`preview.vuvault.app`, and the mismatch fails the OPAQUE AKE MAC verify at
-login with a misleading error. `PUBLIC_M3_E2E_AUTH=true` swaps WebAuthn for a
-deterministic PRF shim — the only way to exercise **production** auth mode
-headlessly.
+`scripts/dev-api.mjs` mirrors the CI `m3 d1/r2 sync e2e` job. What it
+handles that a hand-rolled `wrangler pages dev` gets wrong:
 
-Leaves a `wrangler-pages-dev.pid` at the repo root. It is untracked and there
-is no `*.pid` ignore rule, so it shows up in `git status` forever. Kill by
-port, then delete it.
+- **`.dev.vars` needs `AKD_SIGNING_KEY_HEX`.** It is the root for the
+  anonymous-token keys; without it `/api/v0/tokens/issue` answers 503 and
+  every v2 sync call fails. The script creates `.dev.vars` from
+  `.dev.vars.example` with a fresh random key when it is missing.
+- **The `PUBLIC_*` values must reach the serve, not just the build.** The
+  client reads them through `$env/dynamic/public`, which wrangler resolves
+  when it serves; build-time env alone ships a client with no sync origin
+  and onboarding fails with "Registration failed". The script passes them
+  to both (`--binding` at serve). Check with
+  `curl -s http://localhost:8788/_app/env.js`.
+- **`OPAQUE_SERVER_ID` must be `vuvault.app`.** The client derives its
+  server id from `getRpId()`; the top-level `wrangler.toml` value is
+  `preview.vuvault.app`, and the mismatch fails the OPAQUE AKE MAC verify
+  at login with a misleading error.
+
+`PUBLIC_M3_E2E_AUTH=true` (the script's default) swaps WebAuthn for a
+deterministic PRF shim — the only way to exercise **production** auth mode
+headlessly. `PUBLIC_M3_E2E_AUTH=false npm run dev:api` uses a real passkey.
+
+The build rewrites the tracked `.bundle-digest`; revert it if you did not
+mean to change the bundle. Stop with
+`lsof -ti:8788 -sTCP:LISTEN | xargs -r kill`.
 
 ## Driving it
 
