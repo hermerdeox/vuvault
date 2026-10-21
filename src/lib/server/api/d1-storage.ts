@@ -275,8 +275,8 @@ export async function loadServerIdentity(
 	}
 	// The OPRF seed IS our server identity entropy. Use it as the
 	// long-lived secret key (32 bytes); derive the public key once.
-	const serverSecretKey = bytes(row.oprf_seed);
-	if (serverSecretKey.length !== 32) {
+	const seed = bytes(row.oprf_seed);
+	if (seed.length !== 32) {
 		throw new Error('d1-storage: server_identity.oprf_seed must be exactly 32 bytes');
 	}
 	// All-zero guard runs BEFORE the `serverPublicKey` early return so
@@ -284,9 +284,12 @@ export async function loadServerIdentity(
 	// degenerate secret. Today the production handlers never pass that
 	// argument, but the guard is the security-critical line — keep it
 	// unconditional.
-	if (isAllZero(serverSecretKey)) {
+	if (isAllZero(seed)) {
 		throw new Error('d1-storage: server_identity.oprf_seed must not be all zero');
 	}
+	// Production's seed predates @structured-id/opaque 1.0.5 and is above
+	// the group order; see OpaqueServerEngine.reduceServerSecretKey.
+	const serverSecretKey = OpaqueServerEngine.reduceServerSecretKey(seed);
 	if (serverPublicKey) {
 		return { serverId, serverSecretKey, serverPublicKey };
 	}
