@@ -2,7 +2,8 @@
  * Unit tests for `blob-inventory.ts` — Phase 4 §L07b primitives.
  *
  * Contract under test:
- *   - `bootstrapAddress` is deterministic given (vaultKey, deviceSalt).
+ *   - `inventoryAddress` is deterministic given (vaultKey, deviceSalt, index)
+ *     and differs for every index, so no save reuses an address.
  *   - Different (vaultKey, deviceSalt) produce different addresses.
  *   - `rotateAddress` produces a fresh, non-deterministic 16-byte
  *     address each call.
@@ -17,7 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	INVENTORY_ADDRESS_BYTES,
-	bootstrapAddress,
+	inventoryAddress,
 	rotateAddress,
 	encodeAddress,
 	decodeAddress,
@@ -33,32 +34,42 @@ const VAULT_KEY = new Uint8Array(64).map((_, i) => (i * 7 + 3) & 0xff);
 const DEVICE_SALT = new Uint8Array(32).map((_, i) => (i * 13 + 5) & 0xff);
 
 describe('blob-inventory · address derivation', () => {
-	it('bootstrapAddress is deterministic for same (vaultKey, deviceSalt)', () => {
-		const a = bootstrapAddress(VAULT_KEY, DEVICE_SALT);
-		const b = bootstrapAddress(VAULT_KEY, DEVICE_SALT);
+	it('inventoryAddress is deterministic for the same (vaultKey, deviceSalt, index)', () => {
+		const a = inventoryAddress(VAULT_KEY, DEVICE_SALT, 1n);
+		const b = inventoryAddress(VAULT_KEY, DEVICE_SALT, 1n);
 		expect(a.length).toBe(INVENTORY_ADDRESS_BYTES);
 		expect(Array.from(a)).toEqual(Array.from(b));
 	});
 
-	it('bootstrapAddress changes when vaultKey changes', () => {
-		const a = bootstrapAddress(VAULT_KEY, DEVICE_SALT);
+	it('inventoryAddress gives every save index its own address', () => {
+		const seen = new Set<string>();
+		for (let i = 1n; i <= 64n; i++) {
+			seen.add(encodeAddress(inventoryAddress(VAULT_KEY, DEVICE_SALT, i)));
+		}
+		expect(seen.size).toBe(64);
+	});
+
+	it('inventoryAddress changes when vaultKey changes', () => {
+		const a = inventoryAddress(VAULT_KEY, DEVICE_SALT, 1n);
 		const other = new Uint8Array(VAULT_KEY);
 		other[0] = (other[0]! ^ 1) & 0xff;
-		const b = bootstrapAddress(other, DEVICE_SALT);
+		const b = inventoryAddress(other, DEVICE_SALT, 1n);
 		expect(Array.from(a)).not.toEqual(Array.from(b));
 	});
 
-	it('bootstrapAddress changes when deviceSalt changes', () => {
-		const a = bootstrapAddress(VAULT_KEY, DEVICE_SALT);
+	it('inventoryAddress changes when deviceSalt changes', () => {
+		const a = inventoryAddress(VAULT_KEY, DEVICE_SALT, 1n);
 		const other = new Uint8Array(DEVICE_SALT);
 		other[0] = (other[0]! ^ 1) & 0xff;
-		const b = bootstrapAddress(VAULT_KEY, other);
+		const b = inventoryAddress(VAULT_KEY, other, 1n);
 		expect(Array.from(a)).not.toEqual(Array.from(b));
 	});
 
-	it('bootstrapAddress rejects empty inputs', () => {
-		expect(() => bootstrapAddress(new Uint8Array(0), DEVICE_SALT)).toThrow();
-		expect(() => bootstrapAddress(VAULT_KEY, new Uint8Array(0))).toThrow();
+	it('inventoryAddress rejects empty inputs and non-positive indices', () => {
+		expect(() => inventoryAddress(new Uint8Array(0), DEVICE_SALT, 1n)).toThrow();
+		expect(() => inventoryAddress(VAULT_KEY, new Uint8Array(0), 1n)).toThrow();
+		expect(() => inventoryAddress(VAULT_KEY, DEVICE_SALT, 0n)).toThrow();
+		expect(() => inventoryAddress(VAULT_KEY, DEVICE_SALT, -1n)).toThrow();
 	});
 
 	it('rotateAddress is 16 random bytes and changes on every call', () => {

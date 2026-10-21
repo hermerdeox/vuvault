@@ -9,7 +9,9 @@
  *   - The set of distinct ciphertext sizes across 10 random plaintext
  *     sizes collapses to at most 14 distinct buckets (the V0-C2
  *     statistical assertion from docs/VU-LEVEL-MIGRATION-MAP.md).
- *   - Document blobs are similarly bucketed.
+ *   - Every vault under VAULT_PAD_FLOOR_BYTES seals to one identical
+ *     size, so the server learns nothing from size (file attachments,
+ *     the old variable-size blobs, were removed).
  *   - Round-trip identity: open(sealed(items)) ≡ items, regardless of
  *     padding presence.
  */
@@ -59,10 +61,9 @@ import {
 	provisionVault,
 	saveItems,
 	openVault,
-	sealDocument,
-	openDocument,
 	lockSession,
-	PROVISION_FORMAT_VERSION
+	PROVISION_FORMAT_VERSION,
+	VAULT_PAD_FLOOR_BYTES
 } from '../../src/lib/services/vault-session';
 import { db } from '../../src/lib/utils/storage';
 import type { VaultItem } from '../../src/lib/types/vault-item';
@@ -181,13 +182,13 @@ describe('V0-C2 · vault blob padding', () => {
 	});
 });
 
-describe('V0-C2 · document blob padding', () => {
-	it('sealDocument produces a power-of-two-bucketed ciphertext and openDocument round-trips', async () => {
+describe('V0-C2 · fixed-size vault floor', () => {
+	it('vaults of very different sizes under the floor all seal to one size', async () => {
 		const credentialId = freshCredentialId();
 		const deviceSalt = new Uint8Array(16).fill(0xb4);
 		const prf = hmac(sha512, deviceSalt, new Uint8Array(credentialId)).slice(0, 32);
 		await provisionVault({
-			deviceLabel: 'v0c2-doc',
+			deviceLabel: 'v0c2-floor',
 			secretKey: SECRET_KEY,
 			credentialId,
 			credentialPublicKey: new ArrayBuffer(0),
@@ -196,26 +197,20 @@ describe('V0-C2 · document blob padding', () => {
 			deviceSalt
 		});
 
-		const plaintext = new Uint8Array(1234).map((_, i) => (i * 7 + 3) & 0xff);
-		const sealed = await sealDocument(plaintext);
-		expect(isBucketSize(sealed.ciphertext.length)).toBe(true);
-
-		const opened = await openDocument({
-			blobId: sealed.blobId,
-			nonce: sealed.nonce,
-			ciphertext: sealed.ciphertext
-		});
-		expect(opened.length).toBe(1234);
-		expect(Array.from(opened.slice(0, 16))).toEqual(Array.from(plaintext.slice(0, 16)));
-		expect(Array.from(opened.slice(-16))).toEqual(Array.from(plaintext.slice(-16)));
+		const sizes = new Set<number>();
+		for (const n of [64, 1_000, 10_000, 40_000, 60_000]) {
+			await saveItems([makeItem(`floor-${n}`, n)]);
+			sizes.add((await db.vault.get('singleton'))!.ciphertext.length);
+		}
+		expect([...sizes]).toEqual([VAULT_PAD_FLOOR_BYTES + 16]);
 	});
 
-	it('5 document sizes collapse to ≤ 14 distinct buckets', async () => {
+	it('a vault that outgrows the floor moves to the next power of two and still round-trips', async () => {
 		const credentialId = freshCredentialId();
 		const deviceSalt = new Uint8Array(16).fill(0xb5);
 		const prf = hmac(sha512, deviceSalt, new Uint8Array(credentialId)).slice(0, 32);
 		await provisionVault({
-			deviceLabel: 'v0c2-doc-buckets',
+			deviceLabel: 'v0c2-over-floor',
 			secretKey: SECRET_KEY,
 			credentialId,
 			credentialPublicKey: new ArrayBuffer(0),
@@ -223,15 +218,13 @@ describe('V0-C2 · document blob padding', () => {
 			prfOutput: prf,
 			deviceSalt
 		});
+		const big = makeItem('big', VAULT_PAD_FLOOR_BYTES + 1_000);
+		await saveItems([big]);
+		const len = (await db.vault.get('singleton'))!.ciphertext.length;
+		expect(len).toBe(2 * VAULT_PAD_FLOOR_BYTES + 16);
 
-		const sizes = [50, 800, 9000, 35000, 130000];
-		const buckets = new Set<number>();
-		for (const n of sizes) {
-			const plaintext = new Uint8Array(n).map((_, i) => (i * 11 + 5) & 0xff);
-			const sealed = await sealDocument(plaintext);
-			expect(isBucketSize(sealed.ciphertext.length)).toBe(true);
-			buckets.add(sealed.ciphertext.length);
-		}
-		expect(buckets.size).toBeLessThanOrEqual(14);
+		lockSession();
+		const opened = await openVault({ secretKey: SECRET_KEY, prfOutput: prf });
+		expect(opened.map((i) => i.id)).toEqual(['big']);
 	});
 });

@@ -323,27 +323,82 @@ describe('Worker integration · D1 + engine round-trip', () => {
 		).rejects.toThrow();
 	});
 
-	it('login against an unknown clientId rejects at KE1', async () => {
+	it('answers KE1 for an unknown clientId with a same-length KE2 and fails like a wrong password (V0-C3)', async () => {
 		const identity = newIdentity();
 		const storage = new D1OpaqueStorage(db);
 		const engine = new OpaqueServerEngine(identity, storage);
+		const ke2Lengths = new Map<string, number>();
+		const ke3Seen: string[] = [];
 		const transport = {
 			registerRequest: (cid: string, req: Uint8Array) =>
 				engine.registerRequest(cid, req),
 			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
 				engine.registerRecord(cid, rid, rec),
-			loginKE1: (cid: string, ke1: Uint8Array) => engine.loginKE1(cid, ke1),
-			loginKE3: (cid: string, rid: string, ke3: Uint8Array) =>
-				engine.loginKE3(cid, rid, ke3)
+			loginKE1: async (cid: string, ke1: Uint8Array) => {
+				const out = await engine.loginKE1(cid, ke1);
+				ke2Lengths.set(cid, out.ke2.length);
+				return out;
+			},
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) => {
+				ke3Seen.push(cid);
+				return engine.loginKE3(cid, rid, ke3);
+			}
 		};
-		await expect(
-			login({
-				serverId: SERVER_ID,
-				clientId: 'never-registered',
-				password: 'x',
-				transport
-			})
-		).rejects.toThrow(/unknown clientId/);
+		await register({ serverId: SERVER_ID, clientId: 'real-user', password: 'right', transport });
+		const wrong = await login({
+			serverId: SERVER_ID,
+			clientId: 'real-user',
+			password: 'wrong',
+			transport
+		}).catch((e: unknown) => e);
+		const unknown = await login({
+			serverId: SERVER_ID,
+			clientId: 'never-registered',
+			password: 'x',
+			transport
+		}).catch((e: unknown) => e);
+
+		// KE1 succeeded for both, with byte-identical response lengths.
+		expect(ke2Lengths.get('never-registered')).toBe(ke2Lengths.get('real-user'));
+		// Both failed client-side at envelope recovery, with the same error.
+		expect(unknown).toBeInstanceOf(Error);
+		expect((unknown as Error).message).toBe((wrong as Error).message);
+		expect(ke3Seen).toEqual([]);
+		// The fake path wrote a pending login row like a real one, and
+		// created no account.
+		expect(await storage.getAccount('never-registered')).toBeNull();
+	});
+
+	it('rejects a forged KE3 for an unknown clientId with the wrong-password error', async () => {
+		const identity = newIdentity();
+		const storage = new D1OpaqueStorage(db);
+		const engine = new OpaqueServerEngine(identity, storage);
+		// Any well-formed KE1 works for the fake path; take one from a real
+		// client run against an account that does exist.
+		let capturedKe1: Uint8Array | null = null;
+		const transport = {
+			registerRequest: (cid: string, req: Uint8Array) => engine.registerRequest(cid, req),
+			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
+				engine.registerRecord(cid, rid, rec),
+			loginKE1: (cid: string, ke1: Uint8Array) => {
+				capturedKe1 = ke1;
+				return engine.loginKE1(cid, ke1);
+			},
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) => engine.loginKE3(cid, rid, ke3)
+		};
+		await register({ serverId: SERVER_ID, clientId: 'someone', password: 'pw', transport });
+		await login({ serverId: SERVER_ID, clientId: 'someone', password: 'pw', transport });
+		const { requestId } = await engine.loginKE1('ghost', capturedKe1!);
+		await expect(engine.loginKE3('ghost', requestId, new Uint8Array(64))).rejects.toThrow();
+		const realKe1 = await engine.loginKE1('someone', capturedKe1!);
+		const realErr = await engine
+			.loginKE3('someone', realKe1.requestId, new Uint8Array(64))
+			.catch((e: unknown) => e);
+		const { requestId: ghostId } = await engine.loginKE1('ghost', capturedKe1!);
+		const ghostErr = await engine
+			.loginKE3('ghost', ghostId, new Uint8Array(64))
+			.catch((e: unknown) => e);
+		expect((ghostErr as Error).message).toBe((realErr as Error).message);
 	});
 });
 

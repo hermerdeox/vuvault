@@ -26,8 +26,9 @@
  *                                   REFUSED in this ecosystem)
  *
  * `CURRENT_LEVEL = 1` reflects the verdict in PRIVACY_AUDIT.md after
- * the §L07b metadata-minimization pass: vault and document bytes are
- * E2E ciphertext AND the relay metadata plane is minimized. Blobs are
+ * the §L07b metadata-minimization pass: vault bytes are E2E ciphertext
+ * (file attachments were removed) AND the relay metadata plane is
+ * minimized. Blobs are
  * keyed by random UUID with no account prefix; the latest-pointer lives
  * in a client-side encrypted inventory the passive server cannot
  * address (V1-C1); the persistent device set is gone (V1-C2, migration
@@ -69,7 +70,7 @@ export const PRIVACY_LEVELS: readonly PrivacyLevel[] = [
 		headline: 'Zero-knowledge',
 		when: 'Aspirational — Tier 2+ redesign target',
 		summary:
-			'Server cannot correlate accounts, sessions, devices, or blob inventories. Routing identifiers are unlinkable; blob sizes are bucketed; metadata is minimized to what the protocol strictly needs to deliver bytes. Vu Level 0 is the canonical zero-knowledge tier — what a server compromise reveals is, by construction, useless. Vu Level 1 already removed the per-user blob inventory, the persistent device set, and the cross-account sequence clock; VuVault reaches Level 0 when the remaining D1 account + session identifiers are redesigned around unlinkable identifiers and blinded routing (so even the deterministic Candidate-1 bootstrap address is replaced), gated by the L09 AKD log + L07 CRDT padding work in docs/TIER2-ARCHITECTURE.md.'
+			'Server cannot correlate accounts, sessions, devices, or blob inventories. Routing identifiers are unlinkable; blob sizes are bucketed; metadata is minimized to what the protocol strictly needs to deliver bytes. Vu Level 0 is the canonical zero-knowledge tier — what a server compromise reveals is, by construction, useless. Vu Level 1 already removed the per-user blob inventory, the persistent device set, and the cross-account sequence clock; VuVault reaches Level 0 when the remaining D1 account + session identifiers are redesigned around unlinkable identifiers and blinded routing (so even the deterministic Candidate-1 bootstrap address is replaced), gated by the L09 AKD log + L07 CRDT padding work in docs/TIER2-ARCHITECTURE.md. This build implements the V0 mechanisms — single-use anonymous VOPRF tokens on the blob / inventory routes (no request resolves to an account), a fresh inventory address per save with no server read at unlock, a fixed 64 KiB vault size floor, and a fake-record KE2 for unknown accounts — but the level stays at 1 until the documented residuals are signed off: the OPAQUE login handshake still names the account, IP and issuance-to-redemption timing stay visible at the edge, the per-day token key is not yet anchored in the AKD log, and a manual sync read can link the reading session to the writing one.'
 	},
 	{
 		id: 1,
@@ -77,7 +78,7 @@ export const PRIVACY_LEVELS: readonly PrivacyLevel[] = [
 		headline: 'End-to-end + minimal relay metadata',
 		when: 'Today (M3 — §L07b metadata-minimization pass)',
 		summary:
-			'Vault and document bytes are end-to-end encrypted, AND server-visible relay metadata is reduced to only what is strictly necessary for delivery. Blobs are keyed by random UUID with no account prefix and the latest-pointer lives in a client-side encrypted inventory the passive server cannot address (no per-user blob inventories — V1-C1); the persistent device set is gone (V1-C2); and no sequence clock correlates writes across accounts (V1-C3). Accepted residual: the inventory bootstrap address is deterministically derived from the secret vault key (Candidate 1), so a party who already holds the vault key can confirm an inventory exists — moot, since holding that key already discloses the whole vault. NOT claimed at this level and deferred to Tier 2: field-level CRDT sync (HPKE + ML-KEM-768), bucketed-padding deltas, MLS sharing, AKD-anchored device pairing, and PIR breach checks.'
+			'Vault bytes are end-to-end encrypted (file attachments were removed), AND server-visible relay metadata is reduced to only what is strictly necessary for delivery. Blobs are keyed by random UUID with no account prefix and the latest-pointer lives in a client-side encrypted inventory the passive server cannot address (no per-user blob inventories — V1-C1); the persistent device set is gone (V1-C2); and no sequence clock correlates writes across accounts (V1-C3). Accepted residual: the inventory bootstrap address is deterministically derived from the secret vault key (Candidate 1), so a party who already holds the vault key can confirm an inventory exists — moot, since holding that key already discloses the whole vault. NOT claimed at this level and deferred to Tier 2: field-level CRDT sync (HPKE + ML-KEM-768), bucketed-padding deltas, MLS sharing, AKD-anchored device pairing, and PIR breach checks.'
 	},
 	{
 		id: 2,
@@ -156,13 +157,6 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 			'src/lib/services/vault-session.ts (provisionVault / saveItems); E2E IDB-inspection assertion in tests/e2e/full-workflow.spec.ts'
 	},
 	{
-		id: 'E02',
-		claim: 'Document file plaintext never leaves the device unencrypted',
-		status: 'shipped',
-		evidence:
-			'src/lib/services/vault-session.ts (sealDocument / openDocument) with document-scoped AAD; E2E byte-match in tests/e2e/full-workflow.spec.ts'
-	},
-	{
 		id: 'E03',
 		claim: 'AES-256-GCM under a per-vault key wrapped in X25519 + ML-KEM-1024 hybrid envelope',
 		status: 'shipped',
@@ -181,13 +175,6 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 		status: 'shipped',
 		evidence:
 			'src/lib/crypto/recovery-envelope.ts, src/lib/services/recovery-envelope.ts, src/routes/recover/+page.svelte'
-	},
-	{
-		id: 'E06',
-		claim: 'Per-document encrypted blob storage in R2 — server stores ciphertext only, keyed by random UUID with no account prefix',
-		status: 'shipped',
-		evidence:
-			'src/routes/api/v2/blobs/[uuid]/+server.ts, src/lib/services/document-blobs.ts, tests/integration/v2-blobs.spec.ts'
 	},
 	{
 		id: 'E07',
@@ -218,7 +205,7 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 	},
 	{
 		id: 'E16',
-		claim: 'No per-user blob inventories — blobs keyed by random UUID with no account prefix; latest-pointer kept in a client-side encrypted inventory the passive server cannot address (V1-C1)',
+		claim: 'No per-user blob inventories — blobs keyed by random UUID with no account prefix; the pointer lives in a client-side encrypted inventory written to a fresh address on every save (V1-C1)',
 		status: 'shipped',
 		evidence:
 			'src/routes/api/v2/blobs/[uuid]/+server.ts, src/routes/api/v2/inv/[addr]/+server.ts, src/lib/services/blob-inventory.ts, src/lib/services/inventory-session.ts; behavioral proof in scripts/release-probe-vu1.mjs + tests/e2e/sync.spec.ts'
@@ -245,9 +232,10 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 	},
 	{
 		id: 'E12',
-		claim: 'Document blob size + upload timing privacy (bucketed padding)',
-		status: 'partial',
-		evidence: 'Tier 2 design — sealing today writes ciphertext at natural length'
+		claim: 'Fixed-size vault blobs — every vault pads to a 64 KiB floor, so vaults under it are indistinguishable by size (V0-C2)',
+		status: 'shipped',
+		evidence:
+			'src/lib/services/vault-session.ts (VAULT_PAD_FLOOR_BYTES), src/lib/crypto/padding.ts (bucketSizeWithFloor); tests/integration/v0c2-padding.spec.ts, tests/e2e/sync.spec.ts on-the-wire size check'
 	},
 	{
 		id: 'E13',
@@ -266,6 +254,33 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 		claim: 'PIR breach checks (HIBP without leakage)',
 		status: 'pending',
 		evidence: 'Tier 2 — L10 PIR + unbalanced PSI'
+	},
+	{
+		id: 'E19',
+		claim: 'Blob / inventory requests carry single-use anonymous VOPRF tokens, never the session token; issuance stores nothing about who asked (V0-C1)',
+		status: 'shipped',
+		evidence:
+			'src/lib/server/api/anon-tokens.ts, src/routes/api/v0/tokens/, migrations/0010_anon_tokens.sql; tests/integration/v0-anon-tokens.spec.ts, tests/integration/v2-blobs.spec.ts'
+	},
+	{
+		id: 'E20',
+		claim: 'No stable per-account address across saves — each save writes a fresh inventory address, the client never deletes or keep-alives old objects, and unlock never reads the server (V0-C1)',
+		status: 'shipped',
+		evidence:
+			'src/lib/services/inventory-session.ts, src/lib/services/blob-inventory.ts (inventoryAddress); src/lib/services/inventory-session.test.ts, src/lib/services/vault-session.test.ts'
+	},
+	{
+		id: 'E21',
+		claim: 'No account-existence oracle at login — an unknown account gets a fake-record KE2 identical in status and length, and fails like a wrong password (V0-C3)',
+		status: 'shipped',
+		evidence:
+			'src/lib/server/api/server-opaque.ts (fakeAccount, KE3 MAC-before-lookup); tests/integration/worker.spec.ts, scripts/release-probe-vu1.mjs v0_c3'
+	},
+	{
+		id: 'E22',
+		claim: 'Per-handshake unlinkability — the OPAQUE login itself does not name the account',
+		status: 'pending',
+		evidence: 'Tier 3+ — needs a ZK proof of membership in the AKD leaf set (docs/TIER2-ARCHITECTURE.md)'
 	}
 ];
 
@@ -342,10 +357,10 @@ export const THREATS: readonly ThreatRow[] = [
 		how: 'Out of zero-knowledge scope; explicitly documented in SECURITY.md'
 	},
 	{
-		id: 'T11',
-		threat: 'Document size + timing side channels',
+		id: 'T12',
+		threat: 'Network-level linkage (IP address, token issuance-to-redemption timing)',
 		defended: false,
-		how: 'Partial — ciphertext is at natural length today; bucketed padding ships in Tier 2'
+		how: 'Visible at the edge; anonymous tokens hide account identity, not the network path. Needs an oblivious relay (OHTTP / Tor) to close.'
 	}
 ];
 

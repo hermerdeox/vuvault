@@ -10,33 +10,24 @@
  *
  * Privacy properties (V1-C1):
  *   - The `addr` path parameter is a 26-char Crockford base32
- *     string (16 random bytes). For the BOOTSTRAP address (the very
- *     first one for an account), the value is HKDF-derived from
- *     (vaultKey, deviceSalt) and is therefore deterministic — this
- *     is the Candidate 1 accepted trade-off. For all subsequent
- *     addresses, the value is fresh randomness from `rotateAddress`.
- *   - The server stores no (addr, account_id) tuple. Anyone with a
- *     valid session AND knowledge of `addr` can PUT/GET the
- *     inventory blob. As with blobs, the 130-bit address space
+ *     string (16 bytes). The client derives a FRESH address for every
+ *     save — HKDF over (vaultKey, deviceSalt, save index) — so no
+ *     address is written twice and consecutive saves look unrelated
+ *     to the server (V0-C1; replaces the fixed Candidate-1 bootstrap
+ *     address that every save used to overwrite).
+ *   - The server stores no (addr, account_id) tuple. Anyone with an
+ *     unspent anonymous token AND knowledge of `addr` can PUT/GET the
+ *     inventory blob. As with blobs, the 128-bit address space
  *     makes guessing infeasible.
- *   - The rate-limit key is derived from the session token, not
- *     the account id (same scheme as `/api/v2/blobs/[uuid]`).
+ *   - Requests carry an anonymous token, never the session token
+ *     (same scheme as `/api/v2/blobs/[uuid]`).
  */
 
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
-import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { jsonError, jsonOk, readJson, b64decode, b64encode } from '$lib/server/api/http';
-import { authenticate } from '$lib/server/api/auth-token';
-import { authenticateCapability } from '$lib/server/api/capability-auth';
+import { requireV2Access } from '$lib/server/api/anon-tokens';
 import { maybeGcV2 } from '$lib/server/api/r2-gc';
-import { v2RateLimitKey } from '$lib/server/api/v2-rate-limit-key';
-
-async function resolveSession(env: Env, request: Request) {
-	const bearer = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
-	if (bearer) return bearer;
-	return authenticateCapability(env, request.headers.get('x-vu0-capability'));
-}
 
 type PutBody = {
 	nonce?: string;
@@ -80,17 +71,13 @@ async function recordInvReference(
 
 export const PUT: RequestHandler = async ({ request, platform, params }) => {
 	const env = platform!.env as Env;
-	const session = await resolveSession(env, request);
-	if (!session) return jsonError(401, 'unauthorized');
+	const denied = await requireV2Access(env, request);
+	if (denied) return denied;
 
 	const addr = params.addr;
 	if (!addr || !ADDR_RE.test(addr)) {
 		return jsonError(400, 'invalid inventory address');
 	}
-
-	const rlKey = await v2RateLimitKey(session.token);
-	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, rlKey);
-	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	const body = await readJson<PutBody>(request);
 	if (!body || typeof body.nonce !== 'string' || typeof body.ciphertext !== 'string') {
@@ -142,17 +129,13 @@ export const PUT: RequestHandler = async ({ request, platform, params }) => {
 
 export const GET: RequestHandler = async ({ request, platform, params }) => {
 	const env = platform!.env as Env;
-	const session = await resolveSession(env, request);
-	if (!session) return jsonError(401, 'unauthorized');
+	const denied = await requireV2Access(env, request);
+	if (denied) return denied;
 
 	const addr = params.addr;
 	if (!addr || !ADDR_RE.test(addr)) {
 		return jsonError(400, 'invalid inventory address');
 	}
-
-	const rlKey = await v2RateLimitKey(session.token);
-	const rateLimit = await applyRateLimit(env, RATE_LIMITS.BLOB, rlKey);
-	if (!rateLimit.ok) return jsonError(rateLimit.status, rateLimit.message);
 
 	let r2obj;
 	try {

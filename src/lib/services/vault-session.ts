@@ -50,7 +50,6 @@
 
 import { gcm } from '@noble/ciphers/aes';
 import { hmac } from '@noble/hashes/hmac';
-import { sha256 } from '@noble/hashes/sha2';
 import { sha384, sha512 } from '@noble/hashes/sha2';
 import { deriveVaultKey, generateDeviceSalt, type DeriveVersion } from '$lib/crypto/derive';
 import { evaluatePRF } from '$lib/crypto/webauthn-prf';
@@ -65,12 +64,10 @@ import {
 import {
 	getAccount,
 	getVault,
-	getDocumentBlob,
-	listDocumentBlobIds,
 	saveAccountAndVault,
 	saveVault,
 	saveExistingAccountAndVault,
-	saveDocumentBlob,
+	updateAccountSyncState,
 	type AccountRecord,
 	type AuthMode
 } from '$lib/utils/storage';
@@ -83,21 +80,19 @@ import {
 import {
 	uploadV2Blob,
 	fetchV2Blob,
-	deleteV2Blob,
 	hasSession,
 	isSyncWired,
 	setSessionToken,
-	opaqueLogout
+	opaqueLogout,
+	prefetchAnonTokens
 } from './sync-client';
 import { newBlobId } from './blob-inventory';
 import {
 	initInventorySession,
 	clearInventorySession,
-	inventorySetVaultBlob,
-	inventoryAddDocumentBlob,
-	inventoryPullVault,
-	inventoryLatestIndex,
-	inventoryKeepAlive
+	inventoryRecordVaultBlob,
+	inventoryPullNewer,
+	inventoryLatestIndex
 } from './inventory-session';
 import type { VaultItem } from '$lib/stores/vault.svelte';
 
@@ -122,6 +117,25 @@ const SECRET_KEY_LEN = 32;
 const DEVICE_SALT_LEN = 16;
 const AES_NONCE_LEN = 12;
 const AES_KEY_LEN = 32;
+
+/**
+ * V0-C2 fixed-size floor for whole-vault blobs. Every v3 vault pads to
+ * at least this bucket, so every account whose vault fits under it
+ * uploads byte-identical ciphertext sizes — the server learns nothing
+ * from size until a vault outgrows the floor (then it grows by powers
+ * of two). 64 KiB holds a few hundred typical items; raising it buys a
+ * larger anonymity set at the cost of upload bytes on every save.
+ * Opening needs no knowledge of the floor (`unpadPlaintext` accepts any
+ * power-of-two bucket), so changing it never breaks stored vaults.
+ */
+export const VAULT_PAD_FLOOR_BYTES = 64 * 1024;
+
+/**
+ * Re-upload the vault as a fresh save on unlock once the last push is
+ * older than this — half the server's 60-day reference-GC window — so
+ * the server copy is never collected while the owner keeps using it.
+ */
+const STALE_PUSH_MS = 30 * 24 * 60 * 60 * 1000;
 
 let vaultKey: Uint8Array | null = null;
 let aesKey: Uint8Array | null = null; // v2 only; null for v1 sessions
@@ -226,10 +240,10 @@ function unpackVaultBody(body: Uint8Array): { header: Uint8Array; ciphertext: Ui
  * to the observer and never propagate.
  *
  * V1-C1/C3: the blob is written to a random `/api/v2/blobs/{uuid}`
- * with no account prefix; the new UUID is recorded as the current
- * whole-vault pointer in the client-side encrypted inventory. The
- * superseded blob is best-effort deleted (the reference-counted GC
- * also reaps it).
+ * with no account prefix, and the inventory for the next save index
+ * records it (see inventory-session.ts). The superseded blob is NOT
+ * deleted: a delete in the same session as the upload that replaces it
+ * would link the two, so the server's reference GC ages it out instead.
  */
 async function pushBlobToServer(blob: BlobBytes): Promise<void> {
 	if (!isSyncWired() || !hasSession()) return;
@@ -243,16 +257,21 @@ async function pushBlobToServer(blob: BlobBytes): Promise<void> {
 		syncObserver.onPushFailure?.({ reason: result.reason, message: result.message });
 		return;
 	}
-	const { ok, previousBlobId } = await inventorySetVaultBlob(blobId);
+	const { ok, index } = await inventoryRecordVaultBlob(blobId);
+	if (index > 0n) {
+		// Persist the reserved index even on failure: the address may or
+		// may not have been written, and it must never be written again.
+		await updateAccountSyncState({
+			inventoryIndex: Number(index),
+			inventoryPushedAt: ok ? Date.now() : undefined
+		}).catch(() => undefined);
+	}
 	if (!ok) {
 		syncObserver.onPushFailure?.({ reason: 'server', message: 'inventory update failed' });
 		return;
 	}
-	if (previousBlobId) {
-		void deleteV2Blob(previousBlobId).catch(() => undefined);
-	}
 	syncObserver.onPushSuccess?.({
-		sequenceClock: Number(inventoryLatestIndex()),
+		sequenceClock: Number(index),
 		bytes: blobBytesSize(blob)
 	});
 }
@@ -268,11 +287,11 @@ async function pullBlobFromServer(): Promise<BlobBytes | null> {
 		syncObserver.onPullSkipped?.({ reason: 'not-wired' });
 		return null;
 	}
-	// Resolve the current whole-vault pointer from the encrypted
-	// inventory. Returns null when the server has no newer vault than
-	// this session already holds (the inventory's save counter plays
-	// the role the per-account sequence clock used to).
-	const pointer = await inventoryPullVault();
+	// Probe forward from this device's save index for inventories it has
+	// not seen. Returns null when the server has no newer save than the
+	// local copy (the save index plays the role the per-account sequence
+	// clock used to).
+	const pointer = await inventoryPullNewer();
 	if (!pointer) {
 		syncObserver.onPullSkipped?.({ reason: 'local-newer' });
 		return null;
@@ -291,6 +310,9 @@ async function pullBlobFromServer(): Promise<BlobBytes | null> {
 		syncObserver.onPullSkipped?.({ reason: 'malformed-blob' });
 		return null;
 	}
+	await updateAccountSyncState({ inventoryIndex: Number(pointer.index) }).catch(
+		() => undefined
+	);
 	syncObserver.onPullPromoted?.({ sequenceClock: Number(pointer.index) });
 	return {
 		header: body.header,
@@ -381,13 +403,11 @@ export async function syncNow(): Promise<SyncNowResult> {
 		// device had pushed. Reconcile first: if the server is strictly
 		// ahead, adopt and promote its vault instead of clobbering it.
 		// Only when we are at-or-ahead of the server do we push, so a
-		// push can never destroy newer remote data.
+		// push can never destroy newer remote data. (Pushes never
+		// delete now either — superseded objects age out server-side.)
 		const remote = await pullBlobFromServer();
 		if (remote) {
 			const remoteItems = await promoteRemoteBlob(account, remote);
-			// Re-assert every live blob reference so the server-side GC
-			// does not reap a current blob we simply didn't re-upload.
-			await inventoryKeepAlive();
 			return {
 				status: 'promoted',
 				message: 'Pulled newer vault from sync server.',
@@ -406,7 +426,6 @@ export async function syncNow(): Promise<SyncNowResult> {
 				ciphertext: localVault.ciphertext
 			});
 		}
-		await inventoryKeepAlive();
 		return { status: 'local-newer', message: 'Local vault is up to date with the sync server.' };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Sync failed.';
@@ -507,10 +526,14 @@ function sealBlob(
 	formatVersion: number
 ): { nonce: Uint8Array; ciphertext: Uint8Array } {
 	const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
-	// V0-C2 padding wiring (Phase A). Format-version v3+ pads the
-	// plaintext to the next power-of-two ≥ 256 bytes before sealing.
-	// Older formats (v1/v2) seal raw plaintext for backward compat.
-	const payload = formatVersion >= 3 ? padPlaintext(plaintext) : plaintext;
+	// V0-C2 padding. Format-version v3+ pads the plaintext to the next
+	// power of two ≥ VAULT_PAD_FLOOR_BYTES before sealing, so vaults
+	// under the floor are all the same size on the wire. Older formats
+	// (v1/v2) seal raw plaintext for backward compat.
+	const payload =
+		formatVersion >= 3
+			? padPlaintext(plaintext, { minBucket: VAULT_PAD_FLOOR_BYTES })
+			: plaintext;
 	const ciphertext = gcm(key, nonce, aad).encrypt(payload);
 	if (payload !== plaintext) {
 		// padPlaintext returned a fresh buffer; zeroize it before
@@ -542,175 +565,6 @@ function openBlob(
 		decrypted.fill(0);
 		throw err;
 	}
-}
-
-// -----------------------------------------------------------------------------
-// Document blob crypto
-// -----------------------------------------------------------------------------
-//
-// Documents live in their own Dexie table (`documentBlobs`) so a single
-// multi-megabyte file doesn't force re-encryption of every other vault
-// item on each persist. The seal uses the SAME session AES key as the
-// rest of the vault — losing the document blob to a server-side breach
-// doesn't help the attacker because they still need PRF + Secret Key
-// (+ optional MPK + OPAQUE) to derive that key.
-//
-// The AAD domain is distinct (`vuvault-doc-aad-v1`) so a document blob
-// cannot be silently replayed as a whole-vault blob, and is bound to:
-//   domain ‖ blobId(utf8) ‖ deviceSaltDigest(32) ‖ credDigest(32)
-//
-// `blobId` is the random UUID assigned to the document at upload time,
-// which is also the Dexie primary key and the R2 object key suffix.
-
-const DOC_AAD_DOMAIN = new TextEncoder().encode('vuvault-doc-aad-v1');
-
-function makeDocAad(
-	blobId: string,
-	deviceSalt: Uint8Array,
-	credentialId: ArrayBuffer
-): Uint8Array {
-	const idBytes = new TextEncoder().encode(blobId);
-	const credBytes = new Uint8Array(credentialId);
-	const credDigest = sha384(credBytes).slice(0, 32);
-	const saltDigest = sha384(deviceSalt).slice(0, 32);
-	const len =
-		DOC_AAD_DOMAIN.length +
-		2 +
-		idBytes.length +
-		saltDigest.length +
-		credDigest.length;
-	const out = new Uint8Array(len);
-	let off = 0;
-	out.set(DOC_AAD_DOMAIN, off);
-	off += DOC_AAD_DOMAIN.length;
-	// Length-prefix the blob id so the AAD remains unambiguous if a
-	// future migration changes the id format.
-	out[off++] = (idBytes.length >>> 8) & 0xff;
-	out[off++] = idBytes.length & 0xff;
-	out.set(idBytes, off);
-	off += idBytes.length;
-	out.set(saltDigest, off);
-	off += saltDigest.length;
-	out.set(credDigest, off);
-	return out;
-}
-
-export type SealedDocument = {
-	blobId: string;
-	nonce: Uint8Array;
-	ciphertext: Uint8Array;
-	size: number;
-	sha256Hex: string;
-};
-
-/**
- * Encrypt a document's plaintext bytes under the active session AES
- * key with a document-scoped AAD. Returns the seal envelope plus a
- * SHA-256 of the plaintext for integrity display. Requires the vault
- * to be unlocked — fails closed otherwise.
- */
-// Document blob format — Phase A V0-C2 wiring.
-//
-// Legacy (v0): raw plaintext, AES-GCM sealed. Ciphertext length =
-// plaintext length + GCM tag (16 bytes). The size-on-wire IS the
-// plaintext size up to a constant — a direct V0-C2 leak.
-//
-// V1 (NEW): prepended 1-byte version marker (0x01), then padded to
-// the next power-of-two ≥ 256 bytes via `padPlaintext`. The padded
-// buffer is what gets sealed. Ciphertext length is exactly the
-// bucket size + 16 (GCM tag) — bucketed across all documents.
-//
-// Open path tries v1 first (detected by power-of-two decrypted
-// length + version-byte sniff). Falls back to v0 for legacy reads.
-const DOCUMENT_FORMAT_V1 = 0x01;
-
-export async function sealDocument(
-	plaintext: Uint8Array,
-	opts: { blobId?: string } = {}
-): Promise<SealedDocument> {
-	if (!aesKey) {
-		throw new Error('sealDocument: vault must be unlocked first');
-	}
-	const account = await getAccount();
-	if (!account) {
-		throw new Error('sealDocument: account row missing');
-	}
-	const blobId = opts.blobId ?? crypto.randomUUID();
-	const aad = makeDocAad(blobId, account.deviceSalt, account.credentialId);
-	const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
-	// V0-C2: prepend version marker, then pad the (versioned)
-	// plaintext to the next power-of-two ≥ 256 bytes.
-	const versioned = new Uint8Array(1 + plaintext.length);
-	versioned[0] = DOCUMENT_FORMAT_V1;
-	versioned.set(plaintext, 1);
-	const padded = padPlaintext(versioned);
-	const ciphertext = gcm(aesKey, nonce, aad).encrypt(padded);
-	const digest = sha256(plaintext);
-	let hex = '';
-	for (const b of digest) hex += b.toString(16).padStart(2, '0');
-	// Zeroize the intermediate buffers we own. The original `plaintext`
-	// is the caller's buffer; document-blobs.ts already zeroizes its
-	// copy after this call returns.
-	versioned.fill(0);
-	padded.fill(0);
-	return {
-		blobId,
-		nonce,
-		ciphertext,
-		size: plaintext.length,
-		sha256Hex: hex
-	};
-}
-
-/**
- * Decrypt a previously sealed document. Throws on AES-GCM auth
- * failure (wrong vault, tampered blob, mismatched blobId AAD, etc.).
- */
-export async function openDocument(input: {
-	blobId: string;
-	nonce: Uint8Array;
-	ciphertext: Uint8Array;
-}): Promise<Uint8Array> {
-	if (!aesKey) {
-		throw new Error('openDocument: vault must be unlocked first');
-	}
-	const account = await getAccount();
-	if (!account) {
-		throw new Error('openDocument: account row missing');
-	}
-	const aad = makeDocAad(input.blobId, account.deviceSalt, account.credentialId);
-	const decrypted = gcm(aesKey, input.nonce, aad).decrypt(input.ciphertext);
-	// V0-C2 unwrap: try the v1 (padded) format first. A v1 ciphertext
-	// decrypts to a power-of-two-length buffer (≥ 256) whose first
-	// post-padding-strip byte equals DOCUMENT_FORMAT_V1. If those
-	// conditions hold, return the unpadded payload (sans version
-	// byte). Otherwise the buffer is legacy v0 raw plaintext.
-	const len = decrypted.length;
-	const isBucket = len >= 256 && (len & (len - 1)) === 0;
-	if (isBucket) {
-		try {
-			const unpadded = unpadPlaintext(decrypted);
-			if (unpadded.length >= 1 && unpadded[0] === DOCUMENT_FORMAT_V1) {
-				const out = new Uint8Array(unpadded.length - 1);
-				out.set(unpadded.subarray(1));
-				unpadded.fill(0);
-				decrypted.fill(0);
-				return out;
-			}
-			unpadded.fill(0);
-		} catch {
-			// fall through to legacy interpretation
-		}
-	}
-	return decrypted;
-}
-
-/** Public hex SHA-256 helper for parity tests / UI integrity hashes. */
-export function sha256Hex(bytes: Uint8Array): string {
-	const digest = sha256(bytes);
-	let hex = '';
-	for (const b of digest) hex += b.toString(16).padStart(2, '0');
-	return hex;
 }
 
 /**
@@ -1017,41 +871,36 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	aesKey = newAesKey;
 	activeAuthMode = account.authMode;
 	activeFormatVersion = account.formatVersion;
-	initInventorySession(newVaultKey, account.deviceSalt);
+	initInventorySession(newVaultKey, account.deviceSalt, BigInt(account.inventoryIndex ?? 0));
 
-	// Race the local read against a server pull. If the remote has a
-	// strictly higher sequence clock, decrypt that blob and adopt it;
-	// otherwise the local plaintext wins. Pull failures (offline, server
-	// down, no remote blob yet) drop us to local — never an error.
+	// Unlock never READS the sync server. The inventory address chain is
+	// bound to this device's (vaultKey, deviceSalt), so the only writer is
+	// this device and the local vault is already the newest copy. A read
+	// would only hand a logging server a link between this session and
+	// the one that wrote the object (V0-C1) — and the old unlock-pull
+	// compared against an in-memory index that restarted at 0 every
+	// unlock, so after a save whose push had failed it could overwrite
+	// the newer local vault with the older server copy. Manual "Sync now"
+	// still pulls.
 	//
-	// Gate is `v >= 2`, NOT `v === 2`: every vault is provisioned at
-	// PROVISION_FORMAT_VERSION (currently 3) and saveItems upgrades v2→v3,
-	// so the old `v === 2` check made the unlock-pull dead code for every
-	// live vault — a returning user (or second device) silently kept stale
-	// local data and never adopted newer synced state. v2-envelope vaults
-	// (v2 and v3) share the wrapped-key header that `promoteRemoteBlob`
-	// unwraps, so both are eligible.
-	let items = deserializeItems(plaintext);
-	if (account.authMode === 'production' && v >= 2 && newAesKey) {
-		try {
-			const remote = await pullBlobFromServer();
-			if (remote) {
-				try {
-					// Adopt the remote vault and swap to its DEK. Reusing the
-					// shared promote helper keeps unlock-pull and manual sync
-					// byte-for-byte consistent (header unwrap + aesKey swap).
-					items = await promoteRemoteBlob(account, remote);
-					await inventoryKeepAlive();
-				} catch {
-					// Remote blob couldn't be decrypted with our keys —
-					// likely a different account or tampered AAD. Local wins;
-					// pullBlobFromServer already notified the observer.
-					syncObserver.onPullSkipped?.({ reason: 'remote-decrypt-failed' });
-				}
-			}
-		} catch {
-			// Pull threw — treat exactly like a soft failure.
-			syncObserver.onPullSkipped?.({ reason: 'pull-crashed' });
+	// Instead, keep the server copy from ageing out: the reference GC
+	// collects objects not written for 60 days, so once the last push is
+	// STALE_PUSH_MS old, re-upload the vault as a fresh save (new UUID,
+	// new inventory address — write-only, nothing ties it to the
+	// previous push).
+	const items = deserializeItems(plaintext);
+	if (v >= 2 && isSyncWired() && hasSession()) {
+		// Mint the anonymous-token pool now, so the first save spends
+		// tokens issued earlier rather than issuing and spending them
+		// back-to-back.
+		prefetchAnonTokens();
+		const pushedAt = account.inventoryPushedAt ?? 0;
+		if (Date.now() - pushedAt > STALE_PUSH_MS) {
+			void pushBlobToServer({
+				header: vaultRow.header,
+				nonce: vaultRow.nonce,
+				ciphertext: vaultRow.ciphertext
+			}).catch(() => undefined);
 		}
 	}
 
@@ -1131,10 +980,9 @@ export async function openVaultWithRecoveryEnvelope(
 		aesKey = recoveredAesKey;
 		activeAuthMode = account.authMode;
 		activeFormatVersion = account.formatVersion;
-		// No vaultKey in the recovery-open window (the inventory's
-		// bootstrap address derives from it), so there is no inventory
-		// session yet; rebindRecoveredVault establishes it once the new
-		// vaultKey exists.
+		// No vaultKey in the recovery-open window (the inventory address
+		// chain derives from it), so there is no inventory session yet;
+		// rebindRecoveredVault establishes it once the new vaultKey exists.
 		clearInventorySession();
 		return items;
 	} catch (err) {
@@ -1160,10 +1008,6 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 	const vaultRow = await getVault();
 	if (!vaultRow) throw new Error('rebindRecoveredVault: vault row missing');
 	const oldAesKey = aesKey;
-	const oldDocAadInputs = {
-		deviceSalt: previousAccount.deviceSalt,
-		credentialId: previousAccount.credentialId
-	};
 
 	let prf: Uint8Array;
 	if (opts.authMode === 'demo') {
@@ -1238,53 +1082,13 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		{ allowOverwrite: true }
 	);
 
-	// The rebind changes vaultKey, which moves the inventory's bootstrap
-	// address. Re-init the inventory session on the new key, then rebuild
-	// the remote inventory at the new address: re-upload the re-sealed
-	// whole-vault blob and every re-sealed document to v2. Each step is
-	// best-effort and a no-op when sync is unwired or there is no
+	// The rebind changes vaultKey, which starts a new inventory address
+	// chain at index 0. Re-init the inventory session on the new key and
+	// push the re-sealed whole-vault blob as the first save of that
+	// chain. Best-effort and a no-op when sync is unwired or there is no
 	// session.
 	initInventorySession(nextVaultKey, opts.deviceSalt);
-	if (isSyncWired() && hasSession()) {
-		const vaultBlobId = newBlobId();
-		const vaultUpload = await uploadV2Blob({
-			blobId: vaultBlobId,
-			nonce: bytesToBase64(sealed.nonce),
-			ciphertext: bytesToBase64(packVaultBody(header, sealed.ciphertext))
-		});
-		if (vaultUpload.ok) await inventorySetVaultBlob(vaultBlobId);
-	}
-
-	const ids = await listDocumentBlobIds();
-	for (const id of ids) {
-		const doc = await getDocumentBlob(id);
-		if (!doc) continue;
-		const plaintextDoc = gcm(
-			oldAesKey,
-			doc.nonce,
-			makeDocAad(id, oldDocAadInputs.deviceSalt, oldDocAadInputs.credentialId)
-		).decrypt(doc.ciphertext);
-		const nonce = crypto.getRandomValues(new Uint8Array(AES_NONCE_LEN));
-		const ciphertext = gcm(
-			oldAesKey,
-			nonce,
-			makeDocAad(id, opts.deviceSalt, opts.credentialId)
-		).encrypt(plaintextDoc);
-		await saveDocumentBlob({
-			...doc,
-			nonce,
-			ciphertext
-		});
-		zeroize(plaintextDoc);
-		if (isSyncWired() && hasSession()) {
-			const docUpload = await uploadV2Blob({
-				blobId: id,
-				nonce: bytesToBase64(nonce),
-				ciphertext: bytesToBase64(ciphertext)
-			});
-			if (docUpload.ok) await inventoryAddDocumentBlob(id);
-		}
-	}
+	await pushBlobToServer({ header, nonce: sealed.nonce, ciphertext: sealed.ciphertext });
 
 	zeroize(vaultKey);
 	vaultKey = nextVaultKey;
@@ -1316,12 +1120,11 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 	//
 	// A v2→v3 upgrade is padding-ONLY (same vaultKey derivation, same
 	// data key, the blob layer just adds bucketed padding). Minting a
-	// fresh AES key on that upgrade would silently orphan every document
-	// blob AND the Recovery Envelope — both are sealed under this same
-	// `aesKey` and are NOT re-encrypted here — permanently bricking them
-	// on the first item edit after the build update. So reuse the
-	// existing key across the upgrade and re-wrap it under the (already
-	// derived) vaultKey below.
+	// fresh AES key on that upgrade would silently orphan the Recovery
+	// Envelope — it wraps this same `aesKey` and is NOT re-sealed here —
+	// permanently bricking it on the first item edit after the build
+	// update. So reuse the existing key across the upgrade and re-wrap it
+	// under the (already derived) vaultKey below.
 	let activeAesKey = aesKey;
 	if (!activeAesKey) {
 		activeAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
@@ -1611,16 +1414,12 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 	// rotateAuth changes the WRAPPING factors (master password / OPAQUE
 	// / passkey-derived vaultKey) — it does not change deviceSalt or
 	// credentialId (carried over verbatim in `nextAccount` below). The
-	// document blobs and the Recovery Envelope are sealed/wrapped under
-	// this same `aesKey` with an AAD built from deviceSalt+credentialId,
-	// all unchanged. Rotating the data key here would orphan every
-	// attachment and silently break the Recovery Envelope (which wraps
-	// the data key directly). Keeping the data key and re-wrapping it is
-	// the correct KEK rotation — an attacker who couldn't derive the old
-	// vaultKey could never unwrap the data key, so it never needs to
-	// rotate for a factor change. This mirrors rebindRecoveredVault,
-	// which also keeps the data key (it only re-seals documents because
-	// IT changes deviceSalt/credentialId, which we do not).
+	// Recovery Envelope wraps this same `aesKey` directly, so rotating
+	// the data key here would silently break it. Keeping the data key
+	// and re-wrapping it is the correct KEK rotation — an attacker who
+	// couldn't derive the old vaultKey could never unwrap the data key,
+	// so it never needs to rotate for a factor change. This mirrors
+	// rebindRecoveredVault, which also keeps the data key.
 	const currentRow = await getVault();
 	if (!currentRow) throw new Error('rotateAuth: vault row missing');
 	if (!aesKey) {
@@ -1731,13 +1530,12 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 
 	// Only the vaultKey (the wrapping key) rotates. `aesKey` is the
 	// unchanged data key — it stays live and MUST NOT be zeroized; the
-	// re-sealed vault blob, the document blobs, and the Recovery
-	// Envelope all remain valid under it.
+	// re-sealed vault blob and the Recovery Envelope remain valid under it.
 	zeroize(vaultKey);
 	vaultKey = newVaultKey;
-	// The rotated vaultKey moves the inventory's bootstrap address; the
-	// next save re-establishes the remote inventory there. The old
-	// address is orphaned and reference-GC'd.
+	// The rotated vaultKey starts a new inventory address chain (the
+	// account row above carries no inventoryIndex, so it restarts at 0);
+	// the next save writes index 1 of it. The old chain ages out via GC.
 	initInventorySession(newVaultKey, account.deviceSalt);
 	if (account.authMode === 'demo') zeroize(prf);
 }

@@ -1,25 +1,20 @@
 /**
  * Behavioral tests for the inventory session — the live glue that
- * closes V1-C1 ("no per-user blob inventories") and V1-C3 ("no
- * cross-account sequence-clock correlation") by routing every blob
- * pointer through the client-side encrypted inventory at the
- * deterministic bootstrap address, over the v2 transport only.
+ * writes every whole-vault blob pointer through a client-side
+ * encrypted inventory over the v2 transport only.
  *
- * These prove three things the release probe's shape-only checks
+ * These prove the properties the release probe's shape-only checks
  * cannot:
- *   1. save → lock → restore round-trips the whole-vault blob pointer
- *      back out of the server inventory. A fresh in-memory session
- *      re-derives the same bootstrap address from (vaultKey,
- *      deviceSalt), pulls the inventory, and recovers the vault blob
- *      id with the monotonic save counter advanced.
- *   2. the persisted inventory ciphertext re-opens with
- *      `openInventory`/`deserializeInventory` and lists exactly the
- *      vault + document blob ids — i.e. the positional `blobIds`
- *      convention (`[vault, ...docs]`) survives the seal/serialize
- *      round-trip.
- *   3. the manager only ever writes the `/api/v2/inv/` surface — never
- *      the retired per-account `/api/blobs/*` or `/api/documents/*`
- *      routes.
+ *   1. every save writes its inventory to a FRESH address
+ *      (`inventoryAddress(vaultKey, deviceSalt, index)`), so no address
+ *      recurs across saves (V0-C1), and each re-opens to exactly the one
+ *      vault blob id;
+ *   2. the manual pull finds saves the device has not seen and adopts
+ *      the newest, while a session that starts at its persisted index
+ *      finds nothing — unlock never needs to re-read old saves;
+ *   3. a reserved index is never reused, even when its upload failed;
+ *   4. inventory requests carry an anonymous token and never the
+ *      session token, and only the `/api/v2/inv/` surface is written.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -38,27 +33,21 @@ import {
 	clearInventorySession,
 	inventoryVaultBlobId,
 	inventoryLatestIndex,
-	inventorySetVaultBlob,
-	inventoryAddDocumentBlob,
-	inventoryPullVault
+	inventoryRecordVaultBlob,
+	inventoryPullNewer
 } from './inventory-session';
 import { setSessionToken } from './sync-client';
 import {
-	bootstrapAddress,
+	inventoryAddress,
 	encodeAddress,
 	openInventory,
 	deserializeInventory
 } from './blob-inventory';
+import { createFakeTokenIssuer } from './test-utils/fake-token-issuer';
 
 const VAULT_KEY: Uint8Array = (() => {
 	const k = new Uint8Array(64);
 	for (let i = 0; i < 64; i++) k[i] = (i * 7 + 3) & 0xff;
-	return k;
-})();
-
-const VAULT_KEY_OTHER: Uint8Array = (() => {
-	const k = new Uint8Array(64);
-	for (let i = 0; i < 64; i++) k[i] = (i * 11 + 5) & 0xff;
 	return k;
 })();
 
@@ -70,8 +59,8 @@ const DEVICE_SALT: Uint8Array = (() => {
 
 // Canonical UUID-v4-shaped ids (must satisfy serializeInventory's
 // /^[0-9a-f-]{36}$/i blobId check).
-const VAULT_BLOB = '11111111-1111-4111-8111-111111111111';
-const DOC_BLOB = '22222222-2222-4222-8222-222222222222';
+const VAULT_BLOB_A = '11111111-1111-4111-8111-111111111111';
+const VAULT_BLOB_B = '22222222-2222-4222-8222-222222222222';
 
 function base64ToBytes(b64: string): Uint8Array {
 	const bin = atob(b64);
@@ -81,28 +70,39 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 type StoredInv = { nonce: string; ciphertext: string };
+type Recorded = { url: string; method: string; headers: Record<string, string> };
 
 /**
- * In-memory v2 inventory transport. Records every requested URL and
- * serves PUT/GET against `/api/v2/inv/{addr}`. A 404 with the literal
- * `no inventory` error mirrors the real route's "absent" signal, which
- * the inventory session maps to a fresh empty inventory. ANY other
- * route (notably the retired per-account ones) returns a loud 404 so a
- * leak would surface as an unexpected recorded URL.
+ * In-memory v2 inventory transport behind a fake token issuer. Serves
+ * PUT/GET against `/api/v2/inv/{addr}` only for requests carrying a
+ * valid, unspent anonymous token. A 404 with the literal `no inventory`
+ * error mirrors the real route's "absent" signal. ANY other route
+ * (notably the retired per-account ones) returns a loud 404 so a leak
+ * would surface as an unexpected recorded URL.
  */
-function installFetchMock() {
-	const urls: string[] = [];
+function installFetchMock(opts: { failInvPut?: boolean } = {}) {
+	const requests: Recorded[] = [];
 	const invStore = new Map<string, StoredInv>();
+	const issuer = createFakeTokenIssuer();
 	let clock = 1;
 	const original = globalThis.fetch;
 	globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
-		urls.push(url);
 		const method = (init?.method ?? 'GET').toUpperCase();
+		const headers = { ...((init?.headers as Record<string, string>) ?? {}) };
+		requests.push({ url, method, headers });
+
+		const tokenRoute = issuer.handle(url, method, init?.body as string | undefined);
+		if (tokenRoute) return tokenRoute;
+
 		const invMatch = url.match(/\/api\/v2\/inv\/([^/?#]+)$/);
 		if (invMatch) {
+			if (!issuer.redeem(headers['x-vu0-token'] ?? null)) {
+				return jsonResponse(401, { ok: false, error: 'invalid token' });
+			}
 			const addr = invMatch[1]!;
 			if (method === 'PUT') {
+				if (opts.failInvPut) return jsonResponse(503, { ok: false, error: 'unavailable' });
 				const body = JSON.parse(String(init?.body ?? '{}')) as StoredInv;
 				invStore.set(addr, { nonce: body.nonce, ciphertext: body.ciphertext });
 				return jsonResponse(200, { ok: true, data: { addr, updatedAt: clock++ } });
@@ -119,8 +119,9 @@ function installFetchMock() {
 		return jsonResponse(404, { ok: false, error: `unexpected route ${method} ${url}` });
 	}) as unknown as typeof fetch;
 	return {
-		urls,
+		requests,
 		invStore,
+		issuer,
 		restore() {
 			globalThis.fetch = original;
 		}
@@ -134,107 +135,135 @@ function jsonResponse(status: number, body: unknown): Response {
 	});
 }
 
+function openStored(stored: StoredInv, index: bigint) {
+	const plaintext = openInventory(
+		VAULT_KEY,
+		inventoryAddress(VAULT_KEY, DEVICE_SALT, index),
+		base64ToBytes(stored.nonce),
+		base64ToBytes(stored.ciphertext)
+	);
+	return deserializeInventory(plaintext);
+}
+
 afterEach(() => {
 	clearInventorySession();
 	setSessionToken(null);
 	mockSyncOrigin = 'https://sync.test.invalid';
 });
 
-describe('inventory session — v2 transport round-trip', () => {
-	it('round-trips the whole-vault blob pointer through the bootstrap inventory', async () => {
+describe('inventory session — per-save address rotation', () => {
+	it('writes every save to a fresh address that re-opens to its one vault blob', async () => {
 		const mock = installFetchMock();
 		setSessionToken('f'.repeat(64));
 		try {
 			initInventorySession(VAULT_KEY, DEVICE_SALT);
-			const set = await inventorySetVaultBlob(VAULT_BLOB);
-			expect(set.ok).toBe(true);
-			expect(set.previousBlobId).toBeNull();
-			expect(await inventoryAddDocumentBlob(DOC_BLOB)).toBe(true);
-			expect(inventoryVaultBlobId()).toBe(VAULT_BLOB);
-			expect(inventoryLatestIndex()).toBe(1n);
+			const first = await inventoryRecordVaultBlob(VAULT_BLOB_A);
+			const second = await inventoryRecordVaultBlob(VAULT_BLOB_B);
+			expect(first).toEqual({ ok: true, index: 1n });
+			expect(second).toEqual({ ok: true, index: 2n });
+			expect(inventoryVaultBlobId()).toBe(VAULT_BLOB_B);
+			expect(inventoryLatestIndex()).toBe(2n);
 
-			// Simulate lock → restore: a fresh in-memory session with the
-			// same (vaultKey, deviceSalt) derives the same bootstrap
-			// address, so the pull recovers the server inventory.
-			clearInventorySession();
+			const addr1 = encodeAddress(inventoryAddress(VAULT_KEY, DEVICE_SALT, 1n));
+			const addr2 = encodeAddress(inventoryAddress(VAULT_KEY, DEVICE_SALT, 2n));
+			expect(addr1).not.toBe(addr2);
+			expect([...mock.invStore.keys()].sort()).toEqual([addr1, addr2].sort());
+
+			const inv1 = openStored(mock.invStore.get(addr1)!, 1n);
+			const inv2 = openStored(mock.invStore.get(addr2)!, 2n);
+			expect(inv1.blobIds).toEqual([VAULT_BLOB_A]);
+			expect(inv1.latestCrdtIndex).toBe(1n);
+			expect(inv2.blobIds).toEqual([VAULT_BLOB_B]);
+			expect(inv2.latestCrdtIndex).toBe(2n);
+		} finally {
+			mock.restore();
+		}
+	});
+
+	it('manual pull adopts saves the device has not seen; a caught-up session pulls nothing', async () => {
+		const mock = installFetchMock();
+		setSessionToken('f'.repeat(64));
+		try {
 			initInventorySession(VAULT_KEY, DEVICE_SALT);
+			await inventoryRecordVaultBlob(VAULT_BLOB_A);
+			await inventoryRecordVaultBlob(VAULT_BLOB_B);
+
+			// A holder of the same keys that starts from scratch probes
+			// forward and lands on the newest save.
+			clearInventorySession();
+			initInventorySession(VAULT_KEY, DEVICE_SALT, 0n);
+			const pulled = await inventoryPullNewer();
+			expect(pulled).toEqual({ blobId: VAULT_BLOB_B, index: 2n });
+			expect(inventoryLatestIndex()).toBe(2n);
+
+			// The device itself starts at its persisted index: nothing newer.
+			clearInventorySession();
+			initInventorySession(VAULT_KEY, DEVICE_SALT, 2n);
+			expect(await inventoryPullNewer()).toBeNull();
 			expect(inventoryVaultBlobId()).toBeNull();
-			expect(inventoryLatestIndex()).toBe(0n);
-
-			const pulled = await inventoryPullVault();
-			expect(pulled).not.toBeNull();
-			expect(pulled?.blobId).toBe(VAULT_BLOB);
-			expect(pulled?.index).toBe(1n);
-			expect(inventoryVaultBlobId()).toBe(VAULT_BLOB);
-			expect(inventoryLatestIndex()).toBe(1n);
 		} finally {
 			mock.restore();
 		}
 	});
 
-	it('persists vault + document ids that re-open via openInventory/deserializeInventory', async () => {
-		const mock = installFetchMock();
+	it('never reuses a reserved index, even when its upload failed', async () => {
+		const failing = installFetchMock({ failInvPut: true });
 		setSessionToken('f'.repeat(64));
 		try {
 			initInventorySession(VAULT_KEY, DEVICE_SALT);
-			await inventorySetVaultBlob(VAULT_BLOB);
-			await inventoryAddDocumentBlob(DOC_BLOB);
-
-			// Re-derive the bootstrap address and open the last-persisted
-			// ciphertext exactly as a passive holder of (vaultKey,
-			// deviceSalt) would — proving the positional convention.
-			const addrBytes = bootstrapAddress(VAULT_KEY, DEVICE_SALT);
-			const addr = encodeAddress(addrBytes);
-			const stored = mock.invStore.get(addr);
-			expect(stored).toBeDefined();
-
-			const plaintext = openInventory(
-				VAULT_KEY,
-				addrBytes,
-				base64ToBytes(stored!.nonce),
-				base64ToBytes(stored!.ciphertext)
-			);
-			const inv = deserializeInventory(plaintext);
-			expect(inv.blobIds).toEqual([VAULT_BLOB, DOC_BLOB]);
-			// A document attach bumps `version` but NOT the save counter.
-			expect(inv.latestCrdtIndex).toBe(1n);
+			const failed = await inventoryRecordVaultBlob(VAULT_BLOB_A);
+			expect(failed).toEqual({ ok: false, index: 1n });
+			expect(inventoryVaultBlobId()).toBeNull();
+		} finally {
+			failing.restore();
+		}
+		const mock = installFetchMock();
+		try {
+			const retried = await inventoryRecordVaultBlob(VAULT_BLOB_A);
+			expect(retried).toEqual({ ok: true, index: 2n });
+			expect([...mock.invStore.keys()]).toEqual([
+				encodeAddress(inventoryAddress(VAULT_KEY, DEVICE_SALT, 2n))
+			]);
 		} finally {
 			mock.restore();
 		}
 	});
 
-	it('writes only the /api/v2/inv surface — never legacy per-account routes', async () => {
+	it('reserves nothing and returns index 0 when sync is not wired', async () => {
+		mockSyncOrigin = '';
+		initInventorySession(VAULT_KEY, DEVICE_SALT, 5n);
+		expect(await inventoryRecordVaultBlob(VAULT_BLOB_A)).toEqual({ ok: false, index: 0n });
+		expect(inventoryLatestIndex()).toBe(5n);
+	});
+
+	it('spends one anonymous token per inventory request and never sends the session token there', async () => {
 		const mock = installFetchMock();
 		setSessionToken('f'.repeat(64));
 		try {
 			initInventorySession(VAULT_KEY, DEVICE_SALT);
-			await inventorySetVaultBlob(VAULT_BLOB);
-			await inventoryAddDocumentBlob(DOC_BLOB);
+			await inventoryRecordVaultBlob(VAULT_BLOB_A);
+			await inventoryRecordVaultBlob(VAULT_BLOB_B);
 			clearInventorySession();
-			initInventorySession(VAULT_KEY, DEVICE_SALT);
-			await inventoryPullVault();
+			initInventorySession(VAULT_KEY, DEVICE_SALT, 0n);
+			await inventoryPullNewer();
 
-			expect(mock.urls.length).toBeGreaterThan(0);
-			for (const url of mock.urls) {
-				expect(url).toContain('/api/v2/inv/');
-				expect(url).not.toContain('/api/blobs/');
-				expect(url).not.toContain('/api/documents/');
+			const inv = mock.requests.filter((r) => r.url.includes('/api/v2/'));
+			expect(inv.length).toBeGreaterThan(0);
+			for (const r of inv) {
+				expect(r.url).toContain('/api/v2/inv/');
+				expect(r.headers['x-vu0-token']).toMatch(/^v1\.\d+\./);
+				expect(r.headers.authorization).toBeUndefined();
 			}
-		} finally {
-			mock.restore();
-		}
-	});
-
-	it('starts empty when the server holds no inventory (404 → absent)', async () => {
-		const mock = installFetchMock();
-		setSessionToken('f'.repeat(64));
-		try {
-			// A vault key with nothing stored at its bootstrap address.
-			initInventorySession(VAULT_KEY_OTHER, DEVICE_SALT);
-			const pulled = await inventoryPullVault();
-			expect(pulled).toBeNull();
-			expect(inventoryVaultBlobId()).toBeNull();
-			expect(inventoryLatestIndex()).toBe(0n);
+			// Every v2 request redeemed a distinct token.
+			expect(mock.issuer.spentCount).toBe(inv.length);
+			// Issuance is the only Bearer-authenticated call.
+			for (const r of mock.requests.filter((x) => x.headers.authorization)) {
+				expect(r.url).toMatch(/\/api\/v0\/tokens\/issue$/);
+			}
+			for (const r of mock.requests) {
+				expect(r.url).not.toContain('/api/blobs/');
+				expect(r.url).not.toContain('/api/documents/');
+			}
 		} finally {
 			mock.restore();
 		}

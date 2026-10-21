@@ -497,22 +497,9 @@ class VaultState {
 	}
 
 	remove(id: string): void {
-		const removed = this.items.find((i) => i.id === id);
 		this.items = this.items.filter((i) => i.id !== id);
 		if (this.selectedId === id) this.selectedId = null;
 		audit.push('warn', 'Item deleted', { id });
-		// If this was a document item with an attached encrypted blob,
-		// purge the blob from local Dexie storage (and from the sync
-		// server when wired). Fire-and-forget — the vault item itself
-		// is the source of truth that this attachment should no longer
-		// be referenced, and the periodic GC sweep on next unlock
-		// catches any leftovers.
-		if (removed && removed.kind === 'document' && removed.docBlobId) {
-			const blobId = removed.docBlobId;
-			void import('$lib/services/document-blobs')
-				.then(({ purgeDocumentBlob }) => purgeDocumentBlob(blobId))
-				.catch(() => undefined);
-		}
 		this.schedulePersist();
 		this.scheduleHealthRecompute();
 	}

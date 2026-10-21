@@ -4,41 +4,68 @@ import { clearStorage } from './helpers';
 const M3_E2E = process.env.M3_E2E === '1' || process.env.M3_E2E === 'true';
 const RECOVERY_PASSWORD = 'Cobalt! River! Juniper! Falcon!';
 
+type ApiRequest = {
+	method: string;
+	path: string;
+	headers: Record<string, string>;
+	bodyLength: number;
+};
+
 /**
- * Record the pathname of every `/api/*` request the page issues. Used
- * to prove — behaviorally, against the live preview — that the §L07b
- * hard cutover holds: the save/document flow must touch ONLY the v2
- * surface (`/api/v2/blobs/*`, `/api/v2/inv/*`) and NEVER the retired
- * per-account routes (`/api/blobs/*`, `/api/documents/*`). This is the
- * V1-C1/V1-C3 closure that the shape-only release probe cannot make.
+ * Record every `/api/*` request the page issues, with its headers and
+ * body size. Used to prove — behaviorally, against the live preview —
+ * that the v2 surface is the only blob transport (never the retired
+ * per-account `/api/blobs/*`, `/api/documents/*` routes; V1-C1/V1-C3),
+ * that v2 requests carry anonymous tokens instead of the session token
+ * (V0-C1), and that vault uploads are a fixed size on the wire (V0-C2).
  */
-function trackApiRequests(page: Page): string[] {
-	const paths: string[] = [];
+function trackApiRequests(page: Page): ApiRequest[] {
+	const seen: ApiRequest[] = [];
 	page.on('request', (req) => {
 		try {
-			const p = new URL(req.url()).pathname;
-			if (p.startsWith('/api/')) paths.push(p);
+			const path = new URL(req.url()).pathname;
+			if (!path.startsWith('/api/')) return;
+			seen.push({
+				method: req.method(),
+				path,
+				headers: req.headers(),
+				bodyLength: req.postData()?.length ?? 0
+			});
 		} catch {
 			/* non-URL request; ignore */
 		}
 	});
-	return paths;
+	return seen;
 }
 
 /** Assert no request ever hit the deleted per-account transport. */
-function assertNoLegacyRoutes(paths: string[]): void {
-	const legacy = paths.filter(
-		(p) => p.startsWith('/api/blobs/') || p.startsWith('/api/documents/')
-	);
+function assertNoLegacyRoutes(requests: ApiRequest[]): void {
+	const legacy = requests
+		.map((r) => r.path)
+		.filter((p) => p.startsWith('/api/blobs/') || p.startsWith('/api/documents/'));
 	expect(legacy, `legacy per-account routes must be gone: ${legacy.join(', ')}`).toEqual([]);
+}
+
+/** Every v2 blob / inventory request spends a token and never sends the session token. */
+function assertTokenOnlyV2(requests: ApiRequest[]): void {
+	const v2 = requests.filter(
+		(r) => r.path.startsWith('/api/v2/blobs/') || r.path.startsWith('/api/v2/inv/')
+	);
+	expect(v2.length).toBeGreaterThan(0);
+	for (const r of v2) {
+		expect(r.headers['x-vu0-token'], `${r.method} ${r.path} must carry a token`).toMatch(/^v1\./);
+		expect(r.headers.authorization, `${r.method} ${r.path} must not carry the session`).toBeUndefined();
+	}
+	const tokens = v2.map((r) => r.headers['x-vu0-token']);
+	expect(new Set(tokens).size, 'each request spends its own token').toBe(tokens.length);
 }
 
 test.describe('vault flows · sync', () => {
 	test.skip(!M3_E2E, 'M3_E2E=1 not set; full sync round-trip skipped (see file header)');
 
-	test('onboard → save → reload → re-unlock pulls remote blob', async ({ page }) => {
+	test('onboard → save → sync → re-unlock stays local and token-only', async ({ page }) => {
 		await clearStorage(page);
-		const apiPaths = trackApiRequests(page);
+		const api = trackApiRequests(page);
 		await completeM3Onboarding(page);
 
 		await page.getByRole('button', { name: 'Add item' }).click();
@@ -54,6 +81,7 @@ test.describe('vault flows · sync', () => {
 
 		await page.getByRole('button', { name: 'Lock vault' }).click();
 		await expect(page).toHaveURL(/\/unlock/);
+		const beforeUnlock = api.length;
 		await page.getByRole('button', { name: 'Touch ID quick unlock' }).click();
 		await expect(page).toHaveURL(/\/vault/);
 		await expect(
@@ -61,111 +89,56 @@ test.describe('vault flows · sync', () => {
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByTestId('sync-status')).toContainText(/ready|synced/);
 
-		// Behavioral V1-C1/V1-C3 proof: the whole-vault save + the
-		// re-unlock pull used the v2 blob/inventory surface and never the
-		// retired per-account routes.
-		assertNoLegacyRoutes(apiPaths);
-		expect(apiPaths.some((p) => p.startsWith('/api/v2/blobs/'))).toBe(true);
-		expect(apiPaths.some((p) => p.startsWith('/api/v2/inv/'))).toBe(true);
+		// Unlock reads nothing back from the sync server (V0-C1: a read
+		// would link this session to the one that wrote the object).
+		const unlockReads = api
+			.slice(beforeUnlock)
+			.filter((r) => r.path.startsWith('/api/v2/') && r.method === 'GET');
+		expect(unlockReads.map((r) => r.path)).toEqual([]);
+
+		assertNoLegacyRoutes(api);
+		assertTokenOnlyV2(api);
+		// Every save wrote its inventory to a fresh address.
+		const invPuts = api
+			.filter((r) => r.method === 'PUT' && r.path.startsWith('/api/v2/inv/'))
+			.map((r) => r.path);
+		expect(invPuts.length).toBeGreaterThan(0);
+		expect(new Set(invPuts).size).toBe(invPuts.length);
 	});
 
-	test('document file round-trips through R2 as opaque ciphertext', async ({ page }) => {
+	test('every vault upload is the same size on the wire (V0-C2 floor)', async ({ page }) => {
+		// Forty items through the UI outlasts the 30s default.
+		test.setTimeout(180_000);
 		await clearStorage(page);
-		const apiPaths = trackApiRequests(page);
+		const api = trackApiRequests(page);
 		await completeM3Onboarding(page);
 
-		// Attach an encrypted document. The client sealer (sealDocument)
-		// runs inside the browser; sync-client.uploadV2Blob pushes the
-		// AES-GCM ciphertext to /api/v2/blobs/<uuid> (random UUID, no
-		// account prefix) against the live Wrangler R2 binding, and the
-		// document UUID is recorded in the encrypted inventory at
-		// /api/v2/inv/<addr>.
-		const DOCUMENT_TEXT =
-			'M3 sync E2E lease bytes — confidential — multi-paragraph payload.';
+		// One small item, then a much larger vault: both stay under the
+		// 64 KiB floor, so the uploads must be byte-identical in size.
 		await page.getByRole('button', { name: 'Add item' }).click();
-		await page.getByRole('button', { name: /^Document$/ }).click();
-		await page.locator('#ie-title').fill('m3-sync-doc');
-		await page
-			.locator('[data-testid="document-file-input"]')
-			.setInputFiles({
-				name: 'lease.txt',
-				mimeType: 'text/plain',
-				buffer: Buffer.from(new TextEncoder().encode(DOCUMENT_TEXT))
-			});
-		const summary = page.getByTestId('document-summary');
-		await expect(summary).toBeVisible({ timeout: 10_000 });
-		// `Sync` row in the summary toggles to `pushed to server` once
-		// the upload to R2 completes.
-		await expect(summary).toContainText(/pushed to server/i, {
-			timeout: 20_000
-		});
+		await page.getByRole('button', { name: /^Secure note$/ }).click();
+		await page.locator('#ie-title').fill('tiny');
 		await page.getByRole('button', { name: 'Save to vault' }).click();
-		await expect(page.locator('.list-pane')).toContainText('m3-sync-doc');
-
-		// Force a full vault sync so the parent vault blob (with the
-		// docBlobId metadata) lands on the server too.
+		await expect(page.locator('.list-pane')).toContainText('tiny');
 		await page.getByRole('button', { name: /Sync ·/ }).click();
-		await expect(page.getByTestId('sync-status')).toHaveText('synced', {
-			timeout: 20_000
-		});
+		await expect(page.getByTestId('sync-status')).toHaveText('synced', { timeout: 20_000 });
 
-		// Purge ONLY the local document blob row so the next download
-		// has to come from R2. The vault item (containing docBlobId)
-		// stays put.
-		const blobId = await page.evaluate(async () => {
-			const req = indexedDB.open('vuvault');
-			return new Promise<string>((resolve, reject) => {
-				req.onerror = () => reject(req.error);
-				req.onsuccess = () => {
-					const db = req.result;
-					if (!db.objectStoreNames.contains('documentBlobs')) {
-						db.close();
-						resolve('');
-						return;
-					}
-					const tx = db.transaction('documentBlobs', 'readwrite');
-					const store = tx.objectStore('documentBlobs');
-					const all = store.getAllKeys();
-					all.onsuccess = () => {
-						const keys = (all.result ?? []) as string[];
-						const first = keys[0] ?? '';
-						store.clear().onsuccess = () => {
-							db.close();
-							resolve(first);
-						};
-					};
-					all.onerror = () => {
-						db.close();
-						reject(all.error);
-					};
-				};
-			});
-		});
-		expect(blobId).toBeTruthy();
+		for (let i = 0; i < 40; i++) {
+			await page.getByRole('button', { name: 'Add item' }).click();
+			await page.getByRole('button', { name: /^Login$/ }).click();
+			await page.locator('#ie-title').fill(`account-${i}`);
+			await page.locator('#ie-username').fill(`user${i}@example.com`);
+			await page.locator('#ie-password').fill(`correct-horse-battery-staple-${i}`);
+			await page.getByRole('button', { name: 'Save to vault' }).click();
+		}
+		await expect(page.locator('.list-pane')).toContainText('account-39');
+		await page.getByRole('button', { name: /Sync ·/ }).click();
+		await expect(page.getByTestId('sync-status')).toHaveText('synced', { timeout: 20_000 });
 
-		// Re-select the document and trigger a download. The vault
-		// session sees no local blob row, falls back to GET
-		// /api/v2/blobs/<uuid>, decrypts the ciphertext returned by R2,
-		// and produces a Blob URL with the original plaintext.
-		await page
-			.locator('.list-pane button.item', { hasText: 'm3-sync-doc' })
-			.first()
-			.click();
-		const downloadPromise = page.waitForEvent('download', { timeout: 15_000 });
-		await page.getByTestId('download-document').click();
-		const download = await downloadPromise;
-		const path = await download.path();
-		expect(path).toBeTruthy();
-		const fs = await import('node:fs/promises');
-		const downloaded = await fs.readFile(path!);
-		expect(downloaded.toString('utf8')).toBe(DOCUMENT_TEXT);
-
-		// Behavioral V1-C1 proof: the document upload, the full-vault
-		// sync, and the R2-fallback download all used the v2 blob/
-		// inventory surface and never the retired per-account routes.
-		assertNoLegacyRoutes(apiPaths);
-		expect(apiPaths.some((p) => p.startsWith('/api/v2/blobs/'))).toBe(true);
-		expect(apiPaths.some((p) => p.startsWith('/api/v2/inv/'))).toBe(true);
+		const blobPuts = api.filter((r) => r.method === 'PUT' && r.path.startsWith('/api/v2/blobs/'));
+		expect(blobPuts.length).toBeGreaterThan(1);
+		expect(new Set(blobPuts.map((r) => r.bodyLength)).size).toBe(1);
+		assertTokenOnlyV2(api);
 	});
 });
 

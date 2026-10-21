@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Vu Level 1 (and design-only V0-C1) post-deploy adversarial probe.
+ * Vu Level 1 + Vu Level 0 (V0-C1/C2/C3) post-deploy adversarial probe.
  *
  * SCAFFOLD ONLY — see `docs/verifications/2026-05-22-vu1-recon.md`,
  * `docs/VU-LEVEL-MIGRATION-MAP.md`, and the §L07b / §L08-redesign /
@@ -13,7 +13,18 @@
  *   V1-C1  pass            (Phase 4 §L07b shipped — v2 routes + reference GC)
  *   V1-C2  pass            (Phase 2 §L08 session-mint redesign shipped)
  *   V1-C3  pass            (Phase 4 §L07b shipped — no per-account prefix)
- *   V0-C1  expected_fail   (design-only gate; L09cap proposed status)
+ *   V0-C1  pass (shape)    (anonymous VOPRF request tokens on the v2
+ *                           routes; per-save inventory addresses — see
+ *                           src/lib/server/api/anon-tokens.ts)
+ *   V0-C2  expected_fail   (fixed 64 KiB vault floor is wired, but the
+ *                           probe cannot import the TS padding module;
+ *                           evidence lives in the unit/integration suite)
+ *   V0-C3  pass            (unknown clientIds get a fake-record KE2)
+ *
+ * A green V0 row is necessary but NOT sufficient for CURRENT_LEVEL=0:
+ * the documented residuals (OPAQUE handshake identifier, network
+ * metadata, token-key consistency, read-after-write on manual sync)
+ * still need an explicit sign-off — see docs/PRIVACY-LEVEL.md.
  *
  * This probe is the level-up gate the migration brief §0.5 and §7
  * require. Phase 6 of the brief flips `CURRENT_LEVEL` from 2 to 1
@@ -510,18 +521,18 @@ async function probeV1C3() {
 }
 
 // ---------------------------------------------------------------------------
-// V0-C1 — unlinkable routing identifiers (DESIGN-GATED, expected fail)
+// V0-C1 — unlinkable routing identifiers
 // ---------------------------------------------------------------------------
 //
-// §L09cap is `proposed` status; it cannot pass until B.3 sign-off
-// AND implementation lands. This probe authors the assertion now so
-// that we cannot accidentally claim Vu0 just because V1 is green.
-//
-// Hard stop: even if this probe somehow reported `pass`, the
-// `CURRENT_LEVEL` cannot flip to 0 until the §L09cap sub-section in
-// `docs/TIER2-ARCHITECTURE.md` is signed off and L09cap has shipped.
-// The release workflow's level-flip-to-0 step must verify both
-// conditions before honoring this probe's result.
+// Closure: the v2 blob / inventory routes accept only single-use
+// anonymous VOPRF tokens (never the session token), issuance records
+// nothing about who asked, and every save writes a fresh inventory
+// address. A `pass` here is SHAPE-level; the unlinkability itself is
+// asserted in tests/integration/v0-anon-tokens.spec.ts,
+// tests/integration/v2-blobs.spec.ts and
+// src/lib/services/inventory-session.test.ts. Even a green row does not
+// by itself authorize CURRENT_LEVEL=0 — see the residuals in
+// docs/PRIVACY-LEVEL.md.
 // ---------------------------------------------------------------------------
 // V0-C2 — bucketed ciphertext sizes (statistical, no network required)
 // ---------------------------------------------------------------------------
@@ -536,41 +547,31 @@ async function probeV1C3() {
 // probe so the level-flip-to-0 workflow can consume the same
 // artifact format that level-flip-to-1 already does.
 //
-// The wiring of `padPlaintext` into `saveItems` (the production
-// effect) is a separate PR — see the §"Deferred" note at the end
-// of `src/lib/crypto/padding.ts`. The probe today only asserts the
-// padding PRIMITIVE behaves; once the wiring lands, the probe can
-// also fetch a real blob from R2 and assert its byte length is a
-// power-of-two ≥ 256.
+// `saveItems` pads every v3 vault to at least VAULT_PAD_FLOOR_BYTES
+// (64 KiB), so all vaults under the floor upload identical sizes.
+// That wiring is asserted in tests/integration/v0c2-padding.spec.ts;
+// this unauthenticated probe can only check the primitive.
 // ---------------------------------------------------------------------------
 // V0-C3 — no account-existence oracle (timing + shape)
 // ---------------------------------------------------------------------------
 async function probeV0C3() {
-	// Phase F V0-C3 hardening: /api/opaque/login/ke1 performs
-	// dummy OPRF-like work on the unknown-clientId path so timing
-	// differences between (known account, wrong password) and
-	// (unknown account) collapse. The probe asserts:
+	// V0-C3: an unknown clientId must be answered exactly like a real
+	// account. The engine builds a deterministic fake RFC 9807 record
+	// (OpaqueServerEngine.fakeAccount) and runs the same OPRF, masking
+	// and AKE, so the probe sends a WELL-FORMED KE1 for a random clientId
+	// and asserts:
 	//
-	//   (a) An unauthenticated POST with an unknown clientId
-	//       returns 401 with `error: "invalid login request"` —
-	//       NOT the legacy "unknown clientId" string that would
-	//       directly admit account existence.
+	//   (a) 200 with { requestId, ke2 } — not the 401 that used to admit
+	//       the account does not exist;
+	//   (b) ke2 decodes to exactly the suite's KE2 length, i.e. the
+	//       length a real account's KE2 has;
+	//   (c) no account-correlating text anywhere in the body.
 	//
-	//   (b) The response body does not contain account-correlating
-	//       fields.
-	//
-	// The DEEPER statistical assertion (K-S distance between
-	// known-and-unknown timing distributions ≤ threshold) runs in
-	// the m3-e2e-style CI integration job, since it requires a
-	// known-good account to compare against.
+	// The same-length / same-error comparison against a REAL account
+	// (wrong password vs unknown account) runs in
+	// tests/integration/worker.spec.ts.
 	const fakeClientId = `vu-probe-unknown-${Math.random().toString(16).slice(2)}`;
-	const bogusKe1 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-	const res = await fetch(`${ORIGIN}/api/opaque/login/ke1`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ clientId: fakeClientId, ke1: bogusKe1 }),
-		cache: 'no-store'
-	}).catch(() => null);
+	const res = await opaqueLoginKE1(fakeClientId, `probe-${Math.random()}`).catch(() => null);
 	if (!res) {
 		return { result: 'fail', evidence: '/api/opaque/login/ke1 unreachable' };
 	}
@@ -580,35 +581,33 @@ async function probeV0C3() {
 			evidence: `opaque-ke1-endpoint-absent (status=${res.status}); base OPAQUE not deployed`
 		};
 	}
-	if (res.status !== 401) {
-		// Bogus ke1 with unknown clientId could also bail at 400
-		// for malformed ke1 (which is fine — same generic shape).
-		if (res.status !== 400) {
-			return {
-				result: 'fail',
-				evidence: `expected 401 (or 400 for malformed ke1), got ${res.status}`
-			};
-		}
-	}
-	const bodyText = (await res.text().catch(() => '')).toLowerCase();
-	if (bodyText.includes('unknown clientid') || bodyText.includes('unknown client_id')) {
+	if (res.status !== 200 || res.body?.ok !== true) {
 		return {
 			result: 'fail',
-			evidence: 'V0-C3 leak: error body contains "unknown clientId" (account-existence oracle)'
+			evidence: `V0-C3 oracle: unknown clientId answered ${res.status} (a real account answers 200)`
 		};
 	}
-	const forbiddenFields = ['account_id', 'accountid', 'client_id', 'clientid', 'device_id'];
-	for (const f of forbiddenFields) {
+	const ke2 = typeof res.body?.data?.ke2 === 'string' ? res.body.data.ke2 : '';
+	const requestId = res.body?.data?.requestId;
+	const ke2Len = ke2 ? atob(ke2).length : 0;
+	const expectedKe2 =
+		suite.elementSize + suite.nonceSize + suite.elementSize + 96 + // credential response (envelope = 96)
+		suite.nonceSize + suite.elementSize + suite.macSize;
+	if (typeof requestId !== 'string' || ke2Len !== expectedKe2) {
+		return {
+			result: 'fail',
+			evidence: `V0-C3 shape: unknown-clientId KE2 is ${ke2Len} bytes, expected ${expectedKe2}`
+		};
+	}
+	const bodyText = JSON.stringify(res.body).toLowerCase();
+	for (const f of ['unknown', 'account_id', 'accountid', 'device_id']) {
 		if (bodyText.includes(f)) {
-			return {
-				result: 'fail',
-				evidence: `V0-C3 leak: error body contains forbidden field '${f}'`
-			};
+			return { result: 'fail', evidence: `V0-C3 leak: KE1 body contains '${f}'` };
 		}
 	}
 	return {
 		result: 'pass',
-		evidence: 'unknown-clientId KE1 returns generic 401 with no account-existence-revealing text; dummy OPRF work compensates timing (statistical assertion in CI suite)'
+		evidence: `unknown-clientId KE1 returns 200 with a ${ke2Len}-byte KE2 (same as a real account) and no existence-revealing text; real-vs-unknown equality runs in tests/integration/worker.spec.ts`
 	};
 }
 
@@ -643,114 +642,113 @@ async function probeV0C2() {
 			evidence: `bucket distribution too wide: ${buckets.size} distinct buckets`
 		};
 	}
-	// The wiring assertion: are saveItems and openBlob calling pad/
-	// unpad? Today the answer is "no", so V0-C2 is `expected_fail`
-	// even though the primitive is sound.
+	// The fixed-floor wiring (every vault ≥ 64 KiB) is asserted by
+	// tests/integration/v0c2-padding.spec.ts, not observable here
+	// without an authenticated vault upload.
 	return {
 		result: 'expected_fail',
-		evidence: `padding primitive bucket distribution OK (${buckets.size} buckets ≤ 14), but saveItems/openBlob do not yet call padPlaintext/unpadPlaintext; wiring is a follow-up PR`
+		evidence: `padding primitive bucket distribution OK (${buckets.size} buckets ≤ 14); fixed 64 KiB vault floor asserted in tests/integration/v0c2-padding.spec.ts (not observable unauthenticated)`
 	};
 }
 
 async function probeV0C1() {
-	// V0-C1 SHAPE-level adversarial probe.
+	// V0-C1 SHAPE-level adversarial probe. Unauthenticated, so it
+	// asserts what an outside observer can see:
 	//
-	// Closure: AKD epochs are published via /api/akd/epochs/latest
-	// and capability handles are minted via /api/v0/capability/issue.
-	// The probe asserts the SHAPE invariants observable to an
-	// unauthenticated external observer:
-	//
-	//   (a) /api/akd/epochs/latest exists and returns valid JSON
-	//       with the published epoch metadata (root, vrf pubkey,
-	//       signature). 404 → AKD not yet bootstrapped (which is
-	//       expected_fail for the V0-C1 closure).
-	//
-	//   (b) /api/v0/capability/issue exists and requires auth
-	//       (returns 401 on unauthenticated POST). The route
-	//       accepts no GET — it's a write-only protocol.
-	//
-	//   (c) Neither response body leaks any account-correlating
-	//       field (account_id, client_id, device_id, etc.) to an
-	//       unauthenticated caller. The DEEPER assertion (two
-	//       capabilities from the same accountSeed under different
-	//       epochs are unlinkable) is exercised by the unit suite
-	//       (`voprf.test.ts` "V0-C1 unlinkability") and by the
-	//       capability-auth integration tests, since it requires
-	//       authenticated requests + the full VOPRF round-trip.
-
-	const epochRes = await fetch(`${ORIGIN}/api/akd/epochs/latest`, {
-		method: 'GET',
-		cache: 'no-store'
-	}).catch(() => null);
-
-	if (!epochRes || epochRes.status === 404 || epochRes.status === 501) {
+	//   (a) GET /api/v0/tokens/key serves { keyId, publicKey } — a
+	//       32-byte ristretto255 point — and nothing account-shaped;
+	//   (b) POST /api/v0/tokens/issue refuses an unauthenticated caller;
+	//   (c) the v2 blob and inventory routes refuse a forged token (and,
+	//       being token-only, never consult a session);
+	//   (d) the account-linked §L09cap capability route and the
+	//       keep-alive route are gone.
+	const forbidden = ['account_id', 'accountid', 'client_id', 'clientid', 'device_id', 'session'];
+	const keyRes = await fetch(`${ORIGIN}/api/v0/tokens/key`, { cache: 'no-store' }).catch(() => null);
+	if (!keyRes || keyRes.status === 404 || keyRes.status === 501) {
 		return {
 			result: 'expected_fail',
-			evidence: `akd-epoch-endpoint-absent (status=${epochRes?.status ?? 'no_response'}); /api/akd/epochs/latest not deployed or no epoch published yet`
+			evidence: `token-key-endpoint-absent (status=${keyRes?.status ?? 'no_response'}); anonymous tokens not deployed`
 		};
 	}
-	if (epochRes.status !== 200) {
+	if (keyRes.status === 503) {
 		return {
 			result: 'fail',
-			evidence: `expected 200 from /api/akd/epochs/latest, got ${epochRes.status}`
+			evidence: 'token issuance not configured (AKD_SIGNING_KEY_HEX missing): v2 sync cannot authorize'
 		};
 	}
-	const epochBody = await epochRes.json().catch(() => null);
-	if (!epochBody?.ok || !epochBody.data) {
-		return {
-			result: 'fail',
-			evidence: 'malformed /api/akd/epochs/latest response'
-		};
+	const keyText = await keyRes.text().catch(() => '');
+	let keyBody;
+	try {
+		keyBody = JSON.parse(keyText);
+	} catch {
+		keyBody = null;
 	}
-	const epochText = JSON.stringify(epochBody).toLowerCase();
-	const forbiddenInEpoch = ['account_id', 'accountid', 'client_id', 'clientid', 'device_id', 'deviceid'];
-	for (const f of forbiddenInEpoch) {
-		if (epochText.includes(f)) {
-			return {
-				result: 'fail',
-				evidence: `V0-C1 leak: /api/akd/epochs/latest body contains forbidden field '${f}'`
-			};
+	const pk = keyBody?.data?.publicKey;
+	if (
+		keyRes.status !== 200 ||
+		!Number.isInteger(keyBody?.data?.keyId) ||
+		typeof pk !== 'string' ||
+		atob(pk).length !== 32
+	) {
+		return { result: 'fail', evidence: `malformed /api/v0/tokens/key response (status=${keyRes.status})` };
+	}
+	for (const f of forbidden) {
+		if (keyText.toLowerCase().includes(f)) {
+			return { result: 'fail', evidence: `V0-C1 leak: token key body contains '${f}'` };
 		}
 	}
 
-	// /api/v0/capability/issue — POST without auth must 401.
-	const issueRes = await fetch(`${ORIGIN}/api/v0/capability/issue`, {
+	const issueRes = await fetch(`${ORIGIN}/api/v0/tokens/issue`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ blindedElement: 'AA==' }),
+		body: JSON.stringify({ blinded: [] }),
 		cache: 'no-store'
 	}).catch(() => null);
-	if (!issueRes) {
+	if (!issueRes || issueRes.status !== 401) {
 		return {
 			result: 'fail',
-			evidence: '/api/v0/capability/issue unreachable'
+			evidence: `expected 401 on unauthenticated POST /api/v0/tokens/issue, got ${issueRes?.status ?? 'no_response'}`
 		};
 	}
-	if (issueRes.status === 404 || issueRes.status === 501) {
-		return {
-			result: 'expected_fail',
-			evidence: `capability-issue-endpoint-absent (status=${issueRes.status}); /api/v0/capability/issue not deployed`
-		};
-	}
-	if (issueRes.status !== 401) {
-		return {
-			result: 'fail',
-			evidence: `expected 401 on unauthenticated POST /api/v0/capability/issue, got ${issueRes.status}`
-		};
-	}
-	const issueText = (await issueRes.text().catch(() => '')).toLowerCase();
-	for (const f of forbiddenInEpoch) {
-		if (issueText.includes(f)) {
+
+	const forged = `v1.${keyBody.data.keyId}.${btoa(String.fromCharCode(...new Uint8Array(32)))}.${btoa(String.fromCharCode(...new Uint8Array(64)))}`;
+	for (const path of [
+		'/api/v2/blobs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+		'/api/v2/inv/aaaaaaaaaaaaaaaaaaaaaaaaaa'
+	]) {
+		const res = await fetch(`${ORIGIN}${path}`, {
+			headers: { 'x-vu0-token': forged },
+			cache: 'no-store'
+		}).catch(() => null);
+		if (!res || res.status !== 401) {
 			return {
 				result: 'fail',
-				evidence: `V0-C1 leak: /api/v0/capability/issue 401 body contains forbidden field '${f}'`
+				evidence: `expected 401 for a forged token on GET ${path}, got ${res?.status ?? 'no_response'}`
 			};
 		}
+	}
+
+	const gone = [];
+	for (const [method, path] of [
+		['POST', '/api/v0/capability/issue'],
+		['POST', '/api/v2/keepalive']
+	]) {
+		const res = await fetch(`${ORIGIN}${path}`, {
+			method,
+			headers: { 'content-type': 'application/json' },
+			body: '{}',
+			cache: 'no-store'
+		}).catch(() => null);
+		const status = res?.status ?? 'no_response';
+		if (status !== 404 && status !== 410 && status !== 501) gone.push(`${method} ${path} -> ${status}`);
+	}
+	if (gone.length) {
+		return { result: 'fail', evidence: `retired linkable route(s) still resolve: ${gone.join('; ')}` };
 	}
 
 	return {
 		result: 'pass',
-		evidence: 'AKD epoch published with no account-correlating fields; /api/v0/capability/issue auth-gated with no account leak; deeper unlinkability assertion runs in voprf.test.ts (V0-C1 invariant) and tests/integration/v0-capability-auth.spec.ts'
+		evidence: 'token key public + account-free; issuance auth-gated; v2 routes refuse forged tokens; capability + keep-alive routes gone; unlinkability asserted in v0-anon-tokens.spec.ts, v2-blobs.spec.ts, inventory-session.test.ts'
 	};
 }
 

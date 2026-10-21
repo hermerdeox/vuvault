@@ -6,37 +6,30 @@
  * correlation") per `docs/VU-LEVEL-MIGRATION-MAP.md` and the §L07b
  * sub-section of `docs/TIER2-ARCHITECTURE.md`. These primitives only
  * CLOSE those invariants once wired into the live save/restore path —
- * that wiring lives in `inventory-session.ts` + `vault-session.ts` +
- * `document-blobs.ts` and landed 2026-05-31 (see
- * `docs/verifications/2026-05-31-vu1-closure.md`).
- *
- * Variant (a) per-blob random keys + Candidate 1 deterministic-first-
- * pointer bootstrap. The Candidate-1 trade-off is accepted explicitly in
- * `docs/verifications/2026-05-31-vu1-closure.md`; no separate "Appendix
- * B.1" human sign-off was ever actually on record (an earlier draft of
- * this comment implied one that did not exist).
+ * that wiring lives in `inventory-session.ts` + `vault-session.ts`
+ * (see `docs/verifications/2026-05-31-vu1-closure.md`).
  *
  * High-level shape:
  *
- *   1. The FIRST inventory address is HKDF-derived from
- *      (vaultKey, deviceSalt, "vuvault/v1c1/inventory-bootstrap").
- *      The "deterministic first pointer" admits one bit of metadata
- *      leak (an observer can probe the bootstrap address to confirm
- *      an account exists) — this is the Candidate 1 trade-off.
+ *   1. Save number `i` writes its inventory to `inventoryAddress(vaultKey,
+ *      deviceSalt, i)` — a fresh HKDF-derived address per save. No
+ *      address is written twice, so the server never sees a stable
+ *      per-account address recur across saves (V0-C1). The device keeps
+ *      its current index locally (`AccountRecord.inventoryIndex`) rather
+ *      than re-reading the server on every unlock.
  *
  *   2. The inventory blob is `{ blobIds, latestCrdtIndex, nextAddr,
- *      version }`, encrypted with the active session AES key and
- *      stored at `/api/v2/inv/{addr}` where `addr` is the 26-char
- *      Crockford base32 encoding of a 16-byte address.
+ *      version }`, encrypted under a per-address key derived from the
+ *      vault key and stored at `/api/v2/inv/{addr}` where `addr` is the
+ *      26-char Crockford base32 encoding of a 16-byte address. With file
+ *      attachments gone, `blobIds` always holds exactly the one
+ *      whole-vault blob, so every inventory has the same size.
+ *      `nextAddr` is retained for wire-format compatibility; it is
+ *      random filler, not a pointer.
  *
- *   3. After every rotation, the inventory's `nextAddr` field
- *      points to a freshly-random 16-byte address; the OLD address
- *      is unlinkable to the new (because rotation uses a fresh
- *      Uint8Array, not derived from the old).
- *
- *   4. Each blob lives at `/api/v2/blobs/{uuid}`. The server has NO
+ *   3. Each blob lives at `/api/v2/blobs/{uuid}`. The server has NO
  *      per-account index of "which blobs belong to whom" — anyone
- *      with a valid session token can fetch a blob if they know its
+ *      with an unspent anonymous token can fetch a blob if they know its
  *      UUID, but UUIDs are 122 bits of randomness so guessing is
  *      computationally infeasible.
  *
@@ -46,15 +39,13 @@
  *
  * Threat-model footnotes:
  *
- *   - V1-C1 holds against any server-side observer that does not
- *     have a valid session token. The server stores no
- *     (blob_id, account_id) tuple.
- *   - V1-C1 admits the Candidate 1 first-pointer leak: an authorized
- *     auditor with knowledge of (vaultKey, deviceSalt) can derive the
- *     bootstrap address and observe whether an inventory exists. Per
- *     the spec, this is an accepted minimum-viable trade-off; the
- *     unlinkable-bootstrap variant (Candidate 2) is reserved for the
- *     V0 track.
+ *   - The server stores no (blob_id, account_id) or (addr, account_id)
+ *     tuple, and the v2 routes authorize with anonymous tokens, so no
+ *     request resolves to an account.
+ *   - Residual: a server that logs requests can still link the session
+ *     that WRITES an object with any later session that READS it. Only
+ *     a manual "Sync now" reads (unlock no longer pulls), which bounds
+ *     the linkage, but closing it fully needs PIR-style retrieval.
  *   - V1-C3 holds because the GC and rate-limit layers operate on
  *     blob_id (not account_id). Two interleaved uploads from two
  *     different accounts are indistinguishable to an R2 observer.
@@ -65,7 +56,7 @@ import { sha512 } from '@noble/hashes/sha2';
 import { gcm } from '@noble/ciphers/aes';
 
 export const INVENTORY_ADDRESS_BYTES = 16;
-export const INVENTORY_ADDRESS_HKDF_INFO = 'vuvault/v1c1/inventory-bootstrap';
+export const INVENTORY_ADDRESS_HKDF_INFO = 'vuvault/v0c1/inventory-address';
 export const INVENTORY_AES_KEY_BYTES = 32;
 export const INVENTORY_NONCE_BYTES = 12;
 
@@ -147,37 +138,40 @@ export function decodeAddress(s: string): Uint8Array {
 }
 
 /**
- * Derive the deterministic bootstrap inventory address from
- * (vaultKey, deviceSalt). Per Candidate 1, this address is
- * recoverable by anyone who has those two factors — exactly the
- * set of parties who already have the vault key. The trade-off is
- * that the address is the same across rotations, leaking the
- * existence of an account to anyone who already knows the vault
- * key (which is moot — they already have the vault).
+ * Derive the inventory address for save `index` (≥ 1) from
+ * (vaultKey, deviceSalt). Every save writes its inventory to the next
+ * index, so no address is ever written twice, and without the vault key
+ * consecutive addresses are unrelated-looking random strings (V0-C1).
+ *
+ * This replaces the single Candidate-1 bootstrap address that every
+ * save used to overwrite in place: that fixed address was a stable
+ * per-account pseudonym the server saw on every save.
  *
  * HKDF parameters:
- *   IKM:  vaultKey (typically 64 bytes from HKDF chain)
- *   salt: deviceSalt (32 bytes)
- *   info: "vuvault/v1c1/inventory-bootstrap"
+ *   IKM:  vaultKey
+ *   salt: deviceSalt
+ *   info: "vuvault/v0c1/inventory-address" ‖ u64be(index)
  *   L:    INVENTORY_ADDRESS_BYTES (16)
  */
-export function bootstrapAddress(
+export function inventoryAddress(
 	vaultKey: Uint8Array,
-	deviceSalt: Uint8Array
+	deviceSalt: Uint8Array,
+	index: bigint
 ): Uint8Array {
 	if (vaultKey.length === 0) {
-		throw new Error('bootstrapAddress: vaultKey must be non-empty');
+		throw new Error('inventoryAddress: vaultKey must be non-empty');
 	}
 	if (deviceSalt.length === 0) {
-		throw new Error('bootstrapAddress: deviceSalt must be non-empty');
+		throw new Error('inventoryAddress: deviceSalt must be non-empty');
 	}
-	return hkdf(
-		sha512,
-		vaultKey,
-		deviceSalt,
-		INVENTORY_ADDRESS_HKDF_INFO,
-		INVENTORY_ADDRESS_BYTES
-	);
+	if (index < 1n || index > 0xffffffffffffffffn) {
+		throw new Error('inventoryAddress: index must be a positive u64');
+	}
+	const label = new TextEncoder().encode(INVENTORY_ADDRESS_HKDF_INFO);
+	const info = new Uint8Array(label.length + 8);
+	info.set(label, 0);
+	new DataView(info.buffer).setBigUint64(label.length, index, false);
+	return hkdf(sha512, vaultKey, deviceSalt, info, INVENTORY_ADDRESS_BYTES);
 }
 
 /**

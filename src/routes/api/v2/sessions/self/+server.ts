@@ -23,22 +23,17 @@
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/server/api/env';
 import { authenticate, rotateToken } from '$lib/server/api/auth-token';
-import { authenticateCapability } from '$lib/server/api/capability-auth';
 import { applyRateLimit, RATE_LIMITS } from '$lib/server/api/rate-limit-d1';
 import { v2RateLimitKey } from '$lib/server/api/v2-rate-limit-key';
 import { jsonError } from '$lib/server/api/http';
 
 export const GET: RequestHandler = async ({ request, platform }) => {
 	const env = platform!.env as Env;
-	// Dual-auth: Bearer first, capability second. The auth result
-	// carries a `token` field that is either the Bearer token (Vu1)
-	// or the capability hex (Vu0). Bearer-token rotation only fires
-	// in the Bearer branch — capabilities are rotated by the client
-	// via `mintCapability` after the AKD epoch rolls.
-	const bearer = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
-	const session = bearer ?? (await authenticateCapability(env, request.headers.get('x-vu0-capability')));
+	// Bearer only: this route introspects and rotates the SESSION
+	// token, so it is inherently session-bound. The account-free
+	// blob / inventory routes take anonymous tokens instead.
+	const session = await authenticate(env.AUTH_DB, request.headers.get('authorization'));
 	if (!session) return jsonError(401, 'unauthorized');
-	const isBearerSession = bearer !== null;
 
 	// V1-C1: rate-limit on a session-scoped key (NOT account-scoped)
 	// so the rate_limits.bucket column does not reveal account
@@ -54,13 +49,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 	// return a successful introspection — the existing token remains
 	// valid for the rest of its TTL and the client can retry rotation
 	// on the next call.
-	//
-	// Rotation only applies to BEARER sessions. Capability sessions
-	// rotate per AKD epoch via the client's `mintCapability` flow;
-	// there is no in-route capability rotation.
-	const rotated = isBearerSession
-		? await rotateToken(env.AUTH_DB, session.token).catch(() => null)
-		: null;
+	const rotated = await rotateToken(env.AUTH_DB, session.token).catch(() => null);
 
 	// Construct the response by hand so we can control headers. The
 	// V1-C2 probe inspects this exact shape; adding any new field

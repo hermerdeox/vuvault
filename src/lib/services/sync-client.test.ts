@@ -5,8 +5,9 @@
  * bundle-integrity manifest fetch that is allowed to call `fetch()`
  * (enforced by the CI network-call guard). These tests exercise the
  * `SyncResult` contract — local-only short-circuit, server-error
- * shape decoding, and bearer-token application — without touching
- * the network. The full live D1/R2 round-trip lives in
+ * shape decoding, and which credential each request carries (Bearer
+ * for issuance, an anonymous token for the v2 routes) — without
+ * touching the network. The full live D1/R2 round-trip lives in
  * `tests/e2e/sync.spec.ts`.
  */
 
@@ -20,6 +21,7 @@ import {
 	fetchV2Blob,
 	opaqueLoginKE3
 } from './sync-client';
+import { createFakeTokenIssuer } from './test-utils/fake-token-issuer';
 
 const SAMPLE_UUID = '11111111-1111-4111-8111-111111111111';
 
@@ -152,28 +154,113 @@ describe('sync-client', () => {
 		}
 	});
 
-	it('attaches the bearer token to blob requests when a session is active', async () => {
+	type Call = { url: string; method: string; headers: Record<string, string> };
+
+	/** fetch mock: real token issuance, then `route` for everything else. */
+	function installTokenFetch(
+		route: (call: Call, redeemed: boolean) => Response,
+		issuer = createFakeTokenIssuer()
+	): Call[] {
+		const calls: Call[] = [];
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const call: Call = {
+				url: String(input),
+				method: (init?.method ?? 'GET').toUpperCase(),
+				headers: { ...((init?.headers as Record<string, string>) ?? {}) }
+			};
+			calls.push(call);
+			const tokenRoute = issuer.handle(call.url, call.method, init?.body as string | undefined);
+			if (tokenRoute) return tokenRoute;
+			return route(call, issuer.redeem(call.headers['x-vu0-token'] ?? null));
+		}) as unknown as typeof fetch;
+		return calls;
+	}
+
+	it('sends v2 blob requests with an anonymous token and never the bearer token', async () => {
 		setSessionToken('a'.repeat(64));
 		expect(hasSession()).toBe(true);
-		const captured: { headers?: HeadersInit } = {};
-		globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
-			captured.headers = init?.headers;
-			return jsonResponse({ ok: true, data: { blobId: SAMPLE_UUID, updatedAt: 1 } });
-		}) as unknown as typeof fetch;
-		await uploadV2Blob({ blobId: SAMPLE_UUID, nonce: 'Ag==', ciphertext: 'Aw==' });
-		const headers = captured.headers as Record<string, string>;
-		expect(headers.authorization).toBe(`Bearer ${'a'.repeat(64)}`);
+		const calls = installTokenFetch((_call, redeemed) =>
+			redeemed
+				? jsonResponse({ ok: true, data: { blobId: SAMPLE_UUID, updatedAt: 1 } })
+				: jsonResponse({ ok: false, error: 'invalid token' }, { status: 401 })
+		);
+		const result = await uploadV2Blob({ blobId: SAMPLE_UUID, nonce: 'Ag==', ciphertext: 'Aw==' });
+		expect(result.ok).toBe(true);
+
+		const blobCall = calls.find((c) => c.url.includes('/api/v2/blobs/'))!;
+		expect(blobCall.headers['x-vu0-token']).toMatch(/^v1\.1\./);
+		expect(blobCall.headers.authorization).toBeUndefined();
+		// The session token went only to issuance; the key fetch is public.
+		const issue = calls.find((c) => c.url.endsWith('/api/v0/tokens/issue'))!;
+		expect(issue.headers.authorization).toBe(`Bearer ${'a'.repeat(64)}`);
+		const key = calls.find((c) => c.url.endsWith('/api/v0/tokens/key'))!;
+		expect(key.headers.authorization).toBeUndefined();
 	});
 
-	it('omits the bearer token when no session is active', async () => {
-		const captured: { headers?: HeadersInit } = {};
-		globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
-			captured.headers = init?.headers;
-			return jsonResponse({ ok: false, error: 'unauthorized', code: 401 }, { status: 401 });
+	it('does not contact the v2 routes without a session (no token can be minted)', async () => {
+		const calls = installTokenFetch(() => jsonResponse({ ok: true, data: {} }));
+		const result = await fetchV2Blob(SAMPLE_UUID);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.message).toBe('no anonymous token available');
+		expect(calls).toEqual([]);
+	});
+
+	it('spends a distinct token per request and refills the pool from one issuance', async () => {
+		setSessionToken('a'.repeat(64));
+		const issuer = createFakeTokenIssuer();
+		const calls = installTokenFetch(
+			(_call, redeemed) =>
+				redeemed
+					? jsonResponse({
+							ok: true,
+							data: { blobId: SAMPLE_UUID, nonce: 'AA==', ciphertext: 'AA==', updatedAt: 1 }
+						})
+					: jsonResponse({ ok: false, error: 'invalid token' }, { status: 401 }),
+			issuer
+		);
+		for (let i = 0; i < 5; i++) expect((await fetchV2Blob(SAMPLE_UUID)).ok).toBe(true);
+		const tokens = calls
+			.filter((c) => c.url.includes('/api/v2/blobs/'))
+			.map((c) => c.headers['x-vu0-token']);
+		expect(new Set(tokens).size).toBe(5);
+		expect(issuer.spentCount).toBe(5);
+	});
+
+	it('drops a stale pool and retries once when the server says the token is invalid', async () => {
+		setSessionToken('a'.repeat(64));
+		let rejectNext = true;
+		const calls = installTokenFetch((_call, redeemed) => {
+			if (rejectNext || !redeemed) {
+				rejectNext = false;
+				return jsonResponse({ ok: false, error: 'invalid token' }, { status: 401 });
+			}
+			return jsonResponse({
+				ok: true,
+				data: { blobId: SAMPLE_UUID, nonce: 'AA==', ciphertext: 'AA==', updatedAt: 1 }
+			});
+		});
+		const result = await fetchV2Blob(SAMPLE_UUID);
+		expect(result.ok).toBe(true);
+		expect(calls.filter((c) => c.url.includes('/api/v2/blobs/')).length).toBe(2);
+	});
+
+	it('refuses a token batch issued under a key other than the publicly served one', async () => {
+		setSessionToken('a'.repeat(64));
+		const signer = createFakeTokenIssuer(1);
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			const method = (init?.method ?? 'GET').toUpperCase();
+			if (url.endsWith('/api/v0/tokens/key')) {
+				// A different public key than the one that signs the batch.
+				return jsonResponse({ ok: true, data: { keyId: 1, publicKey: 'A'.repeat(43) + '=' } });
+			}
+			const tokenRoute = signer.handle(url, method, init?.body as string | undefined);
+			if (tokenRoute) return tokenRoute;
+			return jsonResponse({ ok: false, error: 'unexpected' }, { status: 500 });
 		}) as unknown as typeof fetch;
-		await fetchV2Blob(SAMPLE_UUID);
-		const headers = captured.headers as Record<string, string>;
-		expect(headers.authorization).toBeUndefined();
+		const result = await fetchV2Blob(SAMPLE_UUID);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.message).toBe('no anonymous token available');
 	});
 
 	it('isSyncWired mirrors isSyncOriginConfigured', () => {

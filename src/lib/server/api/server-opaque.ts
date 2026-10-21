@@ -42,6 +42,8 @@ import {
 	type CipherSuiteId,
 	type ServerAkeState
 } from '@structured-id/opaque';
+import { hkdf } from '@noble/hashes/hkdf';
+import { sha512 } from '@noble/hashes/sha2';
 
 // Type-level imports only; this module deliberately has no $lib alias
 // so the Worker bundles it cleanly. The wire types live under src/
@@ -52,6 +54,7 @@ type ServerIdentifier = string;
 
 const te = new TextEncoder();
 const SUITE_ID: CipherSuiteId = DEFAULT_SUITE;
+const FAKE_RECORD_SALT = te.encode('vuvault-opaque-fake-record-v1');
 
 function concat(...arrays: Uint8Array[]): Uint8Array {
 	const total = arrays.reduce((n, a) => n + a.length, 0);
@@ -246,18 +249,63 @@ export class OpaqueServerEngine {
 		return { accountId };
 	}
 
+	/**
+	 * V0-C3 — RFC 9807 §10.9 client-enumeration defense. An unknown
+	 * clientId gets a fake registration record and then the exact same
+	 * OPRF evaluation, envelope masking and AKE as a real account, so KE1
+	 * answers 200 with a well-formed KE2 either way: status, shape and
+	 * length no longer reveal whether the account exists.
+	 *
+	 * The record is derived deterministically from the server secret and
+	 * the clientId, so repeated probes of one unknown id see the same
+	 * fake OPRF key / client key like they would for a real account. The
+	 * fake client public key's secret is unknown to anyone but this
+	 * derivation, so the KE3 MAC can never verify for it.
+	 */
+	private fakeAccount(clientId: ClientIdentifier): StoredAccount {
+		const group = getGroup(this.suite.curve);
+		const maskingSize = this.suite.oprfOutputSize;
+		const envSize = envelopeSize(this.suite);
+		const okm = hkdf(
+			sha512,
+			this.serverSecretKey,
+			FAKE_RECORD_SALT,
+			te.encode(clientId),
+			64 + 64 + maskingSize + envSize
+		);
+		let off = 0;
+		const take = (n: number) => okm.slice(off, (off += n));
+		// `GroupOps.scalarReduce` emits a big-endian scalar, but the OPRF
+		// functions take the little-endian encoding `oprfGenerateKeyPair`
+		// produces (verified against @structured-id/opaque 1.0.5: the BE
+		// form is rejected as "outside of range 0..ORDER"). Reversing the
+		// bytes is the LE encoding of the same in-range scalar.
+		const oprfSecretKey = group.scalarReduce(take(64)).reverse();
+		// Only ever used through GroupOps.scalarBaseMult, which takes the
+		// GroupOps (big-endian) form as-is.
+		const clientSecret = group.scalarReduce(take(64));
+		return {
+			accountId: '',
+			clientPublicKey: group.serializeElement(group.scalarBaseMult(clientSecret)),
+			maskingKey: take(maskingSize),
+			envelopeBytes: take(envSize),
+			oprfSecretKey
+		};
+	}
+
 	async loginKE1(
 		clientId: ClientIdentifier,
 		ke1Bytes: Uint8Array
 	): Promise<{ ke2: Uint8Array; requestId: string }> {
-		const account = await this.storage.getAccount(clientId);
-		if (!account) throw new Error('opaque: unknown clientId');
-
+		// Shape check first so a malformed KE1 is rejected identically
+		// whether or not the account exists.
 		const { elementSize, nonceSize } = this.suite;
 		const expected = elementSize + nonceSize + elementSize;
 		if (ke1Bytes.length !== expected) {
 			throw new Error('opaque: KE1 length mismatch');
 		}
+		const account =
+			(await this.storage.getAccount(clientId)) ?? this.fakeAccount(clientId);
 		const credentialRequest = ke1Bytes.slice(0, elementSize);
 		const clientNonce = ke1Bytes.slice(elementSize, elementSize + nonceSize);
 		const clientPublicKeyshare = ke1Bytes.slice(elementSize + nonceSize);
@@ -314,11 +362,14 @@ export class OpaqueServerEngine {
 		if (pending.clientId !== clientId) {
 			throw new Error('opaque: clientId mismatch on login-KE3');
 		}
-		const account = await this.storage.getAccount(clientId);
-		if (!account) throw new Error('opaque: account vanished mid-flow');
-		// `serverAkeFinish` throws on MAC mismatch — that's our
-		// "wrong password" detection.
+		// `serverAkeFinish` throws on MAC mismatch — that's our "wrong
+		// password" detection. It runs BEFORE the account lookup so a fake
+		// (unknown-clientId) login fails here, with the same error as a
+		// wrong password, instead of on a distinguishable missing-account
+		// branch.
 		serverAkeFinish(ke3, pending.state);
+		const account = await this.storage.getAccount(clientId);
+		if (!account) throw new Error('opaque: authentication failed');
 		return { accountId: account.accountId };
 	}
 }

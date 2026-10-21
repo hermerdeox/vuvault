@@ -3,7 +3,9 @@
  * /api/v2/inv/* routes.
  *
  * Each test exercises a property the release probe cannot (because
- * the release probe is unauthenticated):
+ * the release probe is unauthenticated). Every request authorizes with
+ * a real single-use anonymous token minted through `issueTokens`, the
+ * way the client does — never a session token:
  *
  *   - V1-C1 deep: two-account adversarial flow — neither account
  *     can enumerate the other's blob_ids, neither blob_id carries
@@ -28,6 +30,8 @@ import {
 	GET as v2InvGet
 } from '../../src/routes/api/v2/inv/[addr]/+server';
 import { gcV2Now } from '../../src/lib/server/api/r2-gc';
+import { issueTokens, currentKeyId, tokenKeyPair } from '../../src/lib/server/api/anon-tokens';
+import { blind, finalize, evaluate } from '../../src/lib/crypto/voprf';
 import type { Env, R2Object } from '../../src/lib/server/api/env';
 
 type Row = Record<string, unknown>;
@@ -37,6 +41,7 @@ class FakeD1 {
 	accounts = new Map<string, Row>();
 	blobRefs = new Map<string, { last_seen_at: number; bytes: number }>();
 	invRefs = new Map<string, { last_seen_at: number; bytes: number }>();
+	spentTokens = new Map<string, { key_id: number }>();
 	rateLimits = new Map<string, number>();
 
 	prepare(query: string) {
@@ -137,6 +142,22 @@ class FakeD1 {
 		if (sql.startsWith('DELETE FROM inv_references')) {
 			return this.invRefs.delete(args[0] as string) ? 1 : 0;
 		}
+		if (sql.startsWith('INSERT INTO anon_tokens_spent')) {
+			const hash = args[0] as string;
+			if (this.spentTokens.has(hash)) return 0; // ON CONFLICT DO NOTHING
+			this.spentTokens.set(hash, { key_id: Number(args[1]) });
+			return 1;
+		}
+		if (sql.startsWith('DELETE FROM anon_tokens_spent')) {
+			let n = 0;
+			for (const [hash, row] of this.spentTokens) {
+				if (row.key_id < Number(args[0])) {
+					this.spentTokens.delete(hash);
+					n++;
+				}
+			}
+			return n;
+		}
 		if (sql.startsWith('INSERT INTO rate_limits')) {
 			const key = `${args[0] as string}:${args[1] as number}`;
 			this.rateLimits.set(key, (this.rateLimits.get(key) ?? 0) + 1);
@@ -203,8 +224,27 @@ function env(): Env {
 	return {
 		AUTH_DB: new FakeD1(),
 		VAULT_BLOBS: new MemoryR2(),
-		OPAQUE_RATE_LIMIT_MODE: 'fail-open'
+		OPAQUE_RATE_LIMIT_MODE: 'fail-open',
+		AKD_SIGNING_KEY_HEX: '11'.repeat(32)
 	} as unknown as Env;
+}
+
+function b64(bytes: Uint8Array): string {
+	return btoa(String.fromCharCode(...bytes));
+}
+
+/**
+ * Mint one anonymous token the way the client does: blind a random
+ * input, have the server blind-evaluate it, finalize (verifying the
+ * DLEQ proof), and format the redemption header.
+ */
+function anonToken(e: Env): { 'x-vu0-token': string } {
+	const input = crypto.getRandomValues(new Uint8Array(32));
+	const b = blind(input);
+	const issued = issueTokens(e, [b.blindedElement])!;
+	const output = finalize(input, b.blind, issued.evaluated[0]!, issued.proofs[0]!, issued.publicKey);
+	expect(output).not.toBeNull();
+	return { 'x-vu0-token': `v1.${issued.keyId}.${b64(input)}.${b64(output!)}` };
 }
 
 function event(request: Request, e: Env, params: Record<string, string> = {}) {
@@ -241,16 +281,14 @@ function bearer(token: string): { authorization: string } {
 describe('V1-C1 / V1-C3 · /api/v2/blobs', () => {
 	it('PUT writes to global v2/blobs prefix (no per-account path)', async () => {
 		const e = env();
-		const db = e.AUTH_DB as unknown as FakeD1;
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
-		const token = seedSession(db, 'acct-A', 'a'.repeat(64));
 		const uuid = '11111111-1111-4111-8111-111111111111';
 
 		const res = await v2BlobPut(
 			event(
 				new Request(`http://localhost/api/v2/blobs/${uuid}`, {
 					method: 'PUT',
-					headers: { 'content-type': 'application/json', ...bearer(token) },
+					headers: { 'content-type': 'application/json', ...anonToken(e) },
 					body: JSON.stringify({ nonce: 'AAAA', ciphertext: 'BBBB' })
 				}),
 				e,
@@ -274,20 +312,15 @@ describe('V1-C1 / V1-C3 · /api/v2/blobs', () => {
 		const e = env();
 		const db = e.AUTH_DB as unknown as FakeD1;
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
-		const tokenA = seedSession(db, 'acct-A', 'a'.repeat(64));
-		const tokenB = seedSession(db, 'acct-B', 'b'.repeat(64));
 		const uuidA = '22222222-2222-4222-8222-222222222222';
 		const uuidB = '33333333-3333-4333-8333-333333333333';
 
-		for (const [token, uuid] of [
-			[tokenA, uuidA],
-			[tokenB, uuidB]
-		] as const) {
+		for (const uuid of [uuidA, uuidB]) {
 			await v2BlobPut(
 				event(
 					new Request(`http://localhost/api/v2/blobs/${uuid}`, {
 						method: 'PUT',
-						headers: { 'content-type': 'application/json', ...bearer(token) },
+						headers: { 'content-type': 'application/json', ...anonToken(e) },
 						body: JSON.stringify({ nonce: 'CC', ciphertext: 'DDDD' })
 					}),
 					e,
@@ -349,14 +382,13 @@ describe('V1-C1 / V1-C3 · /api/v2/blobs', () => {
 		const e = env();
 		const db = e.AUTH_DB as unknown as FakeD1;
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
-		const token = seedSession(db, 'acct-A', 'a'.repeat(64));
 		const uuid = '55555555-5555-4555-8555-555555555555';
 
 		await v2BlobPut(
 			event(
 				new Request(`http://localhost/api/v2/blobs/${uuid}`, {
 					method: 'PUT',
-					headers: { 'content-type': 'application/json', ...bearer(token) },
+					headers: { 'content-type': 'application/json', ...anonToken(e) },
 					body: JSON.stringify({ nonce: 'AA', ciphertext: 'BB' })
 				}),
 				e,
@@ -370,7 +402,7 @@ describe('V1-C1 / V1-C3 · /api/v2/blobs', () => {
 			event(
 				new Request(`http://localhost/api/v2/blobs/${uuid}`, {
 					method: 'DELETE',
-					headers: bearer(token)
+					headers: anonToken(e)
 				}),
 				e,
 				{ uuid }
@@ -387,14 +419,13 @@ describe('V1-C1 · /api/v2/inv', () => {
 		const e = env();
 		const db = e.AUTH_DB as unknown as FakeD1;
 		const r2 = e.VAULT_BLOBS as unknown as MemoryR2;
-		const token = seedSession(db, 'acct-A', 'a'.repeat(64));
 		const addr = 'abcdefghjkmnpqrstvwxyz0123';
 
 		const res = await v2InvPut(
 			event(
 				new Request(`http://localhost/api/v2/inv/${addr}`, {
 					method: 'PUT',
-					headers: { 'content-type': 'application/json', ...bearer(token) },
+					headers: { 'content-type': 'application/json', ...anonToken(e) },
 					body: JSON.stringify({ nonce: 'AAAA', ciphertext: 'BBBB' })
 				}),
 				e,
@@ -415,8 +446,6 @@ describe('V1-C1 · /api/v2/inv', () => {
 
 	it('GET round-trips inventory ciphertext', async () => {
 		const e = env();
-		const db = e.AUTH_DB as unknown as FakeD1;
-		const token = seedSession(db, 'acct-A', 'a'.repeat(64));
 		const addr = '0123456789abcdefghjkmnpqrs';
 
 		// Use padded base64 so the assertion is canonical-form-stable.
@@ -424,7 +453,7 @@ describe('V1-C1 · /api/v2/inv', () => {
 			event(
 				new Request(`http://localhost/api/v2/inv/${addr}`, {
 					method: 'PUT',
-					headers: { 'content-type': 'application/json', ...bearer(token) },
+					headers: { 'content-type': 'application/json', ...anonToken(e) },
 					body: JSON.stringify({ nonce: 'AAAAAAAAAAAAAAAA', ciphertext: 'CCCCCCCC' })
 				}),
 				e,
@@ -436,7 +465,7 @@ describe('V1-C1 · /api/v2/inv', () => {
 			event(
 				new Request(`http://localhost/api/v2/inv/${addr}`, {
 					method: 'GET',
-					headers: bearer(token)
+					headers: anonToken(e)
 				}),
 				e,
 				{ addr }
@@ -457,19 +486,76 @@ describe('V1-C1 · /api/v2/inv', () => {
 
 	it('rejects malformed addresses (400 before auth)', async () => {
 		const e = env();
-		const db = e.AUTH_DB as unknown as FakeD1;
-		const token = seedSession(db, 'acct-A', 'a'.repeat(64));
 		const res = await v2InvGet(
 			event(
 				new Request('http://localhost/api/v2/inv/not-an-addr!!!', {
 					method: 'GET',
-					headers: bearer(token)
+					headers: anonToken(e)
 				}),
 				e,
 				{ addr: 'not-an-addr!!!' }
 			)
 		);
 		expect(res.status).toBe(400);
+	});
+});
+
+describe('V0-C1 · token-only v2 routes', () => {
+	const uuid = '66666666-6666-4666-8666-666666666666';
+	function put(e: Env, headers: Record<string, string>) {
+		return v2BlobPut(
+			event(
+				new Request(`http://localhost/api/v2/blobs/${uuid}`, {
+					method: 'PUT',
+					headers: { 'content-type': 'application/json', ...headers },
+					body: JSON.stringify({ nonce: 'AA', ciphertext: 'BB' })
+				}),
+				e,
+				{ uuid }
+			)
+		);
+	}
+
+	it('refuses a valid Bearer session token (no request may resolve to an account)', async () => {
+		const e = env();
+		const token = seedSession(e.AUTH_DB as unknown as FakeD1, 'acct-A', 'a'.repeat(64));
+		const res = await put(e, bearer(token));
+		expect(res.status).toBe(401);
+		expect(((await res.json()) as { error: string }).error).toBe('invalid token');
+	});
+
+	it('accepts a token exactly once', async () => {
+		const e = env();
+		const header = anonToken(e);
+		expect((await put(e, header)).status).toBe(200);
+		expect((await put(e, header)).status).toBe(401);
+	});
+
+	it('rejects a token whose PRF output does not verify', async () => {
+		const e = env();
+		const header = anonToken(e)['x-vu0-token'];
+		const parts = header.split('.');
+		parts[3] = b64(new Uint8Array(64)); // forged output
+		expect((await put(e, { 'x-vu0-token': parts.join('.') })).status).toBe(401);
+	});
+
+	it('rejects a token minted under a key window that has closed', async () => {
+		const e = env();
+		const oldKey = currentKeyId() - 2;
+		const keys = tokenKeyPair(e, oldKey)!;
+		const input = crypto.getRandomValues(new Uint8Array(32));
+		const output = evaluate(keys.secretKey, input);
+		expect((await put(e, { 'x-vu0-token': `v1.${oldKey}.${b64(input)}.${b64(output)}` })).status).toBe(401);
+	});
+
+	it('records only the input hash and key window for a spent token', async () => {
+		const e = env();
+		const db = e.AUTH_DB as unknown as FakeD1;
+		await put(e, anonToken(e));
+		expect(db.spentTokens.size).toBe(1);
+		const [hash, row] = [...db.spentTokens.entries()][0]!;
+		expect(hash).toMatch(/^[0-9a-f]{64}$/);
+		expect(Object.keys(row)).toEqual(['key_id']);
 	});
 });
 

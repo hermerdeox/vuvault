@@ -73,23 +73,16 @@ import {
 	openVaultWithRecoveryEnvelope,
 	rebindRecoveredVault,
 	PROVISION_FORMAT_VERSION,
-	sealDocument,
-	openDocument,
-	sha256Hex,
+	VAULT_PAD_FLOOR_BYTES,
 	CurrentMasterPasswordIncorrect
 } from './vault-session';
-import { attachDocumentFile } from './document-blobs';
 import { setSessionToken, fetchV2Blob } from './sync-client';
+import { createFakeTokenIssuer } from './test-utils/fake-token-issuer';
 import { inventoryVaultBlobId } from './inventory-session';
 import {
 	db,
 	validateAccountRow,
 	validateVaultRow,
-	validateDocumentBlobRow,
-	saveDocumentBlob,
-	getDocumentBlob,
-	deleteDocumentBlob,
-	listDocumentBlobIds,
 	AccountExistsError
 } from '$lib/utils/storage';
 import type { VaultItem } from '$lib/stores/vault.svelte';
@@ -125,14 +118,31 @@ function freshCredentialId(): ArrayBuffer {
  * returns a loud 404 and is still recorded, so a transport leak would
  * surface as a non-v2 URL in `urls`.
  */
-function makeV2RecordingFetch(urls: string[]): typeof fetch {
+type RecordedCall = { method: string; url: string; headers: Record<string, string> };
+
+/**
+ * Let a fire-and-forget push chain settle: token issuance (key GET +
+ * issue POST + 16 VOPRF finalizations), blob PUT, inventory PUT and the
+ * Dexie sync-state write. The mocks resolve immediately, so a bounded
+ * run of macrotask turns is enough.
+ */
+async function settle(): Promise<void> {
+	for (let i = 0; i < 60; i++) await new Promise((r) => setTimeout(r, 0));
+}
+
+function makeV2RecordingFetch(urls: string[], calls: RecordedCall[] = []): typeof fetch {
 	const blobStore = new Map<string, { nonce: string; ciphertext: string }>();
 	const invStore = new Map<string, { nonce: string; ciphertext: string }>();
+	const issuer = createFakeTokenIssuer();
 	let clock = 1;
 	return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
 		urls.push(url);
 		const method = (init?.method ?? 'GET').toUpperCase();
+		const headers = { ...((init?.headers as Record<string, string>) ?? {}) };
+		calls.push({ method, url, headers });
+		const tokenRoute = issuer.handle(url, method, init?.body as string | undefined);
+		if (tokenRoute) return tokenRoute;
 		const body = (): { nonce: string; ciphertext: string } =>
 			JSON.parse(String(init?.body ?? '{}'));
 		const jr = (status: number, data: unknown): Response =>
@@ -141,6 +151,11 @@ function makeV2RecordingFetch(urls: string[]): typeof fetch {
 				headers: { 'content-type': 'application/json' }
 			});
 
+		// The v2 routes are token-only, like the real server: every request
+		// must spend a valid, unspent anonymous token.
+		if (url.includes('/api/v2/') && !issuer.redeem(headers['x-vu0-token'] ?? null)) {
+			return jr(401, 'invalid token');
+		}
 		const blob = url.match(/\/api\/v2\/blobs\/([^/?#]+)$/);
 		if (blob) {
 			const id = blob[1]!;
@@ -159,12 +174,6 @@ function makeV2RecordingFetch(urls: string[]): typeof fetch {
 				blobStore.delete(id);
 				return jr(200, { blobId: id, deletedAt: clock++ });
 			}
-		}
-		const keepalive = url.match(/\/api\/v2\/keepalive$/);
-		if (keepalive && method === 'POST') {
-			const ids = (JSON.parse(String(init?.body ?? '{}')).blobIds ?? []) as string[];
-			const touched = ids.filter((id) => blobStore.has(id)).length;
-			return jr(200, { touched });
 		}
 		const inv = url.match(/\/api\/v2\/inv\/([^/?#]+)$/);
 		if (inv) {
@@ -1047,10 +1056,10 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 		expect(accAfter?.masterPasswordEnabled).toBe(true);
 	});
 
-	// --- Regression: key rotation must NOT orphan attachments or the
-	// Recovery Envelope (critical data-loss audit finding). rotateAuth
-	// rotates the WRAPPING key only; the data key stays live, so
-	// documents and the envelope (both sealed under it) survive. ---
+	// --- Regression: key rotation must NOT orphan the Recovery Envelope
+	// (critical data-loss audit finding). rotateAuth rotates the WRAPPING
+	// key only; the data key stays live, so the envelope (which wraps it
+	// directly) survives. ---
 
 	async function provisionForRotate(): Promise<{ mpk: Uint8Array; prfOutput: Uint8Array }> {
 		const credentialId = freshCredentialId();
@@ -1069,30 +1078,6 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 		mpk.fill(0x7e);
 		return { mpk, prfOutput };
 	}
-
-	it('keeps documents decryptable after a master-password rotation', async () => {
-		const { mpk, prfOutput } = await provisionForRotate();
-		const docPlain = new TextEncoder().encode('passport scan — confidential');
-		const sealed = await sealDocument(docPlain);
-
-		await rotateAuth({
-			prfOutput,
-			secretKey: SECRET_KEY,
-			masterPasswordKey: mpk,
-			masterPasswordSalt: new Uint8Array(16).fill(0x11),
-			masterPasswordParams: { memoryKiB: 1024, iterations: 2, parallelism: 1, tagLength: 32 }
-		});
-
-		// The document — sealed under the data key BEFORE the rotation —
-		// must still open. (Old code minted a fresh data key here and
-		// bricked it.)
-		const opened = await openDocument({
-			blobId: sealed.blobId,
-			nonce: sealed.nonce,
-			ciphertext: sealed.ciphertext
-		});
-		expect(new TextDecoder().decode(opened)).toBe('passport scan — confidential');
-	});
 
 	it('keeps the Recovery Envelope valid after a master-password rotation', async () => {
 		const { mpk, prfOutput } = await provisionForRotate();
@@ -1121,29 +1106,6 @@ describe('vault-session — rotateAuth (Milestone 2 master password)', () => {
 			envelope
 		});
 		expect(Array.isArray(items)).toBe(true);
-	});
-
-	it('keeps documents decryptable across a v2→v3 upgrade-on-save', async () => {
-		await provisionForRotate();
-		const docPlain = new TextEncoder().encode('lease.pdf — confidential');
-		const sealed = await sealDocument(docPlain);
-
-		// Force the upgrade-on-save path with a live data key by marking
-		// the account row as the older format (the exact condition that
-		// used to mint a fresh AES key and orphan the document).
-		const acc = await db.account.get('singleton');
-		await db.account.put({ ...acc!, formatVersion: 2 });
-
-		await saveItems([
-			{ id: 'i1', kind: 'note', title: 'n', noteBody: 'x', createdAt: 1, updatedAt: 1 }
-		]);
-
-		const opened = await openDocument({
-			blobId: sealed.blobId,
-			nonce: sealed.nonce,
-			ciphertext: sealed.ciphertext
-		});
-		expect(new TextDecoder().decode(opened)).toBe('lease.pdf — confidential');
 	});
 
 	it('keeps the Recovery Envelope valid across a v2→v3 upgrade-on-save', async () => {
@@ -1281,17 +1243,18 @@ describe('sync fallback', () => {
 		}
 	});
 
-	it('routes document attach + vault save over v2 only (no legacy per-account routes)', async () => {
-		// Behavioral proof behind the V1-C1/V1-C3 closure that the
-		// shape-only release probe cannot make: drive the production
-		// attach + save path against a recording transport and assert the
-		// client touches ONLY /api/v2/blobs/* and /api/v2/inv/*. The
-		// retired per-account /api/blobs/* and /api/documents/* routes
-		// must never appear.
+	it('routes vault saves over token-authorized v2 only (no session token, no legacy routes)', async () => {
+		// Behavioral proof the shape-only release probe cannot make: drive
+		// the production save path against a recording transport and assert
+		// the client touches ONLY /api/v2/blobs/* and /api/v2/inv/* — each
+		// with an anonymous token and never the session token — plus the
+		// Bearer-authenticated token issuance. The retired per-account
+		// /api/blobs/* and /api/documents/* routes must never appear.
 		mockSyncOrigin = 'https://sync.test.invalid';
 		const originalFetch = globalThis.fetch;
 		const urls: string[] = [];
-		globalThis.fetch = makeV2RecordingFetch(urls);
+		const calls: RecordedCall[] = [];
+		globalThis.fetch = makeV2RecordingFetch(urls, calls);
 		try {
 			const credentialId = freshCredentialId();
 			const deviceSalt = generateDeviceSalt();
@@ -1308,24 +1271,12 @@ describe('sync fallback', () => {
 				prfOutput,
 				deviceSalt
 			});
-			// A live session token makes the document path's sync branch
-			// fire (isSyncWired() && hasSession()).
+			// A live session token makes the push's sync branch fire
+			// (isSyncWired() && hasSession()).
 			setSessionToken('f'.repeat(64));
 
-			// Document attach is fully awaited: deterministically PUTs a
-			// /api/v2/blobs/{uuid} object and records its id in the
-			// /api/v2/inv/{addr} inventory.
-			const fakeFile = {
-				name: 'memo.txt',
-				type: 'text/plain',
-				arrayBuffer: async () => new TextEncoder().encode('secret memo').buffer
-			} as unknown as File;
-			const attached = await attachDocumentFile(fakeFile);
-			expect(attached.remote).toBe(true);
-
-			// Whole-vault save: the push is fire-and-forget, so yield the
-			// macrotask queue enough times for the upload + inventory
-			// persist chain to settle.
+			// Whole-vault save: the push is fire-and-forget, so let the
+			// issuance + upload + inventory chain settle.
 			await saveItems([
 				{
 					id: 'c',
@@ -1336,17 +1287,20 @@ describe('sync fallback', () => {
 					noteBody: 'pushed over v2'
 				}
 			]);
-			for (let i = 0; i < 25; i++) {
-				await new Promise((resolve) => setTimeout(resolve, 0));
-			}
+			await settle();
 
-			// Both v2 surfaces were exercised, and nothing legacy leaked.
-			expect(urls.length).toBeGreaterThan(0);
 			expect(urls.some((u) => u.includes('/api/v2/blobs/'))).toBe(true);
 			expect(urls.some((u) => u.includes('/api/v2/inv/'))).toBe(true);
-			for (const u of urls) {
-				expect(u).not.toContain('/api/blobs/');
-				expect(u).not.toContain('/api/documents/');
+			for (const c of calls) {
+				expect(c.url).not.toContain('/api/blobs/');
+				expect(c.url).not.toContain('/api/documents/');
+				if (c.url.includes('/api/v2/')) {
+					expect(c.headers['x-vu0-token']).toMatch(/^v1\./);
+					expect(c.headers.authorization).toBeUndefined();
+				}
+				if (c.headers.authorization) {
+					expect(c.url).toMatch(/\/api\/v0\/tokens\/issue$/);
+				}
 			}
 		} finally {
 			mockSyncOrigin = '';
@@ -1411,126 +1365,6 @@ describe('storage validators', () => {
 	});
 });
 
-describe('document blob crypto', () => {
-	async function provision(): Promise<void> {
-		const credentialId = freshCredentialId();
-		const deviceSalt = generateDeviceSalt();
-		const prfOutput = (await evaluatePRF({
-			credentialId,
-			salt: deviceSalt
-		})) as Uint8Array;
-		await provisionVault({
-			deviceLabel: 'doc-test',
-			secretKey: SECRET_KEY,
-			credentialId,
-			credentialPublicKey: new ArrayBuffer(0),
-			authMode: 'production',
-			prfOutput,
-			deviceSalt
-		});
-	}
-
-	it('seals and opens a document round-trip', async () => {
-		await provision();
-		const plaintext = new TextEncoder().encode('lease contents — confidential');
-		const sealed = await sealDocument(plaintext);
-		expect(sealed.size).toBe(plaintext.length);
-		expect(sealed.sha256Hex).toHaveLength(64);
-		expect(sealed.ciphertext.length).toBeGreaterThan(plaintext.length);
-		const opened = await openDocument({
-			blobId: sealed.blobId,
-			nonce: sealed.nonce,
-			ciphertext: sealed.ciphertext
-		});
-		expect(new TextDecoder().decode(opened)).toBe(
-			'lease contents — confidential'
-		);
-		expect(sha256Hex(opened)).toBe(sealed.sha256Hex);
-	});
-
-	it('rejects an opened blob with a different blobId (AAD swap)', async () => {
-		await provision();
-		const sealed = await sealDocument(new Uint8Array([1, 2, 3, 4, 5]));
-		await expect(
-			openDocument({
-				blobId: '00000000-0000-0000-0000-000000000000',
-				nonce: sealed.nonce,
-				ciphertext: sealed.ciphertext
-			})
-		).rejects.toThrow();
-	});
-
-	it('rejects tampered ciphertext', async () => {
-		await provision();
-		const sealed = await sealDocument(new Uint8Array([9, 9, 9, 9]));
-		const tampered = new Uint8Array(sealed.ciphertext);
-		tampered[0] = tampered[0]! ^ 0xff;
-		await expect(
-			openDocument({
-				blobId: sealed.blobId,
-				nonce: sealed.nonce,
-				ciphertext: tampered
-			})
-		).rejects.toThrow();
-	});
-
-	it('refuses to seal when the vault is locked', async () => {
-		lockSession();
-		await expect(sealDocument(new Uint8Array(1))).rejects.toThrow(
-			/vault must be unlocked/
-		);
-	});
-
-	it('persists, validates, and clears document blob rows', async () => {
-		await provision();
-		const sealed = await sealDocument(new Uint8Array([1, 2, 3]));
-		await saveDocumentBlob({
-			id: sealed.blobId,
-			nonce: sealed.nonce,
-			ciphertext: sealed.ciphertext,
-			size: sealed.size,
-			sha256: sealed.sha256Hex,
-			createdAt: Date.now()
-		});
-		const got = await getDocumentBlob(sealed.blobId);
-		expect(got).toBeDefined();
-		expect(got?.id).toBe(sealed.blobId);
-		const ids = await listDocumentBlobIds();
-		expect(ids).toContain(sealed.blobId);
-		await deleteDocumentBlob(sealed.blobId);
-		expect(await getDocumentBlob(sealed.blobId)).toBeUndefined();
-	});
-
-	it('document blob row validator rejects malformed rows', () => {
-		expect(() =>
-			validateDocumentBlobRow({
-				id: 'x',
-				nonce: new Uint8Array(8),
-				ciphertext: new Uint8Array(2),
-				size: 2,
-				sha256: 'ZZ',
-				createdAt: 1
-			})
-		).toThrow(/nonce must be 12 bytes/);
-	});
-});
-
-// -----------------------------------------------------------------------------
-// Destructive-sync regressions (HIGH audit finding #3)
-// -----------------------------------------------------------------------------
-//
-// Two-"device" simulations against ONE shared in-memory v2 server
-// (makeV2RecordingFetch keeps its blob + inventory stores across calls
-// within a test). They lock down the three data-loss paths:
-//
-//   1. unlock-pull was gated on `v === 2`, but every vault is v3, so a
-//      returning device never adopted newer synced state.
-//   2. syncNow pushed the local vault BEFORE pulling, letting a stale
-//      device overwrite — and DELETE (via the superseded-blob cleanup) —
-//      a newer remote vault.
-//   3. live blob references must be re-asserted on sync so the GC can't
-//      reap a current blob the client didn't re-upload this cycle.
-
 describe('vault-session — destructive-sync regressions (finding #3)', () => {
 	const REAL_TOKEN = 'a'.repeat(64);
 
@@ -1550,12 +1384,6 @@ describe('vault-session — destructive-sync regressions (finding #3)', () => {
 		updatedAt: 2,
 		noteBody: 'bravo'
 	};
-
-	// saveItems pushes fire-and-forget; drain the queued upload chain
-	// (PUT blob → PUT inv → DELETE prev) so the shared server settles.
-	async function flush(): Promise<void> {
-		for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
-	}
 
 	async function provisionAndLogin(): Promise<void> {
 		const credentialId = freshCredentialId();
@@ -1581,68 +1409,77 @@ describe('vault-session — destructive-sync regressions (finding #3)', () => {
 		mockSyncOrigin = '';
 	});
 
-	it('unlock-pull adopts a newer remote vault for a v3 vault (gate was dead at v===2)', async () => {
+	it('unlock never overwrites a newer local vault whose push failed (and never reads the server)', async () => {
+		// The old unlock-pull compared the server's save counter with an
+		// in-memory one that restarted at 0, so after an offline save it
+		// "adopted" the older server copy over the newer local vault.
 		const originalFetch = globalThis.fetch;
-		globalThis.fetch = makeV2RecordingFetch([]);
+		const calls: RecordedCall[] = [];
+		const recording = makeV2RecordingFetch([], calls);
+		globalThis.fetch = recording;
 		try {
 			await provisionAndLogin();
-			expect(currentFormatVersion()).toBe(PROVISION_FORMAT_VERSION);
-			expect(PROVISION_FORMAT_VERSION).toBeGreaterThanOrEqual(3);
+			await saveItems([itemA]); // server: [A]
+			await settle();
 
-			await saveItems([itemA]);
-			await flush();
-			const staleVaultRow = await db.vault.get('singleton'); // [A]
-			await saveItems([itemA, itemB]); // server advances to [A, B]
-			await flush();
+			// Go offline for the second save: the local row gets [A, B],
+			// the push fails, the server keeps [A].
+			globalThis.fetch = vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: false, error: 'unavailable' }), {
+						status: 503,
+						headers: { 'content-type': 'application/json' }
+					})
+			) as unknown as typeof fetch;
+			await saveItems([itemA, itemB]);
+			await settle();
 
-			// Make this device stale: restore its local row to the [A]
-			// snapshot, as if it never persisted [A, B] locally.
-			await db.vault.put(staleVaultRow!);
-
-			// Re-unlock. The v>=2 fix fires the unlock-pull on the v3 vault,
-			// sees the newer server vault, and adopts [A, B]. (lockSession
-			// drops the sync token, so re-assert it as a real OPAQUE unlock
-			// would before opening.)
+			globalThis.fetch = recording;
 			lockSession();
 			setSessionToken(REAL_TOKEN);
+			calls.length = 0;
 			const opened = await openVault({ secretKey: SECRET_KEY });
 			expect(opened.map((i) => i.title).sort()).toEqual(['A', 'B']);
+			// Unlock issued no v2 reads at all.
+			expect(calls.filter((c) => c.url.includes('/api/v2/') && c.method === 'GET')).toEqual([]);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
 	});
 
-	it('stale syncNow promotes the newer remote instead of clobbering and deleting it', async () => {
+	it('manual syncNow promotes a newer remote save instead of clobbering it', async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = makeV2RecordingFetch([]);
 		try {
 			await provisionAndLogin();
 			await saveItems([itemA]); // server: blob1 [A], index 1
-			await flush();
+			await settle();
 			const staleVaultRow = await db.vault.get('singleton');
+			const staleAccountRow = await db.account.get('singleton');
+			expect(staleAccountRow?.inventoryIndex).toBe(1);
 			await saveItems([itemA, itemB]); // server: blob2 [A, B], index 2
-			await flush();
+			await settle();
 			const newerBlobId = inventoryVaultBlobId()!; // blob2
 			expect(newerBlobId).toBeTruthy();
 
-			// Force this device stale: restore local vault to [A] and rebuild
-			// a fresh, un-pulled session (token off so openVault skips its
-			// pull — we want syncNow itself to perform the reconcile).
+			// Roll this device back to its post-first-save state (vault [A],
+			// index 1), as if another holder of the keys made the second save.
 			await db.vault.put(staleVaultRow!);
+			await db.account.put(staleAccountRow!);
 			lockSession();
-			setSessionToken(null);
-			await openVault({ secretKey: SECRET_KEY }); // local [A]; no pull
 			setSessionToken(REAL_TOKEN);
+			await openVault({ secretKey: SECRET_KEY }); // local [A]; unlock never pulls
 
-			// Manual sync. Pull-before-push must ADOPT the newer [A, B] and
-			// must NOT push [A] over it or delete blob2.
+			// Manual sync probes forward from index 1, finds index 2, and must
+			// ADOPT [A, B] rather than push [A] over it.
 			const result = await syncNow();
 			expect(result.status).toBe('promoted');
 			if (result.status === 'promoted') {
 				expect(result.items.map((i) => i.title).sort()).toEqual(['A', 'B']);
 			}
+			expect((await db.account.get('singleton'))?.inventoryIndex).toBe(2);
 
-			// The newer remote blob survives — never destroyed by a stale push.
+			// The newer remote blob survives.
 			const stillThere = await fetchV2Blob(newerBlobId);
 			expect(stillThere.ok).toBe(true);
 		} finally {
@@ -1651,24 +1488,99 @@ describe('vault-session — destructive-sync regressions (finding #3)', () => {
 		}
 	});
 
-	it('re-asserts live blob references via a keep-alive on every sync', async () => {
-		const urls: string[] = [];
+	it('never deletes or keep-alives superseded objects, and never reuses an inventory address', async () => {
+		// A delete or keep-alive next to the write that supersedes it
+		// would tie the old object to the new one in a single session.
+		const calls: RecordedCall[] = [];
 		const originalFetch = globalThis.fetch;
-		globalThis.fetch = makeV2RecordingFetch(urls);
+		globalThis.fetch = makeV2RecordingFetch([], calls);
 		try {
 			await provisionAndLogin();
 			await saveItems([itemA]);
-			await flush();
-
-			urls.length = 0; // focus on the sync below
+			await settle();
+			await saveItems([itemA, itemB]);
+			await settle();
 			const result = await syncNow();
 			expect(['promoted', 'local-newer']).toContain(result.status);
+			await settle();
 
-			// The sync issued a keep-alive POST naming the live vault blob,
-			// so the GC sees a fresh last_seen_at even with no re-upload.
-			expect(urls.some((u) => /\/api\/v2\/keepalive$/.test(u))).toBe(true);
+			expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+			expect(calls.some((c) => /keepalive/.test(c.url))).toBe(false);
+			const invPuts = calls
+				.filter((c) => c.method === 'PUT' && c.url.includes('/api/v2/inv/'))
+				.map((c) => c.url);
+			expect(invPuts.length).toBe(3);
+			expect(new Set(invPuts).size).toBe(invPuts.length);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
+	});
+
+	it('unlock refreshes a server copy that is about to age out, as a fresh save', async () => {
+		const calls: RecordedCall[] = [];
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = makeV2RecordingFetch([], calls);
+		try {
+			await provisionAndLogin();
+			await saveItems([itemA]);
+			await settle();
+			// Pretend the last push was long ago.
+			const acc = await db.account.get('singleton');
+			await db.account.put({ ...acc!, inventoryPushedAt: 1 });
+
+			lockSession();
+			setSessionToken(REAL_TOKEN);
+			calls.length = 0;
+			await openVault({ secretKey: SECRET_KEY });
+			await settle();
+
+			const puts = calls.filter((c) => c.method === 'PUT').map((c) => c.url);
+			expect(puts.some((u) => u.includes('/api/v2/blobs/'))).toBe(true);
+			expect(puts.some((u) => u.includes('/api/v2/inv/'))).toBe(true);
+			const after = await db.account.get('singleton');
+			expect(after?.inventoryIndex).toBe(2);
+			expect(after!.inventoryPushedAt!).toBeGreaterThan(1);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+describe('vault-session — fixed-size vault padding (V0-C2)', () => {
+	it('seals vaults of very different sizes under the floor to identical ciphertext lengths', async () => {
+		const credentialId = freshCredentialId();
+		const deviceSalt = generateDeviceSalt();
+		const prfOutput = (await evaluatePRF({ credentialId, salt: deviceSalt })) as Uint8Array;
+		await provisionVault({
+			deviceLabel: 'padding',
+			secretKey: SECRET_KEY,
+			credentialId,
+			credentialPublicKey: new ArrayBuffer(0),
+			authMode: 'production',
+			prfOutput,
+			deviceSalt
+		});
+		const sizes: number[] = [];
+		sizes.push((await db.vault.get('singleton'))!.ciphertext.length); // empty vault
+		await saveItems([
+			{ id: 'n1', kind: 'note', title: 't', noteBody: 'x', createdAt: 1, updatedAt: 1 }
+		]);
+		sizes.push((await db.vault.get('singleton'))!.ciphertext.length);
+		const many: VaultItem[] = Array.from({ length: 80 }, (_, i) => ({
+			id: `l${i}`,
+			kind: 'login' as const,
+			title: `Account ${i}`,
+			username: `user${i}@example.com`,
+			password: 'correct-horse-battery-staple-' + i,
+			url: `https://site${i}.example.com/login`,
+			createdAt: i,
+			updatedAt: i
+		}));
+		await saveItems(many);
+		sizes.push((await db.vault.get('singleton'))!.ciphertext.length);
+
+		// AES-GCM adds a 16-byte tag to the padded plaintext.
+		expect(new Set(sizes)).toEqual(new Set([VAULT_PAD_FLOOR_BYTES + 16]));
+		lockSession();
 	});
 });

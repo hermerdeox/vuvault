@@ -67,10 +67,31 @@ const LENGTH_PREFIX_BYTES = 4;
  * tight: 14 buckets covers MIN_BUCKET through 2 MiB).
  */
 export function bucketSize(plaintextLength: number): number {
+	return bucketSizeWithFloor(plaintextLength, MIN_BUCKET_BYTES);
+}
+
+/**
+ * `bucketSize` with a caller-chosen floor: the next power of two ≥
+ * max(length + 4, minBucket). Separate from `bucketSize` (rather than an
+ * optional second parameter) so `sizes.map(bucketSize)` can never pass
+ * an array index in as the floor.
+ */
+export function bucketSizeWithFloor(plaintextLength: number, minBucket: number): number {
 	if (!Number.isInteger(plaintextLength) || plaintextLength < 0) {
 		throw new Error('bucketSize: plaintextLength must be a non-negative integer');
 	}
-	const target = Math.max(plaintextLength + LENGTH_PREFIX_BYTES, MIN_BUCKET_BYTES);
+	// The floor must itself be a valid bucket so `unpadPlaintext` (which
+	// only accepts powers of two ≥ MIN_BUCKET_BYTES) can open the result
+	// without knowing which floor the sealer used.
+	if (
+		!Number.isInteger(minBucket) ||
+		minBucket < MIN_BUCKET_BYTES ||
+		minBucket > MAX_BUCKET_BYTES ||
+		(minBucket & (minBucket - 1)) !== 0
+	) {
+		throw new Error('bucketSize: minBucket must be a power of two ≥ MIN_BUCKET_BYTES');
+	}
+	const target = Math.max(plaintextLength + LENGTH_PREFIX_BYTES, minBucket);
 	if (target > MAX_BUCKET_BYTES) {
 		throw new Error(
 			`bucketSize: target ${target} exceeds MAX_BUCKET_BYTES ${MAX_BUCKET_BYTES}`
@@ -78,7 +99,7 @@ export function bucketSize(plaintextLength: number): number {
 	}
 	// Next power of two ≥ target. JavaScript numbers are double-
 	// precision so bit shifts are safe up to 2^53.
-	let size = MIN_BUCKET_BYTES;
+	let size = minBucket;
 	while (size < target) size *= 2;
 	return size;
 }
@@ -93,11 +114,14 @@ export function bucketSize(plaintextLength: number): number {
  * receiver passes the unsealed output through `unpadPlaintext` to
  * recover the original payload.
  */
-export function padPlaintext(plaintext: Uint8Array): Uint8Array {
+export function padPlaintext(
+	plaintext: Uint8Array,
+	opts: { minBucket?: number } = {}
+): Uint8Array {
 	if (plaintext.length > MAX_BUCKET_BYTES - LENGTH_PREFIX_BYTES) {
 		throw new Error('padPlaintext: plaintext exceeds maximum bucket size');
 	}
-	const size = bucketSize(plaintext.length);
+	const size = bucketSizeWithFloor(plaintext.length, opts.minBucket ?? MIN_BUCKET_BYTES);
 	const out = new Uint8Array(size);
 	const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
 	view.setUint32(0, plaintext.length, false); // big-endian

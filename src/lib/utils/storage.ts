@@ -81,6 +81,18 @@ export interface AccountRecord {
 	 * `saveItems` after a Phase C-or-later build is installed.
 	 */
 	accountSeed?: Uint8Array;
+
+	/**
+	 * V0-C1 inventory rotation — the save index of the newest server
+	 * inventory this device wrote or adopted. Every save writes its
+	 * inventory to a fresh address derived from (vaultKey, deviceSalt,
+	 * index), so the device must remember where it is instead of
+	 * re-reading a fixed address on every unlock. Reset (absent) when
+	 * the vaultKey changes, because the address chain derives from it.
+	 */
+	inventoryIndex?: number;
+	/** Wall-clock ms of the last successful server push; drives stale refresh. */
+	inventoryPushedAt?: number;
 }
 
 export interface VaultBlob {
@@ -121,35 +133,12 @@ export interface AuditPersisted {
 	contextJson?: string;
 }
 
-/**
- * Encrypted document file blob row. Stored separately from the
- * whole-vault blob so a single multi-megabyte document does not
- * force re-encryption of every other item on each persist. The
- * server (when sync is wired) sees only `ciphertext` + the routing
- * `id`. AES-GCM happens client-side in `vault-session.ts` using the
- * active session AES key with a document-specific AAD domain.
- */
-export interface DocumentBlobRecord {
-	/** UUID v4 — referenced by `DocumentItem.docBlobId`. */
-	id: string;
-	/** 12-byte AES-GCM nonce, generated at seal time. */
-	nonce: Uint8Array;
-	/** Encrypted file bytes. AAD-bound to the active vault session. */
-	ciphertext: Uint8Array;
-	/** Plaintext byte length at the time of upload (informational). */
-	size: number;
-	/** Lowercase hex SHA-256 of the plaintext (integrity display). */
-	sha256: string;
-	createdAt: number;
-}
-
 class VuVaultDB extends Dexie {
 	account!: Table<AccountRecord, 'singleton'>;
 	vault!: Table<VaultBlob, 'singleton'>;
 	quickUnlock!: Table<QuickUnlockRecord, 'singleton'>;
 	recoveryEnvelope!: Table<RecoveryEnvelopeRecord, 'singleton'>;
 	audit!: Table<AuditPersisted, string>;
-	documentBlobs!: Table<DocumentBlobRecord, string>;
 
 	constructor() {
 		super('vuvault');
@@ -210,6 +199,17 @@ class VuVaultDB extends Dexie {
 			recoveryEnvelope: 'id, enabled, createdAt, rotatedAt',
 			audit: 'id, at',
 			documentBlobs: 'id, createdAt'
+		});
+		// v6 — file attachments removed. `null` tells Dexie to delete the
+		// `documentBlobs` table (and every encrypted file in it) on upgrade.
+		// Document items remain as text-only records inside the vault blob.
+		this.version(6).stores({
+			account: 'id',
+			vault: 'id, updatedAt',
+			quickUnlock: 'id, enabled, lastUsedAt',
+			recoveryEnvelope: 'id, enabled, createdAt, rotatedAt',
+			audit: 'id, at',
+			documentBlobs: null
 		});
 	}
 }
@@ -329,6 +329,20 @@ export function validateAccountRow(rec: unknown): asserts rec is AccountRecord {
 		if (!isUint8Array(r.accountSeed) || r.accountSeed.length !== 32) {
 			throw new Error('Account.accountSeed must be a 32-byte Uint8Array');
 		}
+	}
+
+	// --- V0-C1 inventory rotation optional fields ---
+	if (
+		r.inventoryIndex !== undefined &&
+		(!Number.isSafeInteger(r.inventoryIndex) || (r.inventoryIndex as number) < 0)
+	) {
+		throw new Error('Account.inventoryIndex must be a non-negative integer');
+	}
+	if (
+		r.inventoryPushedAt !== undefined &&
+		(typeof r.inventoryPushedAt !== 'number' || r.inventoryPushedAt <= 0)
+	) {
+		throw new Error('Account.inventoryPushedAt must be a positive timestamp');
 	}
 }
 
@@ -569,78 +583,37 @@ export async function saveAccountAndVault(
 	});
 }
 
+/**
+ * Record server-sync progress on the account row without rewriting the
+ * rest of it. `inventoryIndex` only ever moves forward: two pushes that
+ * complete out of order must not rewind the device to an address it has
+ * already used (re-writing an address would link the two sessions).
+ */
+export async function updateAccountSyncState(update: {
+	inventoryIndex: number;
+	inventoryPushedAt?: number;
+}): Promise<void> {
+	await db.account
+		.where('id')
+		.equals('singleton')
+		.modify((rec) => {
+			rec.inventoryIndex = Math.max(rec.inventoryIndex ?? 0, update.inventoryIndex);
+			if (update.inventoryPushedAt !== undefined) {
+				rec.inventoryPushedAt = update.inventoryPushedAt;
+			}
+		});
+}
+
 export async function clearAll(): Promise<void> {
 	await db.transaction(
 		'rw',
-		[
-			db.account,
-			db.vault,
-			db.quickUnlock,
-			db.recoveryEnvelope,
-			db.audit,
-			db.documentBlobs
-		],
+		[db.account, db.vault, db.quickUnlock, db.recoveryEnvelope, db.audit],
 		async () => {
 			await db.account.clear();
 			await db.vault.clear();
 			await db.quickUnlock.clear();
 			await db.recoveryEnvelope.clear();
 			await db.audit.clear();
-			await db.documentBlobs.clear();
 		}
 	);
-}
-
-// --- Document blob helpers ---------------------------------------------------
-
-/**
- * Strict validator for a document blob row. Throws on anything
- * malformed; never returns a partially populated record.
- */
-export function validateDocumentBlobRow(rec: unknown): asserts rec is DocumentBlobRecord {
-	if (!rec || typeof rec !== 'object') {
-		throw new Error('Document blob row is not an object');
-	}
-	const r = rec as Record<string, unknown>;
-	if (typeof r.id !== 'string' || !r.id) {
-		throw new Error('DocumentBlob.id must be a non-empty string');
-	}
-	if (!isUint8Array(r.nonce) || r.nonce.length !== AES_NONCE_LEN) {
-		throw new Error(`DocumentBlob.nonce must be ${AES_NONCE_LEN} bytes`);
-	}
-	if (!isUint8Array(r.ciphertext) || r.ciphertext.length === 0) {
-		throw new Error('DocumentBlob.ciphertext must be a non-empty Uint8Array');
-	}
-	if (typeof r.size !== 'number' || r.size < 0) {
-		throw new Error('DocumentBlob.size must be a non-negative number');
-	}
-	if (typeof r.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(r.sha256)) {
-		throw new Error('DocumentBlob.sha256 must be a lowercase hex SHA-256');
-	}
-	if (typeof r.createdAt !== 'number' || r.createdAt <= 0) {
-		throw new Error('DocumentBlob.createdAt must be a positive timestamp');
-	}
-}
-
-export async function getDocumentBlob(
-	id: string
-): Promise<DocumentBlobRecord | undefined> {
-	const row = await db.documentBlobs.get(id);
-	if (!row) return undefined;
-	validateDocumentBlobRow(row);
-	return row;
-}
-
-export async function saveDocumentBlob(rec: DocumentBlobRecord): Promise<void> {
-	validateDocumentBlobRow(rec);
-	await db.documentBlobs.put(rec);
-}
-
-export async function deleteDocumentBlob(id: string): Promise<void> {
-	await db.documentBlobs.delete(id);
-}
-
-export async function listDocumentBlobIds(): Promise<string[]> {
-	const rows = await db.documentBlobs.toCollection().primaryKeys();
-	return rows as string[];
 }

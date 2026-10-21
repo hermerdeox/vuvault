@@ -33,6 +33,7 @@ import type {
 	SyncCapabilities
 } from '$lib/types/sync';
 import { getSyncOrigin, isSyncOriginConfigured } from '$lib/utils/env';
+import { blind as voprfBlind, finalize as voprfFinalize } from '$lib/crypto/voprf';
 
 export type SyncResult<T> =
 	| { ok: true; value: T }
@@ -101,10 +102,6 @@ function isOpaqueLoginResult(value: unknown): value is OpaqueLoginResult {
 	);
 }
 
-function isV2DeleteResponse(value: unknown): value is { blobId: string; deletedAt: number } {
-	return isRecord(value) && hasString(value, 'blobId') && hasNumber(value, 'deletedAt');
-}
-
 /**
  * Session bearer token issued by the Worker on successful KE3.
  *
@@ -125,6 +122,7 @@ let sessionToken: string | null = null;
 
 export function setSessionToken(token: string | null): void {
 	sessionToken = token;
+	if (token === null) clearAnonTokens();
 }
 
 export function hasSession(): boolean {
@@ -135,10 +133,19 @@ function origin(): string {
 	return getSyncOrigin();
 }
 
+/**
+ * Which credential a request carries. `bearer` (the default) attaches
+ * the session token; `none` attaches nothing — used for the public token
+ * key and for the v2 blob / inventory routes, which carry an anonymous
+ * token in their own header instead (see `tokenCall`).
+ */
+type CallAuth = 'bearer' | 'none';
+
 async function call<T>(
 	path: string,
 	init: RequestInit,
-	expectedShape?: (data: unknown) => data is T
+	expectedShape?: (data: unknown) => data is T,
+	auth: CallAuth = 'bearer'
 ): Promise<SyncResult<T>> {
 	if (!isSyncOriginConfigured()) {
 		return NOT_WIRED;
@@ -154,7 +161,9 @@ async function call<T>(
 			cache: 'no-store',
 			headers: {
 				'content-type': 'application/json',
-				...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
+				...(auth === 'bearer' && sessionToken
+					? { authorization: `Bearer ${sessionToken}` }
+					: {}),
 				...(init.headers ?? {})
 			}
 		});
@@ -177,10 +186,11 @@ async function call<T>(
 	// the existing token than break authentication on a malformed
 	// header.
 	//
-	// Rotation runs only for routes that opt in (today: /api/v2/*).
-	// v1 routes still operate against a single durable token.
+	// Rotation runs only for Bearer calls to routes that opt in (today:
+	// /api/v2/sessions/self). The token-only v2 blob / inventory routes
+	// never see the session token, so they never rotate it.
 	const nextToken = res.headers.get('next-token');
-	if (nextToken && /^[0-9a-fA-F]{64}$/.test(nextToken) && sessionToken) {
+	if (auth === 'bearer' && nextToken && /^[0-9a-fA-F]{64}$/.test(nextToken) && sessionToken) {
 		sessionToken = nextToken;
 	}
 
@@ -337,6 +347,194 @@ export function isSyncWired(): boolean {
 }
 
 // ---------------------------------------------------------------------
+// V0-C1 — anonymous request tokens.
+//
+// The v2 blob and inventory routes never see the session token. Each
+// request instead spends one single-use token from a pool minted by a
+// blind VOPRF issuance (`POST /api/v0/tokens/issue`, Bearer-
+// authenticated): the server signs blinded inputs it cannot recognize
+// later, so a redeemed token tells it nothing about which account it
+// came from. Server half: src/lib/server/api/anon-tokens.ts.
+//
+// The pool lives in module memory only (like `sessionToken`) and is
+// dropped whenever the session token is cleared. `prefetchAnonTokens`
+// fills it at unlock and `takeToken` tops it up in the background when
+// it runs low, so issuance is not back-to-back with the requests that
+// spend the tokens.
+// ---------------------------------------------------------------------
+
+const TOKEN_BATCH = 16;
+const TOKEN_LOW_WATER = 4;
+const TOKEN_INPUT_LEN = 32;
+const TOKEN_HEADER = 'x-vu0-token';
+
+let tokenPool: string[] = [];
+let tokenRefill: Promise<boolean> | null = null;
+/** Bumped on every clear so an in-flight issuance cannot refill a locked pool. */
+let tokenGeneration = 0;
+/** Key the public endpoint served for the current window; issuance must match it. */
+let pinnedTokenKey: { keyId: number; publicKey: string } | null = null;
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let bin = '';
+	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+	return btoa(bin);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+	const bin = atob(b64);
+	const out = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+	return out;
+}
+
+function isTokenKey(value: unknown): value is { keyId: number; publicKey: string } {
+	return isRecord(value) && hasNumber(value, 'keyId') && hasString(value, 'publicKey');
+}
+
+function isTokenIssue(value: unknown): value is {
+	keyId: number;
+	publicKey: string;
+	evaluated: string[];
+	proofs: string[];
+} {
+	return (
+		isTokenKey(value) &&
+		Array.isArray((value as Record<string, unknown>).evaluated) &&
+		Array.isArray((value as Record<string, unknown>).proofs) &&
+		((value as Record<string, unknown>).evaluated as unknown[]).every(isString) &&
+		((value as Record<string, unknown>).proofs as unknown[]).every(isString)
+	);
+}
+
+function clearAnonTokens(): void {
+	tokenPool = [];
+	pinnedTokenKey = null;
+	tokenGeneration++;
+}
+
+async function pinTokenKey(): Promise<{ keyId: number; publicKey: string } | null> {
+	const res = await call('/api/v0/tokens/key', { method: 'GET' }, isTokenKey, 'none');
+	if (!res.ok) return null;
+	pinnedTokenKey = res.value;
+	return res.value;
+}
+
+/**
+ * Mint one batch. Refuses the whole batch if the issuing key differs from
+ * the publicly served one (the server could otherwise tag this client
+ * with a key of its own) or if any DLEQ proof fails.
+ */
+async function issueTokenBatch(): Promise<boolean> {
+	if (!sessionToken) return false;
+	const generation = tokenGeneration;
+	const inputs: Uint8Array[] = [];
+	const blinds: Uint8Array[] = [];
+	const blinded: string[] = [];
+	for (let i = 0; i < TOKEN_BATCH; i++) {
+		const input = crypto.getRandomValues(new Uint8Array(TOKEN_INPUT_LEN));
+		const b = voprfBlind(input);
+		inputs.push(input);
+		blinds.push(b.blind);
+		blinded.push(bytesToBase64(b.blindedElement));
+	}
+	const issued = await call(
+		'/api/v0/tokens/issue',
+		{ method: 'POST', body: JSON.stringify({ blinded }) },
+		isTokenIssue
+	);
+	if (
+		!issued.ok ||
+		issued.value.evaluated.length !== TOKEN_BATCH ||
+		issued.value.proofs.length !== TOKEN_BATCH
+	) {
+		return false;
+	}
+	let pinned = pinnedTokenKey;
+	if (!pinned || pinned.keyId !== issued.value.keyId) pinned = await pinTokenKey();
+	if (
+		!pinned ||
+		pinned.keyId !== issued.value.keyId ||
+		pinned.publicKey !== issued.value.publicKey
+	) {
+		return false;
+	}
+	const publicKey = base64ToBytes(pinned.publicKey);
+	const minted: string[] = [];
+	for (let i = 0; i < TOKEN_BATCH; i++) {
+		const output = voprfFinalize(
+			inputs[i]!,
+			blinds[i]!,
+			base64ToBytes(issued.value.evaluated[i]!),
+			base64ToBytes(issued.value.proofs[i]!),
+			publicKey
+		);
+		if (!output) return false;
+		minted.push(
+			`v1.${issued.value.keyId}.${bytesToBase64(inputs[i]!)}.${bytesToBase64(output)}`
+		);
+	}
+	if (generation !== tokenGeneration) return false;
+	tokenPool.push(...minted);
+	return true;
+}
+
+function refillTokens(): Promise<boolean> {
+	if (!tokenRefill) {
+		tokenRefill = issueTokenBatch()
+			.catch(() => false)
+			.finally(() => {
+				tokenRefill = null;
+			});
+	}
+	return tokenRefill;
+}
+
+async function takeToken(): Promise<string | null> {
+	if (tokenPool.length === 0) await refillTokens();
+	const token = tokenPool.shift() ?? null;
+	if (tokenPool.length < TOKEN_LOW_WATER) void refillTokens();
+	return token;
+}
+
+/** Warm the token pool (call once a session token exists, e.g. at unlock). */
+export function prefetchAnonTokens(): void {
+	if (isSyncOriginConfigured() && sessionToken && tokenPool.length < TOKEN_LOW_WATER) {
+		void refillTokens();
+	}
+}
+
+/**
+ * `call` for the token-only v2 routes: attaches one anonymous token and
+ * no session token. A token from a key window that has since closed is
+ * refused with 'invalid token'; drop the stale pool once and retry.
+ */
+async function tokenCall<T>(
+	path: string,
+	init: RequestInit,
+	expectedShape: (data: unknown) => data is T
+): Promise<SyncResult<T>> {
+	if (!isSyncOriginConfigured()) return NOT_WIRED;
+	for (let attempt = 0; ; attempt++) {
+		const token = await takeToken();
+		if (!token) {
+			return { ok: false, reason: 'server', message: 'no anonymous token available' };
+		}
+		const result = await call(
+			path,
+			{ ...init, headers: { ...(init.headers ?? {}), [TOKEN_HEADER]: token } },
+			expectedShape,
+			'none'
+		);
+		if (attempt === 0 && !result.ok && result.message === 'invalid token') {
+			tokenPool = [];
+			continue;
+		}
+		return result;
+	}
+}
+
+// ---------------------------------------------------------------------
 // §L07b — V2 blob + inventory client helpers (the only blob transport).
 //
 // The legacy per-account routes (`/api/blobs/*`, `/api/documents/*`)
@@ -347,9 +545,8 @@ export function isSyncWired(): boolean {
 // writers/readers of the blob surface.
 //
 // The privacy invariant: v2 endpoints carry no account binding in
-// the URL, the body, or the response. The server's rate-limit key
-// is derived from the session token (hashed) so even the rate-limit
-// table cannot reveal account identity from request logs.
+// the URL, the body, the response, or the credential — each request
+// spends an anonymous token (`tokenCall`), never the session token.
 // ---------------------------------------------------------------------
 
 type V2BlobUpload = {
@@ -408,7 +605,7 @@ function isV2InvResponse(
 export async function uploadV2Blob(
 	req: V2BlobUpload
 ): Promise<SyncResult<{ blobId: string; updatedAt: number }>> {
-	return call<{ blobId: string; updatedAt: number }>(
+	return tokenCall<{ blobId: string; updatedAt: number }>(
 		`/api/v2/blobs/${encodeURIComponent(req.blobId)}`,
 		{
 			method: 'PUT',
@@ -419,20 +616,10 @@ export async function uploadV2Blob(
 }
 
 export async function fetchV2Blob(blobId: string): Promise<SyncResult<V2BlobResponse>> {
-	return call<V2BlobResponse>(
+	return tokenCall<V2BlobResponse>(
 		`/api/v2/blobs/${encodeURIComponent(blobId)}`,
 		{ method: 'GET' },
 		isV2BlobResponse
-	);
-}
-
-export async function deleteV2Blob(
-	blobId: string
-): Promise<SyncResult<{ blobId: string; deletedAt: number }>> {
-	return call<{ blobId: string; deletedAt: number }>(
-		`/api/v2/blobs/${encodeURIComponent(blobId)}`,
-		{ method: 'DELETE' },
-		isV2DeleteResponse
 	);
 }
 
@@ -441,7 +628,7 @@ export async function uploadV2Inventory(req: {
 	nonce: string;
 	ciphertext: string;
 }): Promise<SyncResult<{ addr: string; updatedAt: number }>> {
-	return call<{ addr: string; updatedAt: number }>(
+	return tokenCall<{ addr: string; updatedAt: number }>(
 		`/api/v2/inv/${encodeURIComponent(req.addr)}`,
 		{
 			method: 'PUT',
@@ -454,33 +641,9 @@ export async function uploadV2Inventory(req: {
 export async function fetchV2Inventory(
 	addr: string
 ): Promise<SyncResult<{ addr: string; nonce: string; ciphertext: string; updatedAt: number }>> {
-	return call<{ addr: string; nonce: string; ciphertext: string; updatedAt: number }>(
+	return tokenCall<{ addr: string; nonce: string; ciphertext: string; updatedAt: number }>(
 		`/api/v2/inv/${encodeURIComponent(addr)}`,
 		{ method: 'GET' },
 		isV2InvResponse
-	);
-}
-
-function isKeepAliveResponse(value: unknown): value is { touched: number } {
-	return isRecord(value) && hasNumber(value, 'touched');
-}
-
-/**
- * Re-assert a batch of live blob references so the server-side GC does
- * not reap blobs that are still current but were not re-uploaded or
- * re-downloaded this cycle (notably document blobs, which are only
- * fetched on open). The server refreshes `last_seen_at` for each
- * matching reference WITHOUT transferring the blob bytes — a cheap
- * heartbeat. No account binding crosses the wire; the IDs are the same
- * account-free UUIDs already grouped under this session token, so this
- * stays within the V1-C1/V1-C3 model. Best-effort at the call site.
- */
-export async function keepAliveV2(
-	blobIds: string[]
-): Promise<SyncResult<{ touched: number }>> {
-	return call<{ touched: number }>(
-		'/api/v2/keepalive',
-		{ method: 'POST', body: JSON.stringify({ blobIds }) },
-		isKeepAliveResponse
 	);
 }

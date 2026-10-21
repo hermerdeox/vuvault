@@ -14,7 +14,11 @@ export type RateLimitDecision =
 export const RATE_LIMITS = {
 	OPAQUE_REGISTER: { name: 'opaque-register', limit: 10, windowSecs: 60 },
 	OPAQUE_LOGIN: { name: 'opaque-login', limit: 30, windowSecs: 60 },
-	BLOB: { name: 'blob', limit: 30, windowSecs: 60 }
+	BLOB: { name: 'blob', limit: 30, windowSecs: 60 },
+	// Anonymous-token issuance. Each call mints up to TOKEN_MAX_BATCH
+	// tokens and each token pays for exactly one v2 request, so this is
+	// the effective per-session budget for blob / inventory traffic.
+	TOKEN_ISSUE: { name: 'token-issue', limit: 10, windowSecs: 60 }
 } as const satisfies Record<string, RateLimitConfig>;
 
 /**
