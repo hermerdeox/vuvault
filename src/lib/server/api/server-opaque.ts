@@ -179,6 +179,20 @@ export class OpaqueServerEngine {
 	}
 
 	/**
+	 * Map a stored `server_identity` seed to the in-range scalar the AKE
+	 * needs. @structured-id/opaque reads ristretto255 scalars big-endian;
+	 * `scalarBaseMult` reduces mod the group order but `ecdh` does not, so
+	 * an unreduced seed (production's was written by an older release)
+	 * derives a valid public key and then throws "invalid scalar" in every
+	 * login's AKE. Reducing gives the same public key, so existing
+	 * registrations stay valid; seeds already in range are unchanged.
+	 */
+	static reduceServerSecretKey(seed: Uint8Array): Uint8Array {
+		const group = getGroup(getSuite(SUITE_ID).curve);
+		return group.scalarReduce(seed);
+	}
+
+	/**
 	 * Derive the long-lived server public key from the persisted secret key.
 	 *
 	 * Cloudflare D1 stores only `server_identity.oprf_seed` / server secret

@@ -204,6 +204,40 @@ describe('Worker integration · D1 + engine round-trip', () => {
 		);
 	});
 
+	it('reduces a seed above the group order: same public key, and login works', async () => {
+		// Production's seed was written by an older @structured-id/opaque
+		// and, read as the big-endian scalar 1.0.5 uses, is >= the group
+		// order. scalarBaseMult reduces it, but the AKE's ecdh does not and
+		// threw "invalid scalar" on every login.
+		const seed = new Uint8Array(32).fill(0xff);
+		db.serverIdentity = { oprf_seed: seed.slice().buffer };
+		const identity = await loadServerIdentity(db, SERVER_ID);
+		expect(
+			Buffer.from(identity.serverPublicKey).equals(
+				Buffer.from(OpaqueServerEngine.publicKeyFromServerSecretKey(seed))
+			)
+		).toBe(true);
+
+		const engine = new OpaqueServerEngine(identity, new D1OpaqueStorage(db));
+		let capturedKe1: Uint8Array | null = null;
+		const transport = {
+			registerRequest: (cid: string, req: Uint8Array) => engine.registerRequest(cid, req),
+			registerRecord: (cid: string, rid: string, rec: Uint8Array) =>
+				engine.registerRecord(cid, rid, rec),
+			loginKE1: (cid: string, ke1: Uint8Array) => {
+				capturedKe1 = ke1;
+				return engine.loginKE1(cid, ke1);
+			},
+			loginKE3: (cid: string, rid: string, ke3: Uint8Array) => engine.loginKE3(cid, rid, ke3)
+		};
+		const reg = await register({ serverId: SERVER_ID, clientId: 'old-seed', password: 'pw', transport });
+		const log = await login({ serverId: SERVER_ID, clientId: 'old-seed', password: 'pw', transport });
+		expect(log.accountId).toBe(reg.accountId);
+		// The V0-C3 decoy path for an unknown account runs the same AKE.
+		const decoy = await engine.loginKE1('no-such-account', capturedKe1!);
+		expect(decoy.ke2).toHaveLength(320);
+	});
+
 	it('rejects an all-zero D1 OPAQUE server identity seed', async () => {
 		db.serverIdentity = { oprf_seed: new ArrayBuffer(32) };
 
