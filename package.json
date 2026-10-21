@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:api": "node scripts/dev-api.mjs",
     "build": "vite build && node scripts/build-manifest.mjs",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
