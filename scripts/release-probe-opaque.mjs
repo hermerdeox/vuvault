@@ -15,9 +15,10 @@
  *      throws otherwise.
  *   4. The OPAQUE server library is loaded and performs a valid
  *      OPRF blind evaluation against the registered element.
- *   5. `/api/opaque/login/ke1` returns the documented 401 (not 5xx)
- *      for an unknown clientId — proves the account-lookup path is
- *      wired and error mapping is correct.
+ *   5. `/api/opaque/login/ke1` answers an unknown clientId with 200
+ *      and a full-length KE2, exactly like a real account (V0-C3: the
+ *      engine runs the AKE against a fake record) — proves the login
+ *      path is wired and is not an account-existence oracle.
  *
  * We do NOT complete the full register-then-login round-trip from a
  * .mjs script — that requires the AKE state machine which the
@@ -49,6 +50,7 @@ import {
 	DEFAULT_SUITE,
 	getGroup,
 	getSuite,
+	envelopeSize,
 	oprfBlind,
 	serializeKE1,
 	clientAkeStart
@@ -162,14 +164,15 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// Probe 2 — login KE1 against unknown clientId returns 401 (not 5xx)
+// Probe 2 — login KE1 against unknown clientId answers like a real account
 // ---------------------------------------------------------------------------
 try {
 	// Build a valid KE1 message: blinded OPRF + ake start. We use
 	// clientAkeStart against the same blinded element to produce the
-	// KE1 struct, then serialize. The server doesn't care that this
-	// KE1 is for an unknown account — it goes through OPRF eval
-	// first, fails at account lookup, and returns 401.
+	// KE1 struct, then serialize. An unknown clientId gets a fake
+	// record (V0-C3), so the server must answer 200 with a KE2 of the
+	// same length a real account's has. A 401 here would mean the
+	// account-existence oracle is back.
 	const { blindedElement } = oprfBlind(suite.curve, probePasswordBytes);
 	const ake = clientAkeStart(blindedElement, suite);
 	const ke1Bytes = serializeKE1(ake.ke1);
@@ -185,17 +188,25 @@ try {
 		cache: 'no-store'
 	});
 
-	if (res.status !== 401) {
+	if (res.status !== 200) {
 		const body = await res.text();
 		fail(
-			`login/ke1 with unknown clientId returned ${res.status} (expected 401); body=${body.slice(0, 300)}`
+			`login/ke1 with unknown clientId returned ${res.status} (expected 200, same as a real account); body=${body.slice(0, 300)}`
 		);
 	} else {
 		const body = await res.json().catch(() => null);
-		if (body?.ok !== false) {
-			fail(`login/ke1 401 response should be {ok:false, ...}; got ${JSON.stringify(body)}`);
+		// KE2 = credential response (evaluated element, masking nonce,
+		// masked server key + envelope) + server nonce, keyshare and MAC.
+		const expectedKe2 =
+			suite.elementSize + suite.nonceSize + suite.elementSize + envelopeSize(suite) +
+			suite.nonceSize + suite.elementSize + suite.macSize;
+		const ke2Len = typeof body?.data?.ke2 === 'string' ? atob(body.data.ke2).length : 0;
+		if (body?.ok !== true || typeof body?.data?.requestId !== 'string') {
+			fail(`login/ke1 unknown-client response shape mismatch: ${JSON.stringify(body).slice(0, 300)}`);
+		} else if (ke2Len !== expectedKe2) {
+			fail(`login/ke1 unknown-client KE2 is ${ke2Len} bytes, expected ${expectedKe2}`);
 		} else {
-			console.log(`release-probe-opaque: login/ke1 unknown-client 401 OK`);
+			console.log(`release-probe-opaque: login/ke1 unknown-client 200 with ${ke2Len}-byte KE2 OK`);
 		}
 	}
 } catch (err) {
