@@ -144,17 +144,17 @@ export class D1OpaqueStorage implements OpaqueStorage {
 		};
 	}
 
-	async putAccount(clientId: string, account: StoredAccount): Promise<void> {
-		await this.db
+	async insertAccount(clientId: string, account: StoredAccount): Promise<boolean> {
+		// DO NOTHING, never DO UPDATE: an upsert here let a second
+		// registration replace an existing account's record. The single
+		// statement also settles two concurrent first registrations of one
+		// clientId — exactly one of them inserts.
+		const result = await this.db
 			.prepare(
 				`INSERT INTO accounts
 					(account_id, client_id, client_public_key, masking_key, envelope_bytes, oprf_secret_key, registration_record, created_at)
 				 VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
-				 ON CONFLICT(client_id) DO UPDATE SET
-				   client_public_key = excluded.client_public_key,
-				   masking_key = excluded.masking_key,
-				   envelope_bytes = excluded.envelope_bytes,
-				   oprf_secret_key = excluded.oprf_secret_key`
+				 ON CONFLICT(client_id) DO NOTHING`
 			)
 			.bind(
 				account.accountId,
@@ -169,6 +169,7 @@ export class D1OpaqueStorage implements OpaqueStorage {
 				concatRecord(account)
 			)
 			.run();
+		return result.meta?.changes === 1;
 	}
 
 	async deleteAccount(clientId: string): Promise<void> {

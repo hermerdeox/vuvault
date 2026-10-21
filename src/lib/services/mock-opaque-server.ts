@@ -46,8 +46,10 @@ class InMemoryOpaqueStorage implements OpaqueStorage {
 	async getAccount(clientId: ClientIdentifier): Promise<StoredAccount | null> {
 		return this.accounts.get(clientId) ?? null;
 	}
-	async putAccount(clientId: ClientIdentifier, account: StoredAccount) {
+	async insertAccount(clientId: ClientIdentifier, account: StoredAccount) {
+		if (this.accounts.has(clientId)) return false;
 		this.accounts.set(clientId, account);
+		return true;
 	}
 	async deleteAccount(clientId: ClientIdentifier) {
 		this.accounts.delete(clientId);
