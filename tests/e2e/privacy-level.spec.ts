@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { waitForHydration } from './_helpers';
 
 /**
  * End-to-end coverage for the in-app Vu Privacy Level affordances:
@@ -23,6 +24,8 @@ test.describe('Vu Privacy Level — in-app affordances', () => {
 	}) => {
 		await page.goto('/privacy');
 		await expect(page).toHaveTitle(/Privacy level — VuVault/);
+		// The deck's tabs are wired on hydration; clicking earlier is a no-op.
+		await waitForHydration(page);
 
 		// Current level appears prominently. Under the inverted scale
 		// (lower-number = stronger), today's shipped state is Vu Level 1
@@ -31,26 +34,57 @@ test.describe('Vu Privacy Level — in-app affordances', () => {
 			'Vu Level 1'
 		);
 
-		// Ladder, evidence, and threat sections are present. The exact ladder
-		// cardinality is covered by src/lib/data/privacy-level.test.ts; this E2E
-		// guards the browser-visible affordances without depending on below-fold
-		// card hydration timing.
-		await expect(
-			page.getByRole('heading', { name: 'Five levels, exhaustively defined.' })
-		).toBeVisible();
-		await expect(
-			page.getByRole('heading', { name: 'Every claim points to code.' })
-		).toBeVisible();
-		await expect(
-			page.getByRole('heading', { name: /What we defend against/ })
-		).toBeVisible();
-
 		// Counters surface non-zero shipped guarantees and a non-empty
-		// pending list — honesty about both.
+		// pending list — honesty about both. They live on the first panel.
 		const counters = page.getByTestId('evidence-counters');
 		await expect(counters).toBeVisible();
 		await expect(counters).toContainText('Shipped');
 		await expect(counters).toContainText('Pending');
+
+		// The page is a viewport-fitting deck (Cardinal Rule: html/body never
+		// scroll). Each section is its own panel reached through the tabs; an
+		// inactive panel is inert and out of the accessibility tree, so each
+		// heading is asserted after its tab is selected. The exact ladder
+		// cardinality is covered by src/lib/data/privacy-level.test.ts.
+		await page.getByRole('tab', { name: /Ladder/ }).click();
+		await expect(
+			page.getByRole('heading', { name: 'Five levels, exhaustively defined.' })
+		).toBeVisible();
+		// Every ladder level is a selectable card; picking one opens its text.
+		await expect(page.getByTestId('privacy-level-0')).toBeVisible();
+		await page.getByTestId('privacy-level-0').click();
+		await expect(page.getByTestId('privacy-level-0')).toHaveAttribute('aria-pressed', 'true');
+
+		await page.getByRole('tab', { name: /Evidence/ }).click();
+		await expect(
+			page.getByRole('heading', { name: 'Every claim points to code.' })
+		).toBeVisible();
+		await expect(page.getByTestId('evidence-list')).toContainText('E01');
+
+		await page.getByRole('tab', { name: /Threats/ }).click();
+		await expect(
+			page.getByRole('heading', { name: /What we defend against/ })
+		).toBeVisible();
+		await expect(page.getByText('Out of scope').first()).toBeVisible();
+
+		// Nothing scrolls at the document level, and the active panel fits
+		// the viewport instead of being cut off below the fold. The track
+		// slides for --transition-slow, so poll until it has settled.
+		const geometry = () =>
+			page.evaluate(() => {
+				const de = document.documentElement;
+				const active = document.querySelector('.slot:not([inert])') as HTMLElement | null;
+				const r = active?.getBoundingClientRect();
+				return {
+					docScroll: de.scrollHeight - de.clientHeight,
+					bodyScroll: document.body.scrollHeight - document.body.clientHeight,
+					fits: !!r && r.top >= -1 && r.bottom <= window.innerHeight + 1
+				};
+			});
+		await expect.poll(async () => (await geometry()).fits, { timeout: 5_000 }).toBe(true);
+		const g = await geometry();
+		expect(g.docScroll).toBe(0);
+		expect(g.bodyScroll).toBe(0);
 	});
 
 	test('audit-footer badge on the landing page links to /privacy', async ({
