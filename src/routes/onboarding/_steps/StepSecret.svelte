@@ -4,9 +4,9 @@
 	import { onboarding } from '$lib/stores/onboarding.svelte';
 	import { generateSecretKey, encodeBase32, groupChars } from '$lib/crypto/secret-key';
 	import {
-		PUBLIC_BUNDLE_HASH,
 		PUBLIC_VAULT_VERSION,
-		BUNDLE_HASH_SHORT
+		ensureFreshBundleHash,
+		currentBundleHash
 	} from '$lib/utils/env';
 	import { IconArrowRight, IconArrowLeft, IconRefresh, IconDownload, IconPrint, IconKey, IconWarning } from '$lib/icons';
 
@@ -18,7 +18,6 @@
 		for (let i = 0; i < input.length; i += 8) out.push(input.slice(i, i + 8));
 		return out;
 	}
-	const bundleGroupedString = chunk8(PUBLIC_BUNDLE_HASH).join(' ');
 
 	const ENTROPY_CELLS = 16;
 	let entropyOn = $state(0);
@@ -69,8 +68,12 @@
 		}
 	}
 
-	function downloadKit() {
+	async function downloadKit() {
 		if (!onboarding.secretKeyEncoded) return;
+		// The hash printed on the kit must be this release's, not a stale
+		// edge copy of the runtime env (see env.ts).
+		await ensureFreshBundleHash();
+		const bundleGroupedString = chunk8(currentBundleHash()).join(' ');
 		const content = `VuVault Emergency Kit
 ====================
 
@@ -97,8 +100,10 @@ ${bundleGroupedString}
 		);
 	}
 
-	function downloadVuKey() {
+	async function downloadVuKey() {
 		if (!onboarding.secretKeyEncoded) return;
+		await ensureFreshBundleHash();
+		const bundleHash = currentBundleHash();
 		const payload = {
 			format: 'vukey/v2',
 			issued: new Date().toISOString(),
@@ -112,8 +117,8 @@ ${bundleGroupedString}
 			recoveryEnvelope: null,
 			build: {
 				version: PUBLIC_VAULT_VERSION,
-				bundleHash: PUBLIC_BUNDLE_HASH,
-				bundleHashShort: BUNDLE_HASH_SHORT
+				bundleHash,
+				bundleHashShort: bundleHash.slice(0, 8)
 			}
 		};
 		triggerDownload(

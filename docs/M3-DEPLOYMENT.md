@@ -45,6 +45,30 @@ Production sets `OPAQUE_RATE_LIMIT_MODE="fail-closed"`, so missing or
 failing bindings make the protected API endpoints return 503 instead of
 silently accepting unlimited traffic.
 
+### Edge cache for `/_app/env.js`
+
+The adapter serves the runtime public env (including this release's
+`PUBLIC_BUNDLE_HASH`) at `/_app/env.js` and ignores the app's `_headers`,
+so the CDN edge caches it on its default rules — observed across
+releases (`cf-cache-status: HIT`, a week-old copy on 2026-10-29). The
+client defends itself: `verifyBundleIntegrity` reads the hash with a
+cache-busted `no-store` fetch of the same module and compares against
+that, so a stale edge copy cannot block unlock. Still set up both of
+these so the plain response is fresh too:
+
+1. **Zone Cache Rule** — Cloudflare dashboard › the `vuvault.app` zone ›
+   Caching › Cache Rules: *URI Path equals `/_app/env.js`* → **Bypass
+   cache**. This removes the window entirely.
+2. **Release-time purge** — repository secrets `CLOUDFLARE_ZONE_ID` and
+   `CLOUDFLARE_CACHE_PURGE_TOKEN` (an API token scoped to *Zone › Cache
+   Purge* on that zone). The release workflow purges
+   `https://vuvault.app/_app/env.js` right after the deploy and reports
+   the plain vs origin hash; without the secrets it only warns.
+
+One-time, after the rule exists: purge `/_app/env.js` once by hand
+(Caching › Configuration › Custom Purge › URL) to drop copies cached
+before the rule.
+
 ## Release Preconditions
 
 Before publishing a GitHub Release for a SHA:

@@ -484,13 +484,50 @@ jobs:
             --branch=main \
             --commit-hash="${{ github.sha }}"
 
-      # The runtime-env file /_app/env.js (which carries this release's
-      # PUBLIC_BUNDLE_HASH) is kept out of the edge cache by a Cloudflare
-      # zone Cache Rule (URI Path = /_app/env.js → Bypass cache), set
-      # out of band — the app cannot control headers on that adapter-served
-      # asset. With that rule in place the post-deploy gate below sees the
-      # fresh runtime env immediately, with no per-release stale-cache
-      # window and no CI-side purge needed.
+      # The runtime-env file /_app/env.js carries this release's
+      # PUBLIC_BUNDLE_HASH and is served by the adapter, which ignores the
+      # app's _headers. The CDN edge has been seen caching it ACROSS
+      # releases (a week-old copy on 2026-10-29), which made the in-page
+      # integrity gate compare a fresh manifest against a stale hash and
+      # refuse unlock. Two defences:
+      #   1. the client reads the hash past the cache (a cache-busted
+      #      no-store fetch of the same module — src/lib/utils/env.ts)
+      #      before comparing, so a stale edge copy cannot block unlock;
+      #   2. this step purges the URL when CLOUDFLARE_ZONE_ID and
+      #      CLOUDFLARE_CACHE_PURGE_TOKEN (scope: Zone › Cache Purge) are
+      #      set, so even the plain response is fresh. Without them it
+      #      only warns. A zone Cache Rule (URI Path = /_app/env.js →
+      #      Bypass cache) removes the window entirely; see
+      #      docs/M3-DEPLOYMENT.md "Edge cache for /_app/env.js".
+      - name: Purge the edge cache for /_app/env.js
+        if: github.event_name == 'release'
+        env:
+          PUBLIC_SYNC_ORIGIN: ${{ vars.PUBLIC_SYNC_ORIGIN }}
+          PUBLIC_BUNDLE_HASH: ${{ env.PUBLIC_BUNDLE_HASH }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_CACHE_PURGE_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_PURGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          URL="${PUBLIC_SYNC_ORIGIN%/}/_app/env.js"
+          if [ -n "${CLOUDFLARE_ZONE_ID:-}" ] && [ -n "${CLOUDFLARE_CACHE_PURGE_TOKEN:-}" ]; then
+            curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+              -H "Authorization: Bearer ${CLOUDFLARE_CACHE_PURGE_TOKEN}" \
+              -H 'content-type: application/json' \
+              --data "{\"files\":[\"${URL}\"]}" | grep -q '"success":true'
+            echo "purged ${URL}"
+          else
+            echo "::warning::CLOUDFLARE_ZONE_ID / CLOUDFLARE_CACHE_PURGE_TOKEN not set — not purging ${URL}; clients self-heal via the cache-busted read, but the plain response may stay stale for the edge TTL"
+          fi
+          plain=$(curl -sS "${URL}" | grep -oE '"PUBLIC_BUNDLE_HASH":"[0-9a-f]+"' | cut -d'"' -f4 || true)
+          fresh=$(curl -sS "${URL}?integrity=$(date +%s)" | grep -oE '"PUBLIC_BUNDLE_HASH":"[0-9a-f]+"' | cut -d'"' -f4 || true)
+          echo "env.js hash — plain edge: ${plain:0:12}  origin (cache-busted): ${fresh:0:12}  expected: ${PUBLIC_BUNDLE_HASH:0:12}"
+          if [ "${fresh}" != "${PUBLIC_BUNDLE_HASH}" ]; then
+            echo "::error::origin /_app/env.js does not carry this release's PUBLIC_BUNDLE_HASH"
+            exit 1
+          fi
+          if [ "${plain}" != "${PUBLIC_BUNDLE_HASH}" ]; then
+            echo "::warning::the edge still serves a stale /_app/env.js (${plain:0:12}); clients read past it, purge or add the zone Cache Rule to clear it"
+          fi
 
       - name: Post-deploy production smoke
         if: github.event_name == 'release'
