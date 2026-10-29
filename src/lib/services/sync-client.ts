@@ -647,3 +647,52 @@ export async function fetchV2Inventory(
 		isV2InvResponse
 	);
 }
+
+// ---------------------------------------------------------------------
+// New-device restore records (`/api/v2/restore/<addr>`).
+//
+// Writes and deletes spend anonymous tokens like every other v2 object.
+// The READ carries no credential at all: a restoring device has no
+// session yet (it has not even learned its OPAQUE client id — that is
+// inside the record). The address is the capability; see
+// src/lib/crypto/restore-record.ts for the derivation and the privacy
+// argument.
+// ---------------------------------------------------------------------
+
+type V2RestoreResponse = { addr: string; nonce: string; ciphertext: string; updatedAt: number };
+
+export async function uploadV2Restore(req: {
+	addr: string;
+	nonce: string;
+	ciphertext: string;
+}): Promise<SyncResult<{ addr: string; updatedAt: number }>> {
+	return tokenCall<{ addr: string; updatedAt: number }>(
+		`/api/v2/restore/${encodeURIComponent(req.addr)}`,
+		{
+			method: 'PUT',
+			body: JSON.stringify({ nonce: req.nonce, ciphertext: req.ciphertext })
+		},
+		isV2InvUploadResponse
+	);
+}
+
+/** Unauthenticated by design — usable before any session exists. */
+export async function fetchV2Restore(addr: string): Promise<SyncResult<V2RestoreResponse>> {
+	return call<V2RestoreResponse>(
+		`/api/v2/restore/${encodeURIComponent(addr)}`,
+		{ method: 'GET' },
+		isV2InvResponse,
+		'none'
+	);
+}
+
+export async function deleteV2Restore(
+	addr: string
+): Promise<SyncResult<{ addr: string; deletedAt: number }>> {
+	return tokenCall<{ addr: string; deletedAt: number }>(
+		`/api/v2/restore/${encodeURIComponent(addr)}`,
+		{ method: 'DELETE' },
+		(value): value is { addr: string; deletedAt: number } =>
+			isRecord(value) && hasString(value, 'addr') && hasNumber(value, 'deletedAt')
+	);
+}

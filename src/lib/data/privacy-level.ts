@@ -171,10 +171,17 @@ export const EVIDENCE: readonly EvidenceRow[] = [
 	},
 	{
 		id: 'E05',
-		claim: 'Local Recovery Envelope — Secret Key + Recovery Password can recover after passkey loss without server-held recovery material',
+		claim: 'Local Recovery Envelope — Secret Key + Recovery Password can recover after passkey loss; the server holds no key material it can open',
 		status: 'shipped',
 		evidence:
 			'src/lib/crypto/recovery-envelope.ts, src/lib/services/recovery-envelope.ts, src/routes/recover/+page.svelte'
+	},
+	{
+		id: 'E23',
+		claim: 'New-device restore — Secret Key + Recovery Password locate and open a sealed restore record at per-day, never-rewritten addresses (no stable server address; V0-C1 preserved) and rebuild the vault from the random-UUID blob chain',
+		status: 'shipped',
+		evidence:
+			'src/lib/crypto/restore-record.ts, src/lib/services/server-restore.ts, src/routes/restore/+page.svelte, src/routes/api/v2/restore/[addr]/+server.ts, migrations/0011_restore_references.sql; tests/integration/server-restore.spec.ts, tests/integration/v2-restore.spec.ts, restore scenario in tests/e2e/sync.spec.ts'
 	},
 	{
 		id: 'E07',

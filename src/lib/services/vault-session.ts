@@ -68,25 +68,42 @@ import {
 	saveVault,
 	saveExistingAccountAndVault,
 	updateAccountSyncState,
+	setAccountRestoreRoot,
+	reserveRestorePointer,
+	markRestorePointerWritten,
 	type AccountRecord,
-	type AuthMode
+	type AuthMode,
+	type RestorePointerCoord
 } from '$lib/utils/storage';
 import { isDemoAuthEnabled } from '$lib/utils/env';
 import {
 	openRecoveryEnvelope,
 	sealRecoveryEnvelope,
-	type RecoveryEnvelopeSealed
+	type RecoveryEnvelopeSealed,
+	type RecoveryMaterial
 } from '$lib/crypto/recovery-envelope';
+import {
+	restoreAddress,
+	restoreDay,
+	sealRestoreRecord,
+	wrapRestoreRoot,
+	unwrapRestoreRoot,
+	RESTORE_POINTER_EVERY,
+	RESTORE_MAX_WALK,
+	type RestoreRecordPayload
+} from '$lib/crypto/restore-record';
 import {
 	uploadV2Blob,
 	fetchV2Blob,
+	uploadV2Restore,
+	deleteV2Restore,
 	hasSession,
 	isSyncWired,
 	setSessionToken,
 	opaqueLogout,
 	prefetchAnonTokens
 } from './sync-client';
-import { newBlobId } from './blob-inventory';
+import { newBlobId, deriveChainKey, encodeAddress } from './blob-inventory';
 import {
 	initInventorySession,
 	clearInventorySession,
@@ -141,6 +158,12 @@ let vaultKey: Uint8Array | null = null;
 let aesKey: Uint8Array | null = null; // v2 only; null for v1 sessions
 let activeAuthMode: AuthMode | null = null;
 let activeFormatVersion: number | null = null;
+/**
+ * New-device restore root (see `src/lib/crypto/restore-record.ts`).
+ * Unwrapped from the account row with the data key at unlock; null when
+ * the account never enabled server restore. Lives only in memory.
+ */
+let restoreRoot: Uint8Array | null = null;
 
 /**
  * `BlobBytes` is the on-the-wire shape of a v2 vault upload. The
@@ -181,6 +204,7 @@ export type SyncObserver = {
 	onPushFailure?(info: { reason: string; message: string }): void;
 	onPullPromoted?(info: { sequenceClock: number }): void;
 	onPullSkipped?(info: { reason: string }): void;
+	onRestoreRecord?(info: { ok: boolean; message: string }): void;
 };
 
 export type SyncNowResult =
@@ -245,7 +269,10 @@ function unpackVaultBody(body: Uint8Array): { header: Uint8Array; ciphertext: Ui
  * deleted: a delete in the same session as the upload that replaces it
  * would link the two, so the server's reference GC ages it out instead.
  */
-async function pushBlobToServer(blob: BlobBytes): Promise<void> {
+async function pushBlobToServer(
+	blob: BlobBytes,
+	opts: { forceRestoreRecord?: boolean } = {}
+): Promise<void> {
 	if (!isSyncWired() || !hasSession()) return;
 	const blobId = newBlobId();
 	const result = await uploadV2Blob({
@@ -274,6 +301,190 @@ async function pushBlobToServer(blob: BlobBytes): Promise<void> {
 		sequenceClock: Number(index),
 		bytes: blobBytesSize(blob)
 	});
+	await writeRestoreRecord(index, blobId, opts.forceRestoreRecord === true).catch((err) => {
+		syncObserver.onRestoreRecord?.({
+			ok: false,
+			message: err instanceof Error ? err.message : 'restore record crashed'
+		});
+	});
+}
+
+/**
+ * Publish a sealed restore record alongside this push when one is due:
+ * on the first push of each UTC day, every RESTORE_POINTER_EVERY saves
+ * within a day (so a restoring device's forward walk stays short), when
+ * the previous record failed to land, or when forced (rebind, root
+ * install). Each record goes to a fresh (day, slot) address reserved
+ * before the upload, so no address is ever written twice (V0-C1).
+ *
+ * Requires an OPAQUE identity on the account row: the restoring device
+ * must be able to log in, and it learns the client id from the record.
+ */
+async function writeRestoreRecord(index: bigint, blobId: string, force: boolean): Promise<void> {
+	if (!restoreRoot || !aesKey || !isSyncWired() || !hasSession()) return;
+	const account = await getAccount();
+	if (!account) return;
+	if (
+		account.opaqueState !== 'enrolled' ||
+		!account.opaqueClientId ||
+		!account.opaqueServerId ||
+		!account.opaqueAccountId
+	) {
+		return;
+	}
+	const day = restoreDay();
+	const last = account.restorePointerIndex;
+	const due =
+		force ||
+		account.restorePointerDay !== day ||
+		last === undefined ||
+		index - BigInt(last) >= RESTORE_POINTER_EVERY;
+	if (!due) return;
+	const slot = account.restorePointerDay === day ? (account.restorePointerSlot ?? -1) + 1 : 0;
+	await reserveRestorePointer({ day, slot });
+
+	const addr = restoreAddress(restoreRoot, day, slot);
+	const payload: RestoreRecordPayload = {
+		formatVersion: account.formatVersion,
+		authMode: account.authMode,
+		deviceSalt: account.deviceSalt.slice(),
+		credentialId: new Uint8Array(account.credentialId).slice(),
+		aesKey: aesKey.slice(),
+		accountSeed: account.accountSeed ? account.accountSeed.slice() : null,
+		inventoryIndex: index,
+		vaultBlobId: blobId,
+		writtenAt: Date.now(),
+		opaqueClientId: account.opaqueClientId,
+		opaqueServerId: account.opaqueServerId,
+		opaqueAccountId: account.opaqueAccountId,
+		deviceLabel: account.deviceLabel
+	};
+	let sealed: { nonce: Uint8Array; ciphertext: Uint8Array };
+	try {
+		sealed = sealRestoreRecord(restoreRoot, addr, payload);
+	} finally {
+		payload.aesKey.fill(0);
+		payload.accountSeed?.fill(0);
+	}
+	const result = await uploadV2Restore({
+		addr: encodeAddress(addr),
+		nonce: bytesToBase64(sealed.nonce),
+		ciphertext: bytesToBase64(sealed.ciphertext)
+	});
+	if (result.ok) {
+		await markRestorePointerWritten(Number(index)).catch(() => undefined);
+		syncObserver.onRestoreRecord?.({ ok: true, message: 'Restore record published.' });
+	} else {
+		syncObserver.onRestoreRecord?.({ ok: false, message: result.message });
+	}
+}
+
+/**
+ * Best-effort deletion of the records this device wrote under `root`.
+ * Used when the root rotates (new Recovery Password) or restore is
+ * disabled, so the superseded records stop being openable with the old
+ * password before the server GC would reap them.
+ */
+async function purgeRestoreRecords(root: Uint8Array, coords: RestorePointerCoord[]): Promise<void> {
+	if (!isSyncWired() || !hasSession()) return;
+	for (const c of coords) {
+		const addr = restoreAddress(root, c.day, c.slot);
+		await deleteV2Restore(encodeAddress(addr)).catch(() => undefined);
+	}
+}
+
+/**
+ * Re-upload the current vault as a fresh save and force a restore
+ * record with it. A no-op when sync is unwired or there is no session —
+ * the next ordinary push then carries the record instead.
+ */
+export async function publishRestoreRecord(): Promise<void> {
+	if (!isSyncWired() || !hasSession()) return;
+	const row = await getVault();
+	if (!row) return;
+	await pushBlobToServer(
+		{ header: row.header, nonce: row.nonce, ciphertext: row.ciphertext },
+		{ forceRestoreRecord: true }
+	);
+}
+
+/**
+ * Enable (or re-affirm / rotate) new-device restore for the unlocked
+ * vault. `root` comes from `deriveRecoveryMaterial` — the caller has
+ * just stretched the Recovery Password. The root is persisted wrapped
+ * under the data key and kept in memory for this session; a record is
+ * published immediately so a restore works from this moment on.
+ *
+ * Returns what happened: a first install, an identical re-install
+ * (same password — the existing records stay valid), or a rotation
+ * (new password — this device's old records are deleted first).
+ */
+export async function installRestoreRoot(
+	root: Uint8Array
+): Promise<'installed' | 'unchanged' | 'rotated'> {
+	if (!aesKey) {
+		throw new Error('installRestoreRoot: vault must be unlocked first');
+	}
+	const account = await getAccount();
+	if (!account) throw new Error('installRestoreRoot: account row missing');
+	let outcome: 'installed' | 'unchanged' | 'rotated' = 'installed';
+	if (restoreRoot) {
+		if (constantTimeEqual(restoreRoot, root)) {
+			outcome = 'unchanged';
+		} else {
+			await purgeRestoreRecords(restoreRoot, account.restorePointers ?? []);
+			await setAccountRestoreRoot(null);
+			outcome = 'rotated';
+		}
+	}
+	await setAccountRestoreRoot(wrapRestoreRoot(aesKey, root));
+	zeroize(restoreRoot);
+	restoreRoot = root.slice();
+	await publishRestoreRecord();
+	return outcome;
+}
+
+/** Delete this device's records (best effort), then forget the root. */
+export async function disableServerRestore(): Promise<void> {
+	const account = await getAccount();
+	if (restoreRoot && account) {
+		await purgeRestoreRecords(restoreRoot, account.restorePointers ?? []);
+	}
+	await setAccountRestoreRoot(null);
+	zeroize(restoreRoot);
+	restoreRoot = null;
+}
+
+/** Whether this session holds a restore root (i.e. records get published). */
+export function hasRestoreRootInMemory(): boolean {
+	return restoreRoot !== null;
+}
+
+/**
+ * Start (or restart) the inventory address chain for the active vault.
+ * The chain derives from the DATA key + device salt (not the
+ * passkey-bound wrapping key) — see `deriveChainKey` — so auth
+ * rotations keep the chain and a restoring device can re-derive it from
+ * the restore record. Must be re-called whenever either input changes.
+ */
+function startInventoryChain(dataKey: Uint8Array, deviceSalt: Uint8Array, latestIndex = 0n): void {
+	const chainKey = deriveChainKey(dataKey, deviceSalt);
+	initInventorySession(chainKey, deviceSalt, latestIndex);
+	zeroize(chainKey); // initInventorySession keeps its own copy
+}
+
+function adoptRestoreRootFromAccount(account: AccountRecord, dataKey: Uint8Array): void {
+	zeroize(restoreRoot);
+	restoreRoot = null;
+	if (!account.restoreRootNonce || !account.restoreRootCiphertext) return;
+	try {
+		restoreRoot = unwrapRestoreRoot(dataKey, account.restoreRootNonce, account.restoreRootCiphertext);
+	} catch {
+		// A root that does not open under this data key is stale (should
+		// not happen — the data key never rotates); leave restore off
+		// until the user re-enters the Recovery Password.
+		restoreRoot = null;
+	}
 }
 
 /**
@@ -745,7 +956,9 @@ export async function provisionVault(opts: ProvisionInput): Promise<ProvisionRes
 	aesKey = newAesKey;
 	activeAuthMode = opts.authMode;
 	activeFormatVersion = PROVISION_FORMAT_VERSION;
-	initInventorySession(newVaultKey, opts.deviceSalt);
+	zeroize(restoreRoot);
+	restoreRoot = null;
+	startInventoryChain(newAesKey, opts.deviceSalt);
 	return {
 		deviceSalt: opts.deviceSalt,
 		accountCreatedAt: now,
@@ -871,10 +1084,18 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 	aesKey = newAesKey;
 	activeAuthMode = account.authMode;
 	activeFormatVersion = account.formatVersion;
-	initInventorySession(newVaultKey, account.deviceSalt, BigInt(account.inventoryIndex ?? 0));
+	if (newAesKey) {
+		startInventoryChain(newAesKey, account.deviceSalt, BigInt(account.inventoryIndex ?? 0));
+		adoptRestoreRootFromAccount(account, newAesKey);
+	} else {
+		// v1: no data key yet; the chain starts on the upgrade-on-save.
+		clearInventorySession();
+		zeroize(restoreRoot);
+		restoreRoot = null;
+	}
 
 	// Unlock never READS the sync server. The inventory address chain is
-	// bound to this device's (vaultKey, deviceSalt), so the only writer is
+	// bound to this device's (dataKey, deviceSalt), so the only writer is
 	// this device and the local vault is already the newest copy. A read
 	// would only hand a logging server a link between this session and
 	// the one that wrote the object (V0-C1) — and the old unlock-pull
@@ -910,6 +1131,7 @@ export async function openVault(opts: OpenInput): Promise<VaultItem[]> {
 export async function sealActiveRecoveryEnvelope(opts: {
 	secretKey: Uint8Array;
 	recoveryPassword: string;
+	material?: RecoveryMaterial;
 }): Promise<RecoveryEnvelopeSealed> {
 	if (!aesKey) {
 		throw new Error('sealActiveRecoveryEnvelope: vault must be unlocked first');
@@ -920,6 +1142,7 @@ export async function sealActiveRecoveryEnvelope(opts: {
 		aesKey,
 		secretKey: opts.secretKey,
 		recoveryPassword: opts.recoveryPassword,
+		material: opts.material,
 		context: {
 			deviceSalt: account.deviceSalt,
 			credentialId: account.credentialId,
@@ -980,10 +1203,12 @@ export async function openVaultWithRecoveryEnvelope(
 		aesKey = recoveredAesKey;
 		activeAuthMode = account.authMode;
 		activeFormatVersion = account.formatVersion;
-		// No vaultKey in the recovery-open window (the inventory address
-		// chain derives from it), so there is no inventory session yet;
-		// rebindRecoveredVault establishes it once the new vaultKey exists.
-		clearInventorySession();
+		// The chain and the restore root both hang off the data key, which
+		// the envelope just recovered — so both are available in the
+		// recovery-open window. rebindRecoveredVault restarts the chain on
+		// the new device salt.
+		startInventoryChain(recoveredAesKey, account.deviceSalt, BigInt(account.inventoryIndex ?? 0));
+		adoptRestoreRootFromAccount(account, recoveredAesKey);
 		return items;
 	} catch (err) {
 		zeroize(recoveredAesKey);
@@ -1065,7 +1290,16 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		// vault under the OLD aesKey, re-seals under the NEW vaultKey,
 		// but the accountSeed itself is an account-row field; we
 		// carry it forward verbatim.
-		accountSeed: previousAccount.accountSeed
+		accountSeed: previousAccount.accountSeed,
+		// The restore root is wrapped under the data key, which the rebind
+		// keeps, so it stays valid. The day/slot reservation carries over
+		// so the forced record below takes the next free slot rather than
+		// rewriting today's address.
+		restoreRootNonce: previousAccount.restoreRootNonce,
+		restoreRootCiphertext: previousAccount.restoreRootCiphertext,
+		restorePointerDay: previousAccount.restorePointerDay,
+		restorePointerSlot: previousAccount.restorePointerSlot,
+		restorePointers: previousAccount.restorePointers
 	};
 
 	// Recovery rebind legitimately replaces the existing account row
@@ -1082,19 +1316,22 @@ export async function rebindRecoveredVault(opts: RecoveryRebindInput): Promise<v
 		{ allowOverwrite: true }
 	);
 
-	// The rebind changes vaultKey, which starts a new inventory address
-	// chain at index 0. Re-init the inventory session on the new key and
-	// push the re-sealed whole-vault blob as the first save of that
-	// chain. Best-effort and a no-op when sync is unwired or there is no
-	// session.
-	initInventorySession(nextVaultKey, opts.deviceSalt);
-	await pushBlobToServer({ header, nonce: sealed.nonce, ciphertext: sealed.ciphertext });
-
+	// The rebind changes the device salt, which starts a new inventory
+	// address chain at index 0. Re-init the chain on the kept data key and
+	// push the re-sealed whole-vault blob as the first save of that chain,
+	// forcing a restore record so a later restore finds THIS chain and
+	// the new AAD inputs. Best-effort and a no-op when sync is unwired or
+	// there is no session.
 	zeroize(vaultKey);
 	vaultKey = nextVaultKey;
 	aesKey = oldAesKey;
 	activeAuthMode = opts.authMode;
 	activeFormatVersion = PROVISION_FORMAT_VERSION;
+	startInventoryChain(oldAesKey, opts.deviceSalt);
+	await pushBlobToServer(
+		{ header, nonce: sealed.nonce, ciphertext: sealed.ciphertext },
+		{ forceRestoreRecord: true }
+	);
 	if (opts.authMode === 'demo') zeroize(prf);
 }
 
@@ -1126,6 +1363,7 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 	// update. So reuse the existing key across the upgrade and re-wrap it
 	// under the (already derived) vaultKey below.
 	let activeAesKey = aesKey;
+	const mintedDataKey = !activeAesKey;
 	if (!activeAesKey) {
 		activeAesKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LEN));
 	}
@@ -1176,6 +1414,12 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 			updatedAt
 		});
 	}
+	// A freshly minted data key (first save after a v1 unlock) starts
+	// the inventory chain, which hangs off that key.
+	if (mintedDataKey) {
+		startInventoryChain(activeAesKey, account.deviceSalt, BigInt(account.inventoryIndex ?? 0));
+	}
+	aesKey = activeAesKey;
 	// Fire-and-forget upload to the sync server. The local Dexie
 	// write is the source of truth; if upload fails (network down,
 	// rate-limited, etc.) the observer logs and we move on. The
@@ -1186,7 +1430,6 @@ export async function saveItems(items: VaultItem[]): Promise<void> {
 			message: err instanceof Error ? err.message : 'sync push crashed'
 		});
 	});
-	aesKey = activeAesKey;
 }
 
 export type RotateAuthInput = {
@@ -1468,6 +1711,17 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 		// rotateAuth. The vaultKey changes (new MP / passkey / OPAQUE
 		// factors) but the per-account long-term identity does not.
 		accountSeed: account.accountSeed,
+		// The inventory chain and the restore root hang off the data key,
+		// which this rotation keeps — so the device's chain position and
+		// its restore state carry over untouched.
+		inventoryIndex: account.inventoryIndex,
+		inventoryPushedAt: account.inventoryPushedAt,
+		restoreRootNonce: account.restoreRootNonce,
+		restoreRootCiphertext: account.restoreRootCiphertext,
+		restorePointerDay: account.restorePointerDay,
+		restorePointerSlot: account.restorePointerSlot,
+		restorePointerIndex: account.restorePointerIndex,
+		restorePointers: account.restorePointers,
 
 		// Carry-over OR override based on the rotation request.
 		masterPasswordEnabled:
@@ -1533,11 +1787,199 @@ export async function rotateAuth(opts: RotateAuthInput): Promise<void> {
 	// re-sealed vault blob and the Recovery Envelope remain valid under it.
 	zeroize(vaultKey);
 	vaultKey = newVaultKey;
-	// The rotated vaultKey starts a new inventory address chain (the
-	// account row above carries no inventoryIndex, so it restarts at 0);
-	// the next save writes index 1 of it. The old chain ages out via GC.
-	initInventorySession(newVaultKey, account.deviceSalt);
+	// The inventory chain derives from the unchanged data key + device
+	// salt, so it continues: no restart, no orphaned server copy, and a
+	// restore record written before the rotation still points at a live
+	// chain.
 	if (account.authMode === 'demo') zeroize(prf);
+}
+
+export type RestoreAdoptInput = {
+	/** The sealed record a fresh device found and opened (see server-restore.ts). */
+	record: RestoreRecordPayload;
+	/** Where the record was found, so this device's next record takes the next slot. */
+	foundAt: RestorePointerCoord;
+	secretKey: Uint8Array;
+	/** Export key from the OPAQUE login this device just completed with the record's client id. */
+	opaqueExportKey: Uint8Array;
+	opaque: { accountId: string; serverId: string; clientId: string };
+	deviceLabel: string;
+	credentialId: ArrayBuffer;
+	credentialPublicKey: ArrayBuffer;
+	authMode: AuthMode;
+	prfOutput: Uint8Array | null;
+	deviceSalt: Uint8Array;
+};
+
+/**
+ * New-device restore. Given an opened restore record and a freshly
+ * registered passkey, walk the old device's inventory chain to its
+ * newest save, fetch and decrypt that vault blob, and re-seal it as
+ * this device's own vault (new device salt, new credential, new
+ * passkey-bound wrapping key; same data key). The OPAQUE identity is
+ * carried over so this device syncs as the same account.
+ *
+ * Refuses to run over an existing local vault. Like a passkey rebind,
+ * a master password on the old device does not carry over.
+ */
+export async function adoptRestoredVault(opts: RestoreAdoptInput): Promise<VaultItem[]> {
+	if (await getAccount()) {
+		throw new Error('adoptRestoredVault: this device already has a vault');
+	}
+	if (opts.secretKey.length !== SECRET_KEY_LEN) {
+		throw new Error(`adoptRestoredVault: secretKey must be ${SECRET_KEY_LEN} bytes`);
+	}
+	if (opts.deviceSalt.length !== DEVICE_SALT_LEN) {
+		throw new Error(`adoptRestoredVault: deviceSalt must be ${DEVICE_SALT_LEN} bytes`);
+	}
+	if (!isSyncWired() || !hasSession()) {
+		throw new Error('adoptRestoredVault: a sync session is required');
+	}
+	const record = opts.record;
+	if (!SUPPORTED_FORMAT_VERSIONS.has(record.formatVersion) || record.formatVersion < 2) {
+		throw new Error(`adoptRestoredVault: unsupported vault formatVersion ${record.formatVersion}`);
+	}
+
+	// 1. Walk the old chain forward from the record's index to the newest save.
+	startInventoryChain(record.aesKey, record.deviceSalt, record.inventoryIndex);
+	let blobId = record.vaultBlobId;
+	try {
+		const newer = await inventoryPullNewer(RESTORE_MAX_WALK);
+		if (newer) blobId = newer.blobId;
+	} finally {
+		clearInventorySession();
+	}
+
+	// 2. Fetch and decrypt it under the record's data key + AAD inputs.
+	const fetched = await fetchV2Blob(blobId);
+	if (!fetched.ok) {
+		throw new Error(
+			'The vault copy on the sync server could not be fetched. It may have expired — a vault is kept for 60 days after its last use.'
+		);
+	}
+	let remote: { header: Uint8Array; ciphertext: Uint8Array };
+	try {
+		remote = unpackVaultBody(base64ToBytes(fetched.value.ciphertext));
+	} catch {
+		throw new Error('The vault copy on the sync server is malformed.');
+	}
+	const oldCredential = record.credentialId.buffer.slice(
+		record.credentialId.byteOffset,
+		record.credentialId.byteOffset + record.credentialId.byteLength
+	) as ArrayBuffer;
+	const oldAad = makeAad(
+		record.formatVersion,
+		record.authMode,
+		record.deviceSalt,
+		oldCredential,
+		remote.header
+	);
+	let plaintext: Uint8Array;
+	try {
+		plaintext = openBlob(
+			record.aesKey,
+			base64ToBytes(fetched.value.nonce),
+			remote.ciphertext,
+			oldAad,
+			record.formatVersion
+		);
+	} catch (err) {
+		throw new Error('The restore record opened, but the vault copy did not decrypt under it.', {
+			cause: err
+		});
+	}
+
+	// 3. Re-seal as this device's vault.
+	let prf: Uint8Array;
+	if (opts.authMode === 'demo') {
+		if (!isDemoAuthEnabled()) {
+			plaintext.fill(0);
+			throw new Error('Demo auth mode is disabled in this build.');
+		}
+		prf = deriveDemoPrfOutput(opts.credentialId, opts.deviceSalt);
+	} else {
+		if (!opts.prfOutput || opts.prfOutput.length !== PRF_OUTPUT_LEN) {
+			plaintext.fill(0);
+			throw new Error('adoptRestoredVault: production restore requires PRF output');
+		}
+		prf = opts.prfOutput;
+	}
+	const dataKey = record.aesKey.slice();
+	const newVaultKey = deriveVaultKey({
+		prfOutput: prf,
+		secretKey: opts.secretKey,
+		deviceSalt: opts.deviceSalt,
+		opaqueExportKey: opts.opaqueExportKey,
+		version: PROVISION_FORMAT_VERSION
+	});
+	let items: VaultItem[];
+	let header: Uint8Array;
+	let sealed: { nonce: Uint8Array; ciphertext: Uint8Array };
+	try {
+		items = deserializeItems(plaintext);
+		header = serializeWrappedKey(wrapAesKey(newVaultKey, opts.deviceSalt, dataKey));
+		const aad = makeAad(
+			PROVISION_FORMAT_VERSION,
+			opts.authMode,
+			opts.deviceSalt,
+			opts.credentialId,
+			header
+		);
+		sealed = sealBlob(dataKey, plaintext, aad, PROVISION_FORMAT_VERSION);
+	} catch (err) {
+		zeroize(newVaultKey);
+		zeroize(dataKey);
+		throw err;
+	} finally {
+		plaintext.fill(0);
+		if (opts.authMode === 'demo') zeroize(prf);
+	}
+
+	const now = Date.now();
+	try {
+		await saveAccountAndVault(
+			{
+				deviceLabel: opts.deviceLabel,
+				deviceSalt: opts.deviceSalt,
+				credentialId: opts.credentialId,
+				credentialPublicKey: opts.credentialPublicKey,
+				authMode: opts.authMode,
+				formatVersion: PROVISION_FORMAT_VERSION,
+				createdAt: now,
+				plan: 'free',
+				accountSeed: record.accountSeed
+					? record.accountSeed.slice()
+					: crypto.getRandomValues(new Uint8Array(32)),
+				opaqueState: 'enrolled',
+				opaqueAccountId: opts.opaque.accountId,
+				opaqueServerId: opts.opaque.serverId,
+				opaqueClientId: opts.opaque.clientId,
+				masterPasswordEnabled: false,
+				// Seed the record reservation from where we found the record so
+				// this device's first record takes the next slot of that day,
+				// never rewriting the old device's address.
+				restorePointerDay: opts.foundAt.day,
+				restorePointerSlot: opts.foundAt.slot
+			},
+			{ header, nonce: sealed.nonce, ciphertext: sealed.ciphertext, updatedAt: now }
+		);
+	} catch (err) {
+		zeroize(newVaultKey);
+		zeroize(dataKey);
+		throw err;
+	}
+
+	zeroize(vaultKey);
+	zeroize(aesKey);
+	zeroize(restoreRoot);
+	vaultKey = newVaultKey;
+	aesKey = dataKey;
+	restoreRoot = null; // installed by the caller via installRestoreRoot
+	activeAuthMode = opts.authMode;
+	activeFormatVersion = PROVISION_FORMAT_VERSION;
+	startInventoryChain(dataKey, opts.deviceSalt);
+	prefetchAnonTokens();
+	return items;
 }
 
 export function lockSession(): void {
@@ -1553,10 +1995,12 @@ export function lockSession(): void {
 	void opaqueLogout().catch(() => undefined);
 	zeroize(vaultKey);
 	zeroize(aesKey);
+	zeroize(restoreRoot);
 	setSessionToken(null);
 	clearInventorySession();
 	vaultKey = null;
 	aesKey = null;
+	restoreRoot = null;
 	activeAuthMode = null;
 	activeFormatVersion = null;
 }

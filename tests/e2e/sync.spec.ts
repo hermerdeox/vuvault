@@ -106,6 +106,61 @@ test.describe('vault flows · sync', () => {
 		expect(new Set(invPuts).size).toBe(invPuts.length);
 	});
 
+	test('restore onto a fresh device with only Secret Key + Recovery Password', async ({ page }) => {
+		// Two Argon2id stretches (256 MiB each) in the browser plus the
+		// restore walk comfortably exceed the 30s default.
+		test.setTimeout(180_000);
+		await clearStorage(page);
+		const secretKey = await completeM3Onboarding(page);
+
+		await page.getByRole('button', { name: 'Add item' }).click();
+		await page.getByRole('button', { name: /^Login$/ }).click();
+		await page.locator('#ie-title').fill('restore-me');
+		await page.locator('#ie-username').fill('restore-user');
+		await page.locator('#ie-password').fill('correct-horse-battery-staple');
+		await page.getByRole('button', { name: 'Save to vault' }).click();
+		await expect(page.getByText('restore-me')).toBeVisible();
+		await page.getByRole('button', { name: /Sync ·/ }).click();
+		await expect(page.getByTestId('sync-status')).toHaveText('synced', { timeout: 20_000 });
+
+		// The device is gone: no IndexedDB, no session, no passkey.
+		await clearStorage(page);
+		const api = trackApiRequests(page);
+		await page.goto('/restore');
+		await page.locator('#restore-secret').fill(secretKey);
+		await page.locator('#restore-password').fill(RECOVERY_PASSWORD);
+		await page.locator('#restore-device').fill('restored-device');
+		await page.getByRole('button', { name: 'Find my vault' }).click();
+		await expect(page.getByText(/Found it/)).toBeVisible({ timeout: 90_000 });
+		await page.getByRole('button', { name: 'Register passkey and restore' }).click();
+		await expect(page).toHaveURL(/\/vault/, { timeout: 90_000 });
+		await expect(
+			page.getByRole('button', { name: 'restore-me restore-user' })
+		).toBeVisible({ timeout: 20_000 });
+
+		// The record lookups carried no credential (there was no session
+		// to carry); everything else stayed token-only on the v2 surface.
+		const restoreGets = api.filter(
+			(r) => r.method === 'GET' && r.path.startsWith('/api/v2/restore/')
+		);
+		expect(restoreGets.length).toBeGreaterThan(0);
+		for (const r of restoreGets) {
+			expect(r.headers.authorization).toBeUndefined();
+			expect(r.headers['x-vu0-token']).toBeUndefined();
+		}
+		assertNoLegacyRoutes(api);
+		assertTokenOnlyV2(api);
+
+		// Lock and unlock with the NEW device's passkey — the vault is this device's now.
+		await page.getByRole('button', { name: 'Lock vault' }).click();
+		await expect(page).toHaveURL(/\/unlock/);
+		await page.getByRole('button', { name: 'Touch ID quick unlock' }).click();
+		await expect(page).toHaveURL(/\/vault/);
+		await expect(
+			page.getByRole('button', { name: 'restore-me restore-user' })
+		).toBeVisible({ timeout: 20_000 });
+	});
+
 	test('every vault upload is the same size on the wire (V0-C2 floor)', async ({ page }) => {
 		// Forty items through the UI outlasts the 30s default.
 		test.setTimeout(180_000);

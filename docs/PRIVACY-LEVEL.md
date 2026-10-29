@@ -74,6 +74,64 @@ Tier 2+ AKD + CRDT padding work in
 > a manual "Sync now" read can link the reading session to the writing
 > one; and the level flip still requires the live preview probe.
 
+> **2026-10-29 update — new-device restore, without a stable address.**
+>
+> Until this pass, losing the device meant losing the vault even though
+> an encrypted copy sat in R2: everything a fresh device needs to read
+> that copy back was device-bound (the inventory chain hung off the
+> passkey-derived vault key, the blob AAD binds the device salt and
+> credential id, the OPAQUE client id derives from the credential). A
+> device that has **only the Secret Key + Recovery Password** can now
+> restore (`/restore`) and bind the vault to a new passkey.
+>
+> - **Restore record.** While unlocked and synced, the device writes a
+>   sealed 2 KiB record (device salt, credential id, vault data key,
+>   inventory position, OPAQUE identity) to
+>   `/api/v2/restore/<addr>`. The root is one Argon2id stretch of the
+>   Recovery Password mixed with the Secret Key
+>   ([`src/lib/crypto/restore-record.ts`](../src/lib/crypto/restore-record.ts),
+>   [`recovery-envelope.ts`](../src/lib/crypto/recovery-envelope.ts)
+>   `deriveRecoveryMaterial`); the server holds ciphertext under a key
+>   it cannot derive, since OPAQUE keeps the Secret Key off it.
+> - **V0-C1 preserved.** Addresses are `HKDF(root, day ‖ slot)`: fresh
+>   per UTC day, a slot counter for any extra write that day, and no
+>   address is ever rewritten — the same no-stable-address discipline
+>   as the inventory chain. Steady state is one record per active day
+>   (plus one per 64 saves so the restoring device's forward walk stays
+>   short). Writes spend anonymous tokens like every other v2 object.
+> - **Chain re-rooted on the data key.** The inventory chain now derives
+>   from the vault data key + device salt
+>   ([`blob-inventory.ts`](../src/lib/services/blob-inventory.ts)
+>   `deriveChainKey`) instead of the passkey-bound vault key, so
+>   master-password / OPAQUE rotations no longer orphan the server copy
+>   and the restoring device can walk the chain from the record's index
+>   to the newest save. Old chains simply age out.
+> - **Unauthenticated read, by design.** The restoring device has no
+>   session yet (it learns its OPAQUE client id from the record), so
+>   `GET /api/v2/restore/<addr>` carries no credential. The 128-bit
+>   address is the capability — the same model as random blob UUIDs —
+>   and the route is rate-limited per IP
+>   ([`rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts)
+>   `RESTORE_READ`). The record address itself needs the Recovery
+>   Password, so the Secret Key alone cannot even fetch the ciphertext.
+> - **Liveness / revocation.** Records share the 60-day reference GC
+>   ([`migrations/0011_restore_references.sql`](../migrations/0011_restore_references.sql)).
+>   Rotating the Recovery Password deletes this device's old records
+>   before re-keying; disabling recovery deletes them.
+>
+> Residuals (unchanged in kind): a restore read links the restoring
+> session to the session that wrote the record — the same linkage the
+> manual "Sync now" read already has; a holder of Secret Key + Recovery
+> Password can restore without the passkey, exactly the local Recovery
+> Envelope's threat model (the record is its server-held twin); two
+> devices active on the same day could write the same slot (last writer
+> wins) — concurrent multi-device remains Tier 2. A master password on
+> the old device does not carry over, as with a passkey rebind.
+> Verified behaviourally in
+> [`tests/integration/server-restore.spec.ts`](../tests/integration/server-restore.spec.ts)
+> and, against the live preview, by the restore scenario in
+> [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts).
+
 > **2026-05-22 Phase 2 update.** The **V1-C2** criterion ("no
 > persistent device set") **has closed**: as of the session-mint
 > redesign that ships with `migrations/0004_metadata_minimization.sql`,
@@ -174,6 +232,7 @@ Each row in this table maps to actual code paths exercised by
 | Every vault blob padded to a fixed 64 KiB floor — vaults under it are indistinguishable by size (V0-C2) | ✅ shipped | [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `VAULT_PAD_FLOOR_BYTES`; [`tests/integration/v0c2-padding.spec.ts`](../tests/integration/v0c2-padding.spec.ts), on-the-wire size check in [`tests/e2e/sync.spec.ts`](../tests/e2e/sync.spec.ts) |
 | Blob / inventory requests carry single-use anonymous VOPRF tokens, never the session token (V0-C1) | ✅ shipped | [`src/lib/server/api/anon-tokens.ts`](../src/lib/server/api/anon-tokens.ts), [`src/routes/api/v0/tokens/`](../src/routes/api/v0/tokens/), [`tests/integration/v0-anon-tokens.spec.ts`](../tests/integration/v0-anon-tokens.spec.ts), [`tests/integration/v2-blobs.spec.ts`](../tests/integration/v2-blobs.spec.ts) |
 | Fresh inventory address per save; no client deletes / keep-alives; unlock never reads the server (V0-C1) | ✅ shipped | [`src/lib/services/inventory-session.ts`](../src/lib/services/inventory-session.ts); [`src/lib/services/inventory-session.test.ts`](../src/lib/services/inventory-session.test.ts) |
+| New-device restore: sealed restore records at per-(day, slot) addresses rooted in Secret Key + Recovery Password; never rewritten; unauthenticated, IP-rate-limited read; chain re-rooted on the data key so rotations keep it (V0-C1 preserved) | ✅ shipped | [`src/lib/crypto/restore-record.ts`](../src/lib/crypto/restore-record.ts), [`src/lib/services/server-restore.ts`](../src/lib/services/server-restore.ts), [`src/routes/api/v2/restore/[addr]/+server.ts`](../src/routes/api/v2/restore/[addr]/+server.ts), [`migrations/0011_restore_references.sql`](../migrations/0011_restore_references.sql); [`tests/integration/server-restore.spec.ts`](../tests/integration/server-restore.spec.ts), [`tests/integration/v2-restore.spec.ts`](../tests/integration/v2-restore.spec.ts) |
 | Unknown account answered with a fake-record KE2, same status and length as a real one (V0-C3) | ✅ shipped | [`src/lib/server/api/server-opaque.ts`](../src/lib/server/api/server-opaque.ts) `fakeAccount`; [`tests/integration/worker.spec.ts`](../tests/integration/worker.spec.ts) |
 | Production rate-limit bindings fail-closed | ✅ shipped | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) `applyRateLimit` + [`env.ts`](../src/lib/server/api/env.ts) `getRateLimitMode`; mode `OPAQUE_RATE_LIMIT_MODE` is `fail-closed` in `[env.production.vars]`. Verified by [`rate-limit-d1.test.ts`](../src/lib/server/api/rate-limit-d1.test.ts) + [`.github/workflows/release.yml`](../.github/workflows/release.yml) post-deploy burst probe. |
 | Server-side session revocation on lock | ✅ shipped | [`/api/opaque/logout`](../src/routes/api/opaque/logout/+server.ts), wired into `lockSession()` in [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) as a fire-and-forget call. |

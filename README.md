@@ -20,7 +20,8 @@ This is the **SvelteKit application scaffold** for VuVault — the production co
   - L03 hybrid X25519 + ML-KEM-1024 envelope (real keygen / encapsulate / decapsulate; FIPS 203 deterministic vectors locked in `npm run test:fips`)
   - L04 OPAQUE (RFC 9807) client via `@structured-id/opaque` behind a swappable facade; SvelteKit API routes persist opaque records in D1 and mint short-lived blob-sync bearer tokens after KE3
   - L05 Argon2id (RFC 9106) opt-in master-password third factor (`VAULT_HIGH_PARAMS`: 256 MiB, 4 passes, p=1)
-  - Local Recovery Envelope: Secret Key + separate, policy-enforced Recovery Password can recover after passkey loss without server-held key material.
+  - Local Recovery Envelope: Secret Key + separate, policy-enforced Recovery Password can recover after passkey loss; the server holds no key material it can open.
+  - New-device restore: the same two secrets locate and open a sealed restore record on the sync server (fresh address per day, never rewritten — no stable per-account address) and rebuild the vault on a device that has nothing else, binding it to a new passkey (`/restore`).
 - Local persistence under formatVersion 2: a fresh AES-256-GCM key encrypts each vault, the AES key is wrapped under the hybrid envelope, and the AAD authenticates `formatVersion · authMode · deviceSalt · SHA-384(credentialId) · SHA-384(header)`.
 - Per-document encrypted file storage: document items carry a `docBlobId` UUID; plaintext file bytes are sealed client-side under the same vault session key with a distinct AAD domain (`vuvault-doc-aad-v1` bound to the document UUID, device salt, and credential id) and persisted to a separate Dexie `documentBlobs` table. When sync is wired the encrypted bytes upload to `vaults/<accountId>/documents/<blobId>.bin` in R2 — server stores ciphertext only. End-to-end coverage in [`tests/e2e/full-workflow.spec.ts`](tests/e2e/full-workflow.spec.ts); honest level claim in [`docs/PRIVACY-LEVEL.md`](docs/PRIVACY-LEVEL.md).
 - formatVersion 1 vaults from Milestone 1 still unlock; the first save after a v1 unlock transparently rewrites them as v2.
@@ -189,6 +190,7 @@ vuvault/
 | Tier 2 layers (L06 MLS sharing, L07 CRDT sync, etc.) | ❌ Not started |
 | Document item metadata | ✅ Done |
 | Encrypted document file storage | ✅ M3 — AES-256-GCM per-document blobs in Dexie + R2 under `vuvault-doc-aad-v1` AAD; full-workflow E2E asserts no plaintext leak in IndexedDB |
+| New-device restore (Secret Key + Recovery Password → vault from the sync server) | ✅ 2026-10 — sealed restore records at per-day addresses, unauthenticated IP-rate-limited read, data-key-rooted inventory chain; `tests/integration/server-restore.spec.ts` + M3 E2E restore scenario |
 
 See [`CURSOR_PROMPT.md`](./CURSOR_PROMPT.md) for the original handoff and the broader build queue. The full phased plan lives in `.cursor/plans/vuvault-development-roadmap_*.plan.md`.
 
@@ -201,7 +203,7 @@ See [`CURSOR_PROMPT.md`](./CURSOR_PROMPT.md) for the original handoff and the br
 - Real WebAuthn passkey registration with `prf` extension.
 - 32-byte PRF output bound to the platform authenticator + a 16-byte device salt.
 - Vault key = HKDF-SHA512( PRF ‖ Secret Key, salt = device salt, info = "vuvault-vault-key-v1" ).
-- Normal unlock requires the original platform authenticator. If the local/exported Recovery Envelope is enabled, Secret Key + Recovery Password can recover and re-bind a new passkey.
+- Normal unlock requires the original platform authenticator. If the local/exported Recovery Envelope is enabled, Secret Key + Recovery Password can recover and re-bind a new passkey. On a device that has nothing at all, the same two secrets restore the vault from the sync server (`/restore`) and bind it to a fresh passkey, as long as the original device had sync on and recovery enabled.
 
 ### Demo mode
 

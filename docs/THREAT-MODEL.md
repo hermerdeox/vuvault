@@ -37,6 +37,8 @@ Assets are ranked by the impact a successful compromise would have on the founda
 | A13 | OPAQUE session bearer token (1h TTL) | D1 `sessions.token` + client `sessionStorage` | Medium | Revoked server-side on lock via `POST /api/opaque/logout`; revalidated on every blob op |
 | A14 | Bundle hash (SHA-384) | Compiled into bundle; published to Rekor | Public | Verified at every unlock; mismatch refuses decryption |
 | A15 | Audit feed (in-memory) | Vault store on unlock | Low | Bounded ring buffer; no plaintext item content; safeAuditLabel redactor |
+| A16 | Restore root (new-device restore) | In memory while unlocked; at rest wrapped under A01's data key in IndexedDB | **High** | Derived from Argon2id(A06) ‖ A04; disk access alone cannot unwrap it; records it keys are 2 KiB AES-256-GCM ciphertexts at per-(day, slot) addresses the server cannot compute (`src/lib/crypto/restore-record.ts`) |
+| A17 | Restore record ciphertext | R2 `v2/restore/<addr>.bin` (+ `restore_references` liveness row) | Low (opaque) | Contains A01's data key + AAD inputs + OPAQUE identity, sealed under A16; unauthenticated IP-rate-limited read; 60-day GC; deleted on Recovery Password rotation / recovery disable |
 
 ---
 

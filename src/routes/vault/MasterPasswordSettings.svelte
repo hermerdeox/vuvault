@@ -92,6 +92,7 @@
 	let quickUnlockEnabled = $state(false);
 	let quickUnlockBusy = $state(false);
 	let recoveryEnabled = $state(false);
+	let serverRestoreEnabled = $state(false);
 	let recoveryPassword1 = $state('');
 	let recoveryPassword2 = $state('');
 	let recoveryBusy = $state(false);
@@ -101,8 +102,11 @@
 	}
 
 	async function refreshRecoveryStatus() {
-		const { hasRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+		const { hasRecoveryEnvelope, hasServerRestore } = await import(
+			'$lib/services/recovery-envelope'
+		);
 		recoveryEnabled = await hasRecoveryEnvelope();
+		serverRestoreEnabled = await hasServerRestore();
 	}
 
 	$effect(() => {
@@ -352,17 +356,22 @@
 		successMessage = null;
 		let secretKey: Uint8Array | null = null;
 		try {
-			const { enableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
+			const { enableRecovery } = await import('$lib/services/recovery-envelope');
 			secretKey = decodeSecretKey(secretKeyInput);
-			await enableRecoveryEnvelope({
+			const wasEnabled = recoveryEnabled;
+			const result = await enableRecovery({
 				secretKey,
 				recoveryPassword: recoveryPassword1
 			});
 			await refreshRecoveryStatus();
-			successMessage = recoveryEnabled
-				? 'Recovery Envelope rotated.'
-				: 'Recovery Envelope enabled.';
-			audit.push('success', 'Recovery Envelope updated');
+			const restoreNote =
+				result.serverRestore === 'skipped'
+					? ' Sync is off in this build, so new-device restore stays off.'
+					: result.serverRestore === 'rotated'
+						? ' New-device restore re-keyed under the new password; records under the old one were deleted.'
+						: ' New-device restore is on: Secret Key + Recovery Password restore this vault anywhere.';
+			successMessage = (wasEnabled ? 'Recovery Envelope rotated.' : 'Recovery Envelope enabled.') + restoreNote;
+			audit.push('success', 'Recovery Envelope updated', { serverRestore: result.serverRestore });
 			recoveryPassword1 = '';
 			recoveryPassword2 = '';
 			secretKeyInput = '';
@@ -424,8 +433,9 @@
 			const { disableRecoveryEnvelope } = await import('$lib/services/recovery-envelope');
 			await disableRecoveryEnvelope();
 			await refreshRecoveryStatus();
-			successMessage = 'Recovery Envelope disabled on this device.';
-			audit.push('warn', 'Recovery Envelope disabled');
+			successMessage =
+				'Recovery Envelope disabled on this device; new-device restore records were deleted from the sync server.';
+			audit.push('warn', 'Recovery Envelope and new-device restore disabled');
 		} catch (err) {
 			errorMessage =
 				err instanceof Error ? err.message : 'Failed to disable Recovery Envelope';
@@ -465,6 +475,11 @@
 					<p>
 						Local passkey-loss recovery is
 						<strong>{recoveryEnabled ? 'enabled' : 'disabled'}</strong>.
+						New-device restore via the sync server is
+						<strong data-testid="server-restore-status"
+							>{serverRestoreEnabled ? 'enabled' : 'not enabled'}</strong
+						>{#if recoveryEnabled && !serverRestoreEnabled}
+							— enter your Recovery Password below to turn it on{/if}.
 					</p>
 				</div>
 				<Button
@@ -512,7 +527,9 @@
 				</Button>
 				<div class="hint">
 					Use a long passphrase, store it separately from <code>.vukey</code>;
-					VuVault cannot reset it.
+					VuVault cannot reset it. The same password also keys new-device restore:
+					a sealed record on the sync server that only Secret Key + Recovery Password
+					can locate or open.
 				</div>
 				{#if recoveryPassword1 && !recoveryPolicy.ok}
 					<div class="hint warn">{recoveryPolicy.message}</div>

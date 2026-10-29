@@ -35,6 +35,14 @@ export const RECOVERY_ENVELOPE_NONCE_LEN = 12;
 export const RECOVERY_ENVELOPE_AES_KEY_LEN = 32;
 
 const RECOVERY_INFO = 'vuvault-recovery-envelope-key-v1';
+/**
+ * Second HKDF expand off the same Argon2id output: the root of the
+ * server-side restore records (`src/lib/crypto/restore-record.ts`).
+ * Domain-separated from the envelope key so neither can be derived
+ * from the other.
+ */
+const RESTORE_ROOT_INFO = 'vuvault-restore-root-v1';
+const ARGON_SALT_INFO = 'vuvault-recovery-argon-salt-v1';
 const AAD_DOMAIN = new TextEncoder().encode('vuvault-recovery-envelope-aad-v1');
 const PAYLOAD_DOMAIN = 'vuvault-recovery-envelope-payload-v1';
 
@@ -163,12 +171,45 @@ function deserializePayload(payload: Uint8Array): Uint8Array {
 	return payload.slice(1 + domain.length);
 }
 
-export async function deriveRecoveryKey(input: {
+/**
+ * Deterministic Argon2id salt for the recovery material, derived from
+ * the Secret Key. A device that holds only the Secret Key + Recovery
+ * Password (a fresh device restoring from the server) must be able to
+ * reproduce the restore root with no stored salt to read, so the salt
+ * is a function of the Secret Key. The salt is public by definition;
+ * the Secret Key is 256 random bits, so the salt is still unique per
+ * account.
+ */
+export function recoveryArgonSalt(secretKey: Uint8Array): Uint8Array {
+	if (secretKey.length !== RECOVERY_ENVELOPE_KEY_LEN) {
+		throw new Error(
+			`recoveryArgonSalt: Secret Key must be ${RECOVERY_ENVELOPE_KEY_LEN} bytes`
+		);
+	}
+	return hkdf(sha512, secretKey, undefined, ARGON_SALT_INFO, RECOVERY_ENVELOPE_SALT_LEN);
+}
+
+export type RecoveryMaterial = {
+	/** Seals the local Recovery Envelope. */
+	envelopeKey: Uint8Array;
+	/** Roots the server-side restore records; see restore-record.ts. */
+	restoreRoot: Uint8Array;
+	salt: Uint8Array;
+	params: Argon2idParams;
+};
+
+/**
+ * One Argon2id run (the expensive step — 256 MiB at the production
+ * preset) that yields both recovery keys. The envelope and the restore
+ * records are sealed under different HKDF expansions of the same
+ * stretched secret, so enabling both costs one stretch, not two.
+ */
+export async function deriveRecoveryMaterial(input: {
 	secretKey: Uint8Array;
 	recoveryPassword: string;
 	salt: Uint8Array;
 	params?: Argon2idParams;
-}): Promise<Uint8Array> {
+}): Promise<RecoveryMaterial> {
 	if (input.secretKey.length !== RECOVERY_ENVELOPE_KEY_LEN) {
 		throw new Error(
 			`deriveRecoveryKey: Secret Key must be ${RECOVERY_ENVELOPE_KEY_LEN} bytes`
@@ -190,17 +231,32 @@ export async function deriveRecoveryKey(input: {
 	ikm.set(input.secretKey, 0);
 	ikm.set(passwordKey, input.secretKey.length);
 	try {
-		return hkdf(
-			sha512,
-			ikm,
-			input.salt,
-			RECOVERY_INFO,
-			RECOVERY_ENVELOPE_KEY_LEN
-		);
+		return {
+			envelopeKey: hkdf(sha512, ikm, input.salt, RECOVERY_INFO, RECOVERY_ENVELOPE_KEY_LEN),
+			restoreRoot: hkdf(sha512, ikm, input.salt, RESTORE_ROOT_INFO, RECOVERY_ENVELOPE_KEY_LEN),
+			salt: input.salt,
+			params
+		};
 	} finally {
 		zeroize(passwordKey);
 		zeroize(ikm);
 	}
+}
+
+export function zeroizeRecoveryMaterial(m: RecoveryMaterial | null | undefined): void {
+	m?.envelopeKey.fill(0);
+	m?.restoreRoot.fill(0);
+}
+
+export async function deriveRecoveryKey(input: {
+	secretKey: Uint8Array;
+	recoveryPassword: string;
+	salt: Uint8Array;
+	params?: Argon2idParams;
+}): Promise<Uint8Array> {
+	const material = await deriveRecoveryMaterial(input);
+	zeroize(material.restoreRoot);
+	return material.envelopeKey;
 }
 
 export async function sealRecoveryEnvelope(input: {
@@ -211,20 +267,28 @@ export async function sealRecoveryEnvelope(input: {
 	params?: Argon2idParams;
 	salt?: Uint8Array;
 	nonce?: Uint8Array;
+	/**
+	 * Already-derived material (from `deriveRecoveryMaterial`). When
+	 * given, its salt/params are used and the Argon2id stretch is
+	 * skipped; the caller keeps ownership and zeroizes it.
+	 */
+	material?: RecoveryMaterial;
 }): Promise<RecoveryEnvelopeSealed> {
-	const salt = input.salt ?? generateMasterPasswordSalt();
-	const params = input.params ?? VAULT_HIGH_PARAMS;
+	const salt = input.material?.salt ?? input.salt ?? generateMasterPasswordSalt();
+	const params = input.material?.params ?? input.params ?? VAULT_HIGH_PARAMS;
 	const nonce =
 		input.nonce ?? crypto.getRandomValues(new Uint8Array(RECOVERY_ENVELOPE_NONCE_LEN));
 	let key: Uint8Array | null = null;
 	const payload = serializePayload(input.aesKey);
 	try {
-		key = await deriveRecoveryKey({
-			secretKey: input.secretKey,
-			recoveryPassword: input.recoveryPassword,
-			salt,
-			params
-		});
+		key = input.material
+			? input.material.envelopeKey.slice()
+			: await deriveRecoveryKey({
+					secretKey: input.secretKey,
+					recoveryPassword: input.recoveryPassword,
+					salt,
+					params
+				});
 		const ciphertext = gcm(key, nonce, makeAad(input.context)).encrypt(payload);
 		return {
 			version: RECOVERY_ENVELOPE_VERSION,

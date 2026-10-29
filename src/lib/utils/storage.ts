@@ -93,7 +93,34 @@ export interface AccountRecord {
 	inventoryIndex?: number;
 	/** Wall-clock ms of the last successful server push; drives stale refresh. */
 	inventoryPushedAt?: number;
+
+	/**
+	 * New-device restore (`src/lib/crypto/restore-record.ts`). The
+	 * restore root — derived from Secret Key + Recovery Password — lets
+	 * this device write sealed restore records without the Recovery
+	 * Password in hand. It rests here wrapped under the vault data key,
+	 * so disk access alone cannot locate or open the records; the
+	 * unwrapped root lives only in memory while the vault is unlocked.
+	 */
+	restoreRootNonce?: Uint8Array; // 12 bytes
+	restoreRootCiphertext?: Uint8Array;
+	/** UTC day and slot of the most recently reserved record address. */
+	restorePointerDay?: number;
+	restorePointerSlot?: number;
+	/** Inventory index the last SUCCESSFUL record carried (absent = none / failed). */
+	restorePointerIndex?: number;
+	/**
+	 * Addresses (as day/slot coordinates) this device has written under
+	 * the current root, so a Recovery Password rotation or a restore
+	 * disable can delete them. Pruned past the server's GC window.
+	 */
+	restorePointers?: RestorePointerCoord[];
 }
+
+export type RestorePointerCoord = { day: number; slot: number };
+/** Keep coordinates for a little longer than the server's 60-day reference GC. */
+export const RESTORE_POINTER_RETAIN_DAYS = 62;
+export const RESTORE_POINTER_MAX_TRACKED = 256;
 
 export interface VaultBlob {
 	id: 'singleton';
@@ -343,6 +370,44 @@ export function validateAccountRow(rec: unknown): asserts rec is AccountRecord {
 		(typeof r.inventoryPushedAt !== 'number' || r.inventoryPushedAt <= 0)
 	) {
 		throw new Error('Account.inventoryPushedAt must be a positive timestamp');
+	}
+
+	// --- new-device restore optional fields ---
+	const hasRootNonce = r.restoreRootNonce !== undefined;
+	const hasRootCt = r.restoreRootCiphertext !== undefined;
+	if (hasRootNonce !== hasRootCt) {
+		throw new Error('Account.restoreRootNonce and restoreRootCiphertext must be set together');
+	}
+	if (hasRootNonce) {
+		if (!isUint8Array(r.restoreRootNonce) || r.restoreRootNonce.length !== AES_NONCE_LEN) {
+			throw new Error(`Account.restoreRootNonce must be ${AES_NONCE_LEN} bytes`);
+		}
+		if (!isUint8Array(r.restoreRootCiphertext) || r.restoreRootCiphertext.length === 0) {
+			throw new Error('Account.restoreRootCiphertext must be a non-empty Uint8Array');
+		}
+	}
+	for (const field of ['restorePointerDay', 'restorePointerSlot', 'restorePointerIndex'] as const) {
+		const v = r[field];
+		if (v !== undefined && (!Number.isSafeInteger(v) || (v as number) < 0)) {
+			throw new Error(`Account.${field} must be a non-negative integer`);
+		}
+	}
+	if (r.restorePointers !== undefined) {
+		if (!Array.isArray(r.restorePointers) || r.restorePointers.length > RESTORE_POINTER_MAX_TRACKED) {
+			throw new Error('Account.restorePointers must be a bounded array');
+		}
+		for (const c of r.restorePointers as unknown[]) {
+			const coord = c as Partial<RestorePointerCoord> | null;
+			if (
+				!coord ||
+				!Number.isSafeInteger(coord.day) ||
+				(coord.day as number) < 0 ||
+				!Number.isSafeInteger(coord.slot) ||
+				(coord.slot as number) < 0
+			) {
+				throw new Error('Account.restorePointers entries must be {day, slot} non-negative integers');
+			}
+		}
 	}
 }
 
@@ -601,6 +666,66 @@ export async function updateAccountSyncState(update: {
 			if (update.inventoryPushedAt !== undefined) {
 				rec.inventoryPushedAt = update.inventoryPushedAt;
 			}
+		});
+}
+
+/**
+ * Install or clear the wrapped restore root. Clearing (`null`) also
+ * forgets every pointer coordinate — the records they name were written
+ * under the old root and are the caller's job to delete first.
+ * Installing keeps the day/slot reservation so a same-root re-install
+ * (passkey rebind on the same device) never reuses an address, but
+ * forgets `restorePointerIndex` so the next push writes a fresh record.
+ */
+export async function setAccountRestoreRoot(
+	wrapped: { nonce: Uint8Array; ciphertext: Uint8Array } | null
+): Promise<void> {
+	await db.account
+		.where('id')
+		.equals('singleton')
+		.modify((rec) => {
+			if (wrapped) {
+				rec.restoreRootNonce = wrapped.nonce;
+				rec.restoreRootCiphertext = wrapped.ciphertext;
+				delete rec.restorePointerIndex;
+			} else {
+				delete rec.restoreRootNonce;
+				delete rec.restoreRootCiphertext;
+				delete rec.restorePointerDay;
+				delete rec.restorePointerSlot;
+				delete rec.restorePointerIndex;
+				delete rec.restorePointers;
+			}
+		});
+}
+
+/**
+ * Reserve a record address (day, slot) BEFORE the upload, so a failed
+ * or ambiguous write is never retried at the same address. Clears the
+ * success marker until `markRestorePointerWritten` confirms the write.
+ */
+export async function reserveRestorePointer(coord: RestorePointerCoord): Promise<void> {
+	await db.account
+		.where('id')
+		.equals('singleton')
+		.modify((rec) => {
+			rec.restorePointerDay = coord.day;
+			rec.restorePointerSlot = coord.slot;
+			delete rec.restorePointerIndex;
+			const keep = (rec.restorePointers ?? []).filter(
+				(c) => c.day >= coord.day - RESTORE_POINTER_RETAIN_DAYS
+			);
+			keep.push({ day: coord.day, slot: coord.slot });
+			rec.restorePointers = keep.slice(-RESTORE_POINTER_MAX_TRACKED);
+		});
+}
+
+export async function markRestorePointerWritten(inventoryIndex: number): Promise<void> {
+	await db.account
+		.where('id')
+		.equals('singleton')
+		.modify((rec) => {
+			rec.restorePointerIndex = inventoryIndex;
 		});
 }
 

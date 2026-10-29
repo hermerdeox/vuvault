@@ -17,7 +17,7 @@ const handler: RequestHandler = async ({ url }) => {
 		code: 501,
 		path: url.pathname,
 		hint:
-			'No handler for this path. Known paths: /api/opaque/{register,login,logout}/*, /api/v2/{blobs,inv,sessions}/*, /api/capabilities, /api/akd/*.'
+			'No handler for this path. Known paths: /api/opaque/{register,login,logout}/*, /api/v2/{blobs,inv,restore,sessions}/*, /api/capabilities, /api/akd/*.'
 	};
 	return new Response(JSON.stringify(body, null, 2), {
 		status: 501,

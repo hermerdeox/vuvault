@@ -11,8 +11,9 @@
  *
  * High-level shape:
  *
- *   1. Save number `i` writes its inventory to `inventoryAddress(vaultKey,
- *      deviceSalt, i)` — a fresh HKDF-derived address per save. No
+ *   1. Save number `i` writes its inventory to `inventoryAddress(chainKey,
+ *      deviceSalt, i)`, where `chainKey = deriveChainKey(dataKey,
+ *      deviceSalt)` — a fresh HKDF-derived address per save. No
  *      address is written twice, so the server never sees a stable
  *      per-account address recur across saves (V0-C1). The device keeps
  *      its current index locally (`AccountRecord.inventoryIndex`) rather
@@ -57,6 +58,8 @@ import { gcm } from '@noble/ciphers/aes';
 
 export const INVENTORY_ADDRESS_BYTES = 16;
 export const INVENTORY_ADDRESS_HKDF_INFO = 'vuvault/v0c1/inventory-address';
+export const INVENTORY_CHAIN_HKDF_INFO = 'vuvault/v0c1/inventory-chain-v2';
+export const INVENTORY_CHAIN_KEY_BYTES = 32;
 export const INVENTORY_AES_KEY_BYTES = 32;
 export const INVENTORY_NONCE_BYTES = 12;
 
@@ -138,8 +141,28 @@ export function decodeAddress(s: string): Uint8Array {
 }
 
 /**
+ * Root of a device's inventory address chain. Derived from the vault
+ * DATA key (not the passkey-bound wrapping key) and the device salt:
+ *
+ *   - the data key is stable across master-password / OPAQUE rotations
+ *     and passkey re-binds, so those no longer orphan the chain; and
+ *   - a device restoring from the server learns exactly these two
+ *     inputs from the sealed restore record (`restore-record.ts`) and
+ *     can walk the chain to the newest save without the original
+ *     passkey.
+ *
+ * The chain key never leaves memory; HKDF domain separation keeps it
+ * independent of every other use of the data key.
+ */
+export function deriveChainKey(dataKey: Uint8Array, deviceSalt: Uint8Array): Uint8Array {
+	if (dataKey.length === 0) throw new Error('deriveChainKey: dataKey must be non-empty');
+	if (deviceSalt.length === 0) throw new Error('deriveChainKey: deviceSalt must be non-empty');
+	return hkdf(sha512, dataKey, deviceSalt, INVENTORY_CHAIN_HKDF_INFO, INVENTORY_CHAIN_KEY_BYTES);
+}
+
+/**
  * Derive the inventory address for save `index` (≥ 1) from
- * (vaultKey, deviceSalt). Every save writes its inventory to the next
+ * (chainKey, deviceSalt). Every save writes its inventory to the next
  * index, so no address is ever written twice, and without the vault key
  * consecutive addresses are unrelated-looking random strings (V0-C1).
  *

@@ -53,7 +53,8 @@ npm ci --legacy-peer-deps
 | D1-backed sliding-window rate limit | [`src/lib/server/api/rate-limit-d1.ts`](../src/lib/server/api/rate-limit-d1.ts) | `npm run test src/lib/server/api/rate-limit-d1.test.ts` | 11 tests covering quota, fail-open, fail-closed, mode resolution |
 | Production rate-limit fails closed on D1 outage | Same | `npm run test tests/integration/api-routes.spec.ts -t "fails closed"` | 503 with `fail-closed` mode; 200/400 with `fail-open` |
 | Opportunistic D1 row cleanup (pending state, sessions, rate limits) | [`src/lib/server/api/cleanup.ts`](../src/lib/server/api/cleanup.ts) | `npm run test src/lib/server/api/cleanup.test.ts` | 3 tests; deterministic sweepNow + partial-failure tolerance |
-| Opportunistic R2 garbage collection (reference-counted v2 blobs) | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) `gcV2Now`/`maybeGcV2` | `npm run test src/lib/server/api/r2-gc.test.ts` | 4 tests covering stale-reference collection, R2-delete-failure tolerance, D1-read-failure degradation, and below-cutoff no-op |
+| Opportunistic R2 garbage collection (reference-counted v2 blobs, inventories, restore records) | [`src/lib/server/api/r2-gc.ts`](../src/lib/server/api/r2-gc.ts) `gcV2Now`/`maybeGcV2` | `npm run test src/lib/server/api/r2-gc.test.ts` | 5 tests covering stale-reference collection (all three prefixes), R2-delete-failure tolerance, D1-read-failure degradation, and below-cutoff no-op |
+| Restore-record route: PUT/DELETE spend an anonymous token; GET is unauthenticated by design (no session exists yet), IP-rate-limited, 404 (never 401) for an unknown address; R2 key `v2/restore/<addr>.bin` with no account binding; `restore_references` carries only (addr, last_seen_at) with a sentinel trigger | [`src/routes/api/v2/restore/[addr]/+server.ts`](../src/routes/api/v2/restore/[addr]/+server.ts), [`migrations/0011_restore_references.sql`](../migrations/0011_restore_references.sql) | `npm run test tests/integration/v2-restore.spec.ts` | 8 tests: token-gated writes, credential-free read, 404 on miss, per-IP 429, heartbeat-by-read, GC under the v2/restore prefix |
 | API route ↔ Env interface ↔ wrangler.toml parity | [`scripts/audit-bindings.mjs`](../scripts/audit-bindings.mjs) | `node scripts/audit-bindings.mjs` | `audit-bindings: OK (2 Env bindings × 2 envs verified, 7 vars tracked)` |
 
 ---
@@ -83,6 +84,8 @@ npm ci --legacy-peer-deps
 | Plaintext never leaves IndexedDB unencrypted | [`tests/e2e/full-workflow.spec.ts`](../tests/e2e/full-workflow.spec.ts) "zero-knowledge IDB inspection" | `npm run test:e2e -- tests/e2e/full-workflow.spec.ts` (requires dev server) | E2E asserts none of the 7 typed plaintext secrets appear anywhere in encrypted IDB rows |
 | Auto-lock (5min idle / 30s hidden / pagehide) | [`src/lib/services/auto-lock.ts`](../src/lib/services/auto-lock.ts) | `npm run test src/lib/services/auto-lock.test.ts` | Idle, visibility-change, pagehide branches |
 | Clipboard auto-clear (60s, on lock) | [`src/lib/services/secure-clipboard.ts`](../src/lib/services/secure-clipboard.ts) | `npm run test src/lib/services/secure-clipboard.test.ts` | Clear timer + lock-triggered clear assertions |
+| New-device restore record: 2 KiB fixed bucket, AES-256-GCM under HKDF(root, address), address = HKDF(root, day ‖ slot) rooted in Argon2id(Recovery Password) ‖ Secret Key; root rests locally wrapped under the vault data key only | [`src/lib/crypto/restore-record.ts`](../src/lib/crypto/restore-record.ts), [`src/lib/crypto/recovery-envelope.ts`](../src/lib/crypto/recovery-envelope.ts) `deriveRecoveryMaterial` | `npm run test src/lib/crypto/restore-record.test.ts` | 8 tests: address determinism/unlinkability, fixed bucket, wrong-root / moved-address / flipped-byte rejection, root-wrap fail-closed |
+| New-device restore end to end: records published on enable, once per day, then per 64 saves, never at a reused address; fresh device with only Secret Key + Recovery Password walks the chain to the newest save; wrong password finds nothing; MP rotation keeps chain + restore state; Recovery Password rotation deletes old records; disable deletes all | [`src/lib/services/vault-session.ts`](../src/lib/services/vault-session.ts) `writeRestoreRecord` / `adoptRestoredVault`, [`src/lib/services/server-restore.ts`](../src/lib/services/server-restore.ts) | `npm run test tests/integration/server-restore.spec.ts` | 6 tests (each runs the production 256 MiB Argon2id preset; ~30 s total) |
 | Mobile WCAG 2.5.5 touch-target floor (44×44) | [`tests/e2e/mobile-responsive.spec.ts`](../tests/e2e/mobile-responsive.spec.ts) | `npm run test:e2e -- tests/e2e/mobile-responsive.spec.ts` (requires dev server) | "primary vault chrome hits at least 44×44 CSS px" passes |
 
 ---
@@ -113,6 +116,11 @@ curl -s https://<origin>/_app/immutable/bundle-manifest.json | jq -r '.aggregate
 
 # 5.5 Verify the live v2 transport enforces auth (unauthenticated → 401)
 curl -i -X GET https://<origin>/api/v2/blobs/11111111-2222-4333-8444-555555555555   # expect 401 unauthorized
+# 5.6 Restore-record read is credential-free and 404s on a miss (never 401); writes are token-gated
+curl -i https://<origin>/api/v2/restore/aaaaaaaaaaaaaaaaaaaaaaaaaa              # expect 404 "no restore record"
+curl -i -X PUT https://<origin>/api/v2/restore/aaaaaaaaaaaaaaaaaaaaaaaaaa \
+  -H 'content-type: application/json' -d '{"nonce":"AA==","ciphertext":"AA=="}'   # expect 401 invalid token
+
 # 5.5b The legacy per-account transport was deleted in the §L07b pass (V1-C1/V1-C3)
 curl -i -X POST https://<origin>/api/blobs/upload    # expect 404/410/501 (route removed)
 ```
@@ -157,5 +165,5 @@ If the auditor wants to expand scope into any of the above, that is a separate e
 
 This document is updated by the engineering team on every release that changes a primitive, schema, route, or control. The `last reviewed` line below is the canonical pointer; if it's older than the release tag the auditor is examining, the auditor should ask for a refresh.
 
-- **Last reviewed:** 2026-05-19 (post-v0.1.11 milestone audit)
+- **Last reviewed:** 2026-10-29 (new-device restore: route, migration 0011, data-key-rooted chain)
 - **Next review:** Before the Tier 1 third-party audit kickoff
