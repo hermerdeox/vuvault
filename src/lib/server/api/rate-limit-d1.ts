@@ -18,7 +18,12 @@ export const RATE_LIMITS = {
 	// Anonymous-token issuance. Each call mints up to TOKEN_MAX_BATCH
 	// tokens and each token pays for exactly one v2 request, so this is
 	// the effective per-session budget for blob / inventory traffic.
-	TOKEN_ISSUE: { name: 'token-issue', limit: 10, windowSecs: 60 }
+	TOKEN_ISSUE: { name: 'token-issue', limit: 10, windowSecs: 60 },
+	// Unauthenticated restore-record reads (GET /api/v2/restore/<addr>).
+	// A restoring device scans at most ~62 day addresses plus a few
+	// slots each, so one budget comfortably covers a full scan while
+	// still bounding address-guessing by network origin.
+	RESTORE_READ: { name: 'restore-read', limit: 120, windowSecs: 60 }
 } as const satisfies Record<string, RateLimitConfig>;
 
 /**

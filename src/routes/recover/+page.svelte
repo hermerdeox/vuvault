@@ -221,15 +221,26 @@
 					</div>
 				</button>
 
-				<div class="option disabled">
-					<div class="option-title">Restore from sync</div>
-					<div class="option-body">
-						Pull encrypted blob from a paired device or self-hosted server. <strong>
-							Not shipped yet.
-						</strong> Planned for Tier 2 sync.
+				{#if accountExists}
+					<div class="option disabled" aria-disabled="true">
+						<div class="option-title">Restore from sync</div>
+						<div class="option-body">
+							Your <strong>Secret Key + Recovery Password</strong> pull the encrypted vault
+							from the sync server onto a device with no vault. This device already has one —
+							use <strong>Start fresh</strong> first, then Restore.
+						</div>
+						<div class="option-tag">Wipe this device first</div>
 					</div>
-					<div class="option-tag">Tier 2 roadmap</div>
-				</div>
+				{:else}
+					<a class="option" href="/restore">
+						<div class="option-title">Restore from sync</div>
+						<div class="option-body">
+							Your <strong>Secret Key + Recovery Password</strong> locate and open the
+							encrypted vault on the sync server, then bind it to a new passkey here. Works
+							when the original device enabled new-device restore.
+						</div>
+					</a>
+				{/if}
 
 				<div class="option disabled">
 					<div class="option-title">Threshold recovery (FROST)</div>
@@ -350,9 +361,10 @@
 			</h1>
 			<p class="lede">
 				This wipes the encrypted vault, account record, and audit log on this device. If
-				future Tier 2 sync restore is available on your account, this device may be able
-				to re-pull later. Restore is not shipped yet; if this is your only copy, the data
-				is gone — by design.
+				new-device restore was enabled (sync on, Recovery Password set), you can pull the
+				encrypted vault back afterwards from <strong>Restore</strong> with your Secret Key +
+				Recovery Password. Otherwise, if this is your only copy, the data is gone — by
+				design.
 			</p>
 
 			<label class="confirm">
@@ -491,6 +503,9 @@
 		transition: var(--transition);
 		cursor: pointer;
 		font: inherit;
+	}
+	a.option {
+		text-decoration: none;
 	}
 	.option:hover:not(:disabled):not(.disabled) {
 		background: var(--surface-hover);

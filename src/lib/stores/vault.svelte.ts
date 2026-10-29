@@ -556,6 +556,11 @@ setSyncObserver({
 			seq: sequenceClock
 		});
 	},
+	onRestoreRecord: ({ ok, message }) => {
+		audit.push(ok ? 'info' : 'warn', ok ? 'New-device restore record published' : 'Restore record not published', {
+			message
+		});
+	},
 	onPullSkipped: ({ reason }) => {
 		// `local-newer` and `not-wired` are quiet steady-state cases —
 		// only surface harder errors. The other reasons (`network`,

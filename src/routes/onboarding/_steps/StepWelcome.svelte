@@ -55,7 +55,7 @@
 				Begin setup
 				<IconArrowRight size={14} stroke={2.2} />
 			</Button>
-			<Button variant="ghost" href="#restore">
+			<Button variant="ghost" href="/restore">
 				<IconRefresh size={14} />
 				<span data-vp-show="desktop">Restore from another device instead</span>
 				<span data-vp-show="mobile">Restore instead</span>

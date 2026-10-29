@@ -5,8 +5,12 @@
  *
  * Every save uploads the whole-vault blob to a random UUID and then
  * writes a small encrypted inventory naming that UUID. The inventory
- * for save number `i` lives at `inventoryAddress(vaultKey, deviceSalt,
- * i)`: a fresh address per save, never written twice (V0-C1). Together
+ * for save number `i` lives at `inventoryAddress(chainKey, deviceSalt,
+ * i)`, with `chainKey` derived from the vault data key + device salt
+ * (`deriveChainKey`): a fresh address per save, never written twice
+ * (V0-C1). A device restoring from the server re-derives the same
+ * chain from the sealed restore record and walks it forward
+ * (`inventoryPullNewer` with a larger probe bound). Together
  * with the anonymous request tokens, that leaves the server no stable
  * per-account identifier that recurs from one save to the next — the
  * fixed Candidate-1 bootstrap address this replaces was overwritten in
@@ -38,7 +42,7 @@ import { uploadV2Inventory, fetchV2Inventory, isSyncWired, hasSession } from './
 
 /**
  * Upper bound on forward probes per manual pull. The only writer of this
- * address chain is a holder of the same (vaultKey, deviceSalt), so more
+ * address chain is a holder of the same (chainKey, deviceSalt), so more
  * than a handful of unseen saves means something is wrong; stop rather
  * than walk an unbounded number of addresses.
  */
@@ -202,11 +206,13 @@ export async function inventoryRecordVaultBlob(
  * lets a logging server link this session to whichever session later
  * writes there, which is why unlock never calls it.
  */
-export async function inventoryPullNewer(): Promise<{ blobId: string; index: bigint } | null> {
+export async function inventoryPullNewer(
+	maxProbes: number = MAX_PULL_PROBES
+): Promise<{ blobId: string; index: bigint } | null> {
 	if (!active || !isSyncWired() || !hasSession()) return null;
 	const session = active;
 	let newest: { inv: InventoryPlaintext; index: bigint } | null = null;
-	for (let step = 1n; step <= BigInt(MAX_PULL_PROBES); step++) {
+	for (let step = 1n; step <= BigInt(maxProbes); step++) {
 		const index = session.latestIndex + step;
 		const outcome = await fetchInventoryAt(session, index);
 		if (outcome.kind !== 'present') break;

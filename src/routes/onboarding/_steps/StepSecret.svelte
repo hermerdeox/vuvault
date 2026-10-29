@@ -82,7 +82,9 @@ Secret Key (256 bits, Base32-Crockford):
 ${groupChars(onboarding.secretKeyEncoded, 4).join(' ')}
 
 Recovery requires this Secret Key plus either the original paired device
-or the Recovery Password you set in the next step. Print this. Keep it offline.
+or the Recovery Password you set in the next step. On a NEW device, this
+Secret Key + your Recovery Password restore the vault from the sync server
+(Restore on the setup screen). Print this. Keep it offline.
 Do NOT write the Recovery Password on this sheet.
 
 Bundle SHA-384 (verify against the published GitHub release):

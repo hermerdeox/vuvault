@@ -64,11 +64,12 @@ export async function maybeGcV2(env: Env): Promise<void> {
  */
 export async function gcV2Now(
 	env: Env
-): Promise<{ v2BlobsDeleted: number; v2InvsDeleted: number }> {
+): Promise<{ v2BlobsDeleted: number; v2InvsDeleted: number; v2RestoreDeleted: number }> {
 	const cutoffSec = Math.floor((Date.now() - V2_REF_MAX_AGE_MS) / 1000);
 	const v2BlobsDeleted = await gcV2BlobReferences(env, cutoffSec);
 	const v2InvsDeleted = await gcV2InvReferences(env, cutoffSec);
-	return { v2BlobsDeleted, v2InvsDeleted };
+	const v2RestoreDeleted = await gcV2RestoreReferences(env, cutoffSec);
+	return { v2BlobsDeleted, v2InvsDeleted, v2RestoreDeleted };
 }
 
 async function gcV2BlobReferences(env: Env, cutoffSec: number): Promise<number> {
@@ -140,6 +141,51 @@ async function gcV2InvReferences(env: Env, cutoffSec: number): Promise<number> {
 		try {
 			await env.AUTH_DB
 				.prepare(`DELETE FROM inv_references WHERE addr = ?`)
+				.bind(row.addr)
+				.run();
+			deleted += 1;
+		} catch {
+			// Tolerable.
+		}
+	}
+	return deleted;
+}
+
+/**
+ * Restore records (`v2/restore/<addr>.bin`, migration 0011) age out on
+ * the same window: a device re-asserts its current record by writing a
+ * fresh one at least every 30 days (the stale-push refresh at unlock),
+ * and a restore read refreshes whichever record it found.
+ */
+async function gcV2RestoreReferences(env: Env, cutoffSec: number): Promise<number> {
+	let victims: { addr: string }[];
+	try {
+		const result = await env.AUTH_DB
+			.prepare(
+				`SELECT addr FROM restore_references
+				 WHERE last_seen_at < ?
+				 ORDER BY last_seen_at ASC
+				 LIMIT ?`
+			)
+			.bind(cutoffSec, V2_VICTIM_BATCH)
+			.all<{ addr: string }>();
+		victims = result?.results ?? [];
+	} catch {
+		return 0;
+	}
+	if (victims.length === 0) return 0;
+
+	let deleted = 0;
+	for (const row of victims) {
+		const key = `v2/restore/${row.addr}.bin`;
+		try {
+			await env.VAULT_BLOBS.delete(key);
+		} catch {
+			// Tolerable.
+		}
+		try {
+			await env.AUTH_DB
+				.prepare(`DELETE FROM restore_references WHERE addr = ?`)
 				.bind(row.addr)
 				.run();
 			deleted += 1;

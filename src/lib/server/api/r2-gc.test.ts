@@ -53,6 +53,9 @@ class FakeStmt {
 		if (this.sql.includes('FROM inv_references')) {
 			return Promise.resolve({ results: pick(this.db.invRefs, cutoff, limit, 'addr') as T[] });
 		}
+		if (this.sql.includes('FROM restore_references')) {
+			return Promise.resolve({ results: pick(this.db.restoreRefs, cutoff, limit, 'addr') as T[] });
+		}
 		return Promise.resolve({ results: [] as T[] });
 	}
 
@@ -61,6 +64,8 @@ class FakeStmt {
 			this.db.blobRefs.delete(this.args[0] as string);
 		} else if (this.sql.includes('DELETE FROM inv_references')) {
 			this.db.invRefs.delete(this.args[0] as string);
+		} else if (this.sql.includes('DELETE FROM restore_references')) {
+			this.db.restoreRefs.delete(this.args[0] as string);
 		} else if (this.sql.includes('UPDATE blob_references SET last_seen_at')) {
 			// Keep-alive touch: refresh an EXISTING row to "now"; unknown
 			// ids match nothing (changes = 0), so no phantom row is minted.
@@ -78,6 +83,7 @@ class FakeStmt {
 class FakeD1 {
 	blobRefs = new Map<string, number>();
 	invRefs = new Map<string, number>();
+	restoreRefs = new Map<string, number>();
 	selectShouldFail = false;
 
 	prepare(sql: string): FakeStmt {
@@ -116,7 +122,7 @@ describe('r2-gc · gcV2Now', () => {
 
 		const result = await gcV2Now(envWith(db, r2));
 
-		expect(result).toEqual({ v2BlobsDeleted: 1, v2InvsDeleted: 1 });
+		expect(result).toEqual({ v2BlobsDeleted: 1, v2InvsDeleted: 1, v2RestoreDeleted: 0 });
 		expect(r2.deletedKeys).toContain('v2/blobs/11111111-1111-4111-8111-111111111111.bin');
 		expect(r2.deletedKeys).toContain('v2/inv/aaaaaaaaaaaaaaaaaaaaaaaaaa.bin');
 		// Account-free key shape — never a vaults/{accountId}/... path.
@@ -149,7 +155,7 @@ describe('r2-gc · gcV2Now', () => {
 
 		const result = await gcV2Now(envWith(db, r2));
 
-		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0 });
+		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0, v2RestoreDeleted: 0 });
 		expect(r2.deletedKeys).toHaveLength(0);
 	});
 
@@ -160,7 +166,23 @@ describe('r2-gc · gcV2Now', () => {
 
 		const result = await gcV2Now(envWith(db, r2));
 
-		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0 });
+		expect(result).toEqual({ v2BlobsDeleted: 0, v2InvsDeleted: 0, v2RestoreDeleted: 0 });
 		expect(db.blobRefs.size).toBe(1);
+	});
+});
+
+describe('r2-gc · restore records', () => {
+	it('collects stale restore records under the account-free v2/restore prefix', async () => {
+		const db = new FakeD1();
+		db.restoreRefs.set('cccccccccccccccccccccccccc', STALE_SEC);
+		db.restoreRefs.set('dddddddddddddddddddddddddd', FRESH_SEC);
+		const r2 = new FakeR2();
+
+		const result = await gcV2Now(envWith(db, r2));
+
+		expect(result.v2RestoreDeleted).toBe(1);
+		expect(r2.deletedKeys).toEqual(['v2/restore/cccccccccccccccccccccccccc.bin']);
+		expect(db.restoreRefs.has('dddddddddddddddddddddddddd')).toBe(true);
+		expect(db.restoreRefs.has('cccccccccccccccccccccccccc')).toBe(false);
 	});
 });

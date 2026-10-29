@@ -39,7 +39,8 @@ The claim does **not** extend to:
 | Hash | SHA-384 / SHA-512 | FIPS 180-4 | Length-extension safe via HMAC |
 | MAC | HMAC | RFC 2104 | Pairs with SHA-2 |
 | WebAuthn | Level 3 + PRF | W3C / FIDO | Hardware-backed; PRF unlocks vault key |
-| Local Recovery Envelope | Argon2id + HKDF-SHA512 + AES-256-GCM | RFC 9106 / NIST SP 800-56C / NIST SP 800-38D | Passkey-loss recovery without server-held recovery material |
+| Local Recovery Envelope | Argon2id + HKDF-SHA512 + AES-256-GCM | RFC 9106 / NIST SP 800-56C / NIST SP 800-38D | Passkey-loss recovery; the server holds no key material it can open |
+| New-device restore record | Argon2id + HKDF-SHA512 + AES-256-GCM | RFC 9106 / NIST SP 800-56C / NIST SP 800-38D | Server-held ciphertext twin of the Recovery Envelope at per-day, never-rewritten addresses; opens only with Secret Key + Recovery Password |
 | Random | `crypto.getRandomValues` | W3C Web Crypto API | Browser-vetted CSPRNG |
 
 We do **not** use:
