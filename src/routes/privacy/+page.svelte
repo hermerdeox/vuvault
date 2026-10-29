@@ -49,9 +49,49 @@
 	function goTo(i: number) {
 		const idx = Math.max(0, Math.min(SECTIONS.length - 1, i));
 		current = idx;
+		const id = SECTIONS[idx]!.id;
 		if (useNativeSnap) {
-			document.getElementById(SECTIONS[idx]!.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			// Tabs are a jump control: land instantly, so the active-tab
+			// observer does not flicker through the panels in between.
+			// 'instant' overrides the stage's CSS scroll-behavior: smooth
+			// ('auto' would defer to it and animate).
+			document.getElementById(id)?.scrollIntoView({ behavior: 'instant', block: 'start' });
+			return;
 		}
+		// The panel that held focus is about to go inert; keep focus in the
+		// tablist so a keyboard user never lands on <body>.
+		queueMicrotask(() =>
+			document.getElementById(`tab-${id}`)?.focus({ preventScroll: true })
+		);
+	}
+
+	/**
+	 * Mark a scroller's overflow edges as data attributes so CSS can fade
+	 * the edge that still has content behind it (tab strip, bounded lists).
+	 */
+	function scrollEdges(node: HTMLElement, axis: 'x' | 'y') {
+		const update = () => {
+			const start = axis === 'x' ? node.scrollLeft : node.scrollTop;
+			const max =
+				axis === 'x'
+					? node.scrollWidth - node.clientWidth
+					: node.scrollHeight - node.clientHeight;
+			node.dataset.overflowStart = String(start > 1);
+			node.dataset.overflowEnd = String(max - start > 1);
+		};
+		update();
+		node.addEventListener('scroll', update, { passive: true });
+		const ro = new ResizeObserver(update);
+		ro.observe(node);
+		const mo = new MutationObserver(update);
+		mo.observe(node, { childList: true, subtree: true, characterData: true });
+		return {
+			destroy() {
+				node.removeEventListener('scroll', update);
+				ro.disconnect();
+				mo.disconnect();
+			}
+		};
 	}
 	const next = () => goTo(current + 1);
 	const prev = () => goTo(current - 1);
@@ -112,6 +152,15 @@
 	});
 
 	const trackTransform = $derived(useNativeSnap ? 'none' : `translateY(${-current * 100}%)`);
+
+	// Narrow strips scroll: keep the active tab in view when it changes.
+	$effect(() => {
+		const id = SECTIONS[current]!.id;
+		if (!hydrated) return;
+		document
+			.getElementById(`tab-${id}`)
+			?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
+	});
 	// In snap mode every panel is in flow (and live); on desktop only the
 	// current one is reachable — the rest are inert and off the a11y tree.
 	const isActive = (i: number) => useNativeSnap || current === i;
@@ -124,6 +173,7 @@
 	let filter = $state<'all' | Status>('all');
 	const filtered = $derived(filter === 'all' ? EVIDENCE : EVIDENCE.filter((r) => r.status === filter));
 	const statusLabel = (s: Status) => (s === 'shipped' ? 'Shipped' : s === 'partial' ? 'Partial' : 'Pending');
+	const filterLabel = $derived(filter === 'all' ? 'matching' : statusLabel(filter).toLowerCase());
 	const defendedCount = THREATS.filter((t) => t.defended).length;
 </script>
 
@@ -148,7 +198,7 @@
 		</div>
 	</header>
 
-	<div class="tabs" aria-label="Privacy sections" role="tablist">
+	<div class="tabs" aria-label="Privacy sections" role="tablist" use:scrollEdges={'x'}>
 		{#each SECTIONS as s, i (s.id)}
 			<button
 				class="tab"
@@ -210,6 +260,9 @@
 								What holds today · {here.when}
 							</div>
 							<p class="holds-body">{here.summary}</p>
+							<button class="holds-more" onclick={() => goTo(1)}>
+								Full text in the ladder <IconArrowRight size={11} stroke={2.2} />
+							</button>
 						</div>
 					</div>
 					<div class="cta-row">
@@ -268,7 +321,7 @@
 							<span class="lvl-detail-headline">{openLevelRow.headline}</span>
 							<span class="lvl-detail-when">{openLevelRow.when}</span>
 						</div>
-						<p class="lvl-detail-summary" data-scroll>{openLevelRow.summary}</p>
+						<p class="lvl-detail-summary" data-scroll use:scrollEdges={'y'}>{openLevelRow.summary}</p>
 					</article>
 				</div>
 			</div>
@@ -317,7 +370,12 @@
 							Pending <span class="chip-n">{stats.pending}</span>
 						</button>
 					</div>
-					<div class="list evidence-list" data-scroll data-testid="evidence-list">
+					<div class="list evidence-list" data-scroll data-testid="evidence-list" use:scrollEdges={'y'}>
+						{#if filtered.length === 0}
+							<div class="empty">
+								No {filterLabel} claims. Nothing on this page sits in that state today.
+							</div>
+						{/if}
 						{#each filtered as row (row.id)}
 							<article class="ev">
 								<div class="ev-id">{row.id}</div>
@@ -350,7 +408,7 @@
 							malware. These limits are deliberate and stated up front.
 						</p>
 					</header>
-					<div class="list threat-grid" data-scroll>
+					<div class="list threat-grid" data-scroll use:scrollEdges={'y'}>
 						{#each THREATS as t (t.id)}
 							<article class="threat" class:threat-undef={!t.defended}>
 								<div class="threat-top">
@@ -520,9 +578,22 @@
 		font-family: var(--font-mono);
 		font-size: 10px;
 		letter-spacing: 0.08em;
-		color: var(--text-4);
+		color: var(--text-3);
 		white-space: nowrap;
 		padding-left: 12px;
+	}
+	/* Fade the edge of the strip that still has tabs behind it. */
+	.tabs:global([data-overflow-end='true']) {
+		mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+		-webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+	}
+	.tabs:global([data-overflow-start='true']) {
+		mask-image: linear-gradient(to right, transparent, black 32px);
+		-webkit-mask-image: linear-gradient(to right, transparent, black 32px);
+	}
+	.tabs:global([data-overflow-start='true'][data-overflow-end='true']) {
+		mask-image: linear-gradient(to right, transparent, black 32px, black calc(100% - 40px), transparent);
+		-webkit-mask-image: linear-gradient(to right, transparent, black 32px, black calc(100% - 40px), transparent);
 	}
 	@media (max-width: 64em) {
 		.tabs-hint {
@@ -607,10 +678,20 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		scrollbar-width: thin;
+		scrollbar-color: var(--border-mid) transparent;
 		padding-right: 2px;
+	}
+	/* A bounded list with more rows below fades out instead of cutting a
+	   row in half at the panel edge. */
+	.list:global([data-overflow-end='true']),
+	.lvl-detail-summary:global([data-overflow-end='true']) {
+		mask-image: linear-gradient(to bottom, black calc(100% - 36px), transparent);
+		-webkit-mask-image: linear-gradient(to bottom, black calc(100% - 36px), transparent);
 	}
 	.stage.native-snap .list {
 		overflow: visible;
+		mask-image: none;
+		-webkit-mask-image: none;
 	}
 
 	/* ---------- hero ---------- */
@@ -725,10 +806,24 @@
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}
-	.stage.native-snap .holds-body {
-		display: block;
-		-webkit-line-clamp: unset;
-		line-clamp: unset;
+	.holds-more {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-top: 10px;
+		padding: 0;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--accent);
+		cursor: pointer;
+		transition: var(--transition);
+	}
+	.holds-more:hover {
+		text-decoration: underline;
+		text-underline-offset: 3px;
 	}
 
 	.cta-row {
@@ -855,8 +950,8 @@
 	}
 	.lvl-when {
 		font-family: var(--font-mono);
-		font-size: 9.5px;
-		line-height: 1.4;
+		font-size: 10px;
+		line-height: 1.45;
 		color: var(--text-3);
 		letter-spacing: 0.04em;
 	}
@@ -867,7 +962,7 @@
 		gap: 4px;
 		padding: 3px 8px;
 		font-family: var(--font-mono);
-		font-size: 9.5px;
+		font-size: 10px;
 		font-weight: 700;
 		border-radius: var(--radius-xs);
 		text-transform: uppercase;
@@ -973,6 +1068,14 @@
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 8px;
 		align-content: start;
+	}
+	.empty {
+		grid-column: 1 / -1;
+		padding: 18px 16px;
+		font-size: 13px;
+		color: var(--text-3);
+		border: 1px dashed var(--border-mid);
+		border-radius: var(--radius-sm);
 	}
 	.ev {
 		display: grid;
@@ -1171,6 +1274,7 @@
 			gap: 8px;
 			overflow-x: auto;
 			scroll-snap-type: x proximity;
+			scroll-padding-inline: 16px;
 			scrollbar-width: none;
 			margin: 0 -16px;
 			padding: 0 16px 4px;
@@ -1188,11 +1292,8 @@
 	}
 	@media (max-width: 30em) {
 		.ev {
-			grid-template-columns: 36px minmax(0, 1fr);
-		}
-		.ev .pill {
-			grid-column: 2;
-			justify-self: start;
+			grid-template-columns: 34px minmax(0, 1fr) auto;
+			gap: 8px;
 		}
 		.counter {
 			min-width: 0;
