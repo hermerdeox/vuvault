@@ -29,7 +29,7 @@
 		groupChars,
 		SECRET_KEY_BASE32_LEN
 	} from '$lib/crypto/secret-key';
-	import { PUBLIC_BUNDLE_HASH, PUBLIC_VAULT_VERSION, BUNDLE_HASH_SHORT } from '$lib/utils/env';
+	import { PUBLIC_VAULT_VERSION, ensureFreshBundleHash, currentBundleHash } from '$lib/utils/env';
 	import { evaluatePRF } from '$lib/crypto/webauthn-prf';
 	import { validateRecoveryPassword } from '$lib/security/recovery-password-policy';
 	import {
@@ -396,6 +396,8 @@
 			}
 			const secretValue = secretKeyInput.trim().replace(/[\s-]+/g, '');
 			decodeSecretKey(secretValue);
+			await ensureFreshBundleHash();
+			const bundleHash = currentBundleHash();
 			const payload = {
 				format: 'vukey/v2',
 				issued: new Date().toISOString(),
@@ -409,8 +411,8 @@
 				recoveryEnvelope: envelope,
 				build: {
 					version: PUBLIC_VAULT_VERSION,
-					bundleHash: PUBLIC_BUNDLE_HASH,
-					bundleHashShort: BUNDLE_HASH_SHORT
+					bundleHash,
+					bundleHashShort: bundleHash.slice(0, 8)
 				}
 			};
 			downloadText(

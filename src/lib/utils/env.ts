@@ -34,6 +34,55 @@ export const PUBLIC_M3_E2E_AUTH = publicEnv.PUBLIC_M3_E2E_AUTH || 'false';
 export const BUNDLE_HASH_SHORT = PUBLIC_BUNDLE_HASH.slice(0, 8);
 
 /**
+ * The runtime public env is served by the adapter as `/_app/env.js`,
+ * which the CDN edge may cache across releases (observed: a week-old
+ * copy, `cf-cache-status: HIT`). The module import above is therefore
+ * only a *hint*: the authoritative per-release hash is read from the
+ * same origin-served module with a cache-busting query, which the edge
+ * cannot answer from its cache. `verifyBundleIntegrity` compares the
+ * recomputed digest against that; the baked value is the fallback when
+ * the fresh read fails (offline, captive portal).
+ *
+ * This does not weaken the tripwire: both the manifest (`no-store`) and
+ * the fresh env come from the origin, so an attacker who can only poison
+ * the edge cache cannot make a tampered bundle verify, and one who
+ * controls the origin already defeats an in-bundle verifier (see the
+ * honest framing above).
+ */
+const ENV_PATH = '/_app/env.js';
+const ENV_HASH_RE = /"PUBLIC_BUNDLE_HASH"\s*:\s*"([0-9a-f]{96})"/;
+let resolvedBundleHash = PUBLIC_BUNDLE_HASH;
+let freshEnvHashPromise: Promise<string | null> | null = null;
+
+async function fetchFreshEnvHash(): Promise<string | null> {
+	if (!browser || typeof fetch !== 'function') return null;
+	try {
+		const bust = Math.random().toString(36).slice(2, 12);
+		const res = await fetch(`${ENV_PATH}?integrity=${bust}`, { cache: 'no-store' });
+		if (!res.ok) return null;
+		const hash = ENV_HASH_RE.exec(await res.text())?.[1] ?? null;
+		if (hash) resolvedBundleHash = hash;
+		return hash;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Resolve this release's bundle hash past any stale edge copy of the
+ * runtime env. One fetch per page load; `null` when it cannot be read.
+ */
+export function ensureFreshBundleHash(): Promise<string | null> {
+	if (!freshEnvHashPromise) freshEnvHashPromise = fetchFreshEnvHash();
+	return freshEnvHashPromise;
+}
+
+/** The bundle hash to print or display: fresh when known, baked otherwise. */
+export function currentBundleHash(): string {
+	return resolvedBundleHash;
+}
+
+/**
  * Whether demo auth (the deterministic-PRF stand-in) is permitted in
  * this build. Defaults to OFF. Demo auth is only enabled when:
  *
@@ -139,6 +188,12 @@ export type BundleIntegrity = {
 	mismatchedChunk?: string;
 	/** Recomputed aggregate digest, regardless of state. */
 	computed?: string;
+	/**
+	 * True when the runtime env module the page loaded carried a
+	 * different hash than the origin serves now — a stale edge copy. The
+	 * comparison then ran against the fresh value.
+	 */
+	staleEnv?: boolean;
 };
 
 const MANIFEST_PATH = '/_app/immutable/bundle-manifest.json';
@@ -170,28 +225,30 @@ async function digestSha384(bytes: BufferSource): Promise<string> {
  * `unsupported`; the unlock screen treats that as a hard refuse.
  */
 export async function verifyBundleIntegrity(): Promise<BundleIntegrity> {
-	const rekorUrl = `https://search.sigstore.dev/?hash=${PUBLIC_BUNDLE_HASH}`;
-	const expectedShort = BUNDLE_HASH_SHORT;
-
-	const isPlaceholder = PUBLIC_BUNDLE_HASH === PLACEHOLDER_BUNDLE_HASH;
-	if (isPlaceholder || !browser) {
-		// `dev` builds and SSR pre-render passes never have a real
-		// build-time hash to compare against. Surface honestly.
+	if (!browser) {
+		// SSR pre-render passes never have a real hash to compare against.
 		return {
 			expected: PUBLIC_BUNDLE_HASH,
-			expectedShort,
+			expectedShort: BUNDLE_HASH_SHORT,
 			state: 'placeholder',
-			rekorUrl
+			rekorUrl: `https://search.sigstore.dev/?hash=${PUBLIC_BUNDLE_HASH}`
 		};
 	}
 
+	// Read the per-release hash past any stale edge copy (see ENV_PATH).
+	const fresh = await ensureFreshBundleHash();
+	const expected = fresh ?? PUBLIC_BUNDLE_HASH;
+	const staleEnv = fresh !== null && fresh !== PUBLIC_BUNDLE_HASH;
+	const rekorUrl = `https://search.sigstore.dev/?hash=${expected}`;
+	const expectedShort = expected.slice(0, 8);
+
+	if (expected === PLACEHOLDER_BUNDLE_HASH) {
+		// `dev` builds never have a real build-time hash. Surface honestly.
+		return { expected, expectedShort, state: 'placeholder', rekorUrl, staleEnv };
+	}
+
 	if (typeof crypto === 'undefined' || !crypto.subtle) {
-		return {
-			expected: PUBLIC_BUNDLE_HASH,
-			expectedShort,
-			state: 'unsupported',
-			rekorUrl
-		};
+		return { expected, expectedShort, state: 'unsupported', rekorUrl, staleEnv };
 	}
 
 	let manifest: BundleManifest;
@@ -199,21 +256,23 @@ export async function verifyBundleIntegrity(): Promise<BundleIntegrity> {
 		const res = await fetch(MANIFEST_PATH, { cache: 'no-store' });
 		if (!res.ok) {
 			return {
-				expected: PUBLIC_BUNDLE_HASH,
+				expected,
 				expectedShort,
 				state: 'mismatch',
 				rekorUrl,
-				mismatchedChunk: MANIFEST_PATH
+				mismatchedChunk: MANIFEST_PATH,
+				staleEnv
 			};
 		}
 		manifest = (await res.json()) as BundleManifest;
 	} catch {
 		return {
-			expected: PUBLIC_BUNDLE_HASH,
+			expected,
 			expectedShort,
 			state: 'mismatch',
 			rekorUrl,
-			mismatchedChunk: MANIFEST_PATH
+			mismatchedChunk: MANIFEST_PATH,
+			staleEnv
 		};
 	}
 
@@ -223,11 +282,12 @@ export async function verifyBundleIntegrity(): Promise<BundleIntegrity> {
 		typeof manifest.hashes !== 'object'
 	) {
 		return {
-			expected: PUBLIC_BUNDLE_HASH,
+			expected,
 			expectedShort,
 			state: 'mismatch',
 			rekorUrl,
-			mismatchedChunk: MANIFEST_PATH
+			mismatchedChunk: MANIFEST_PATH,
+			staleEnv
 		};
 	}
 
@@ -252,11 +312,12 @@ export async function verifyBundleIntegrity(): Promise<BundleIntegrity> {
 	const firstMismatch = chunkResults.find((r): r is string => r !== null);
 	if (firstMismatch) {
 		return {
-			expected: PUBLIC_BUNDLE_HASH,
+			expected,
 			expectedShort,
 			state: 'mismatch',
 			rekorUrl,
-			mismatchedChunk: firstMismatch
+			mismatchedChunk: firstMismatch,
+			staleEnv
 		};
 	}
 
@@ -271,22 +332,17 @@ export async function verifyBundleIntegrity(): Promise<BundleIntegrity> {
 	}) + '\n';
 	const computed = await digestSha384(new TextEncoder().encode(canonical));
 
-	if (computed !== PUBLIC_BUNDLE_HASH) {
+	if (computed !== expected) {
 		return {
-			expected: PUBLIC_BUNDLE_HASH,
+			expected,
 			expectedShort,
 			state: 'mismatch',
 			rekorUrl,
 			mismatchedChunk: MANIFEST_PATH,
-			computed
+			computed,
+			staleEnv
 		};
 	}
 
-	return {
-		expected: PUBLIC_BUNDLE_HASH,
-		expectedShort,
-		state: 'verified',
-		rekorUrl,
-		computed
-	};
+	return { expected, expectedShort, state: 'verified', rekorUrl, computed, staleEnv };
 }
