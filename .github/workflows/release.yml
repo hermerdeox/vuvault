@@ -669,10 +669,21 @@ jobs:
           // void); a missing PUBLIC_SYNC_ORIGIN silently unwires
           // sync/OPAQUE for every production user. Pages env propagation
           // can lag the asset deploy, so poll.
+          //
+          // Read past the CDN edge: /_app/env.js is adapter-served and the
+          // edge has cached it across releases (the v0.4.3 smoke failed on
+          // the runner's edge still holding the v0.4.2 copy). The client
+          // verifies against the same cache-busted origin read
+          // (src/lib/utils/env.ts), and the purge step above already
+          // reports/warns on a stale plain copy, so this gate checks the
+          // origin, not whichever copy the runner's edge happens to hold.
           const PLACEHOLDER_BUNDLE_HASH = '9f4c7d2e8b16a4f122e0d5c83a7e91b4';
           let runtimeEnv = null;
           for (let attempt = 1; attempt <= 6; attempt++) {
-            const envRes = await fetch(`${origin}/_app/env.js`, { cache: 'no-store' });
+            const envRes = await fetch(
+              `${origin}/_app/env.js?integrity=smoke-${attempt}-${Date.now()}`,
+              { cache: 'no-store' }
+            );
             if (envRes.ok) {
               const text = await envRes.text();
               const m = text.match(/export const env\s*=\s*(\{[\s\S]*?\})/);
