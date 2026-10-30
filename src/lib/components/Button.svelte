@@ -108,14 +108,23 @@
 		border-color: var(--brand);
 		font-weight: 700;
 	}
-	.btn.primary:hover:not(:disabled) {
-		transform: translateY(-1px);
-	}
 	.btn.accent {
 		background: var(--accent);
 		color: var(--bg);
 		border-color: var(--accent);
 		font-weight: 700;
+	}
+	/* Filled variants on hover take the same accent treatment as the setup
+	   steps' actions and chips (accent-dim fill, accent border, accent
+	   text). Stated at higher specificity than the generic `.btn:hover`
+	   rule above — which otherwise wins and turned a hovered primary button
+	   into a dark `--surface-hover` blob with its `--bg`-coloured label. */
+	.btn.primary:hover:not(:disabled),
+	.btn.accent:hover:not(:disabled) {
+		background: var(--accent-dim);
+		border-color: var(--accent);
+		color: var(--accent);
+		transform: translateY(-1px);
 	}
 	.btn.ghost {
 		background: transparent;
